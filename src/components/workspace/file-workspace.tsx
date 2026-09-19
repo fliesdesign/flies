@@ -125,7 +125,6 @@ export function FileWorkspace() {
     setActiveId(file.id);
   }, []);
   const [browserCanvas, setBrowserCanvas] = useState(false);
-  const [folderId, setFolderId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
@@ -387,7 +386,7 @@ export function FileWorkspace() {
             onClick={() =>
               void run(async () => {
                 if (activeId) await savers.current.get(activeId)?.flush();
-                return createFile("Untitled", [], folderId);
+                return createFile("Untitled");
               })
             }
           >
@@ -422,17 +421,15 @@ export function FileWorkspace() {
             <TopLoader active={busy || (desktop && !library && !error)} />
             <FileLibraryView
               library={library}
-              folderId={folderId}
-              onFolder={setFolderId}
               busy={busy}
               error={error}
               desktop={desktop}
               onCreate={async (name) => {
-                const file = await createFile(name, [], folderId);
+                const file = await createFile(name);
                 activateFile(file);
               }}
               onOpen={(id) => void run(() => openFile(id))}
-              onImport={() => void run(() => importFile(folderId))}
+              onImport={() => void run(importFile)}
               onRefresh={refresh}
               onBrowser={() => setBrowserCanvas(true)}
             />

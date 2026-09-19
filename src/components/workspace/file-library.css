@@ -11,24 +11,10 @@
   margin-bottom: 48px;
   flex-wrap: wrap;
 }
-.library-header nav,
-.library-header nav span,
 .library-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.library-header nav {
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.library-header nav span {
-  color: var(--muted-foreground);
-  font-size: 14px;
-}
-.library-header nav button {
-  cursor: pointer;
-  overflow-wrap: anywhere;
 }
 .library-heading {
   font-size: 24px;
@@ -91,7 +77,7 @@
   min-width: 0;
 }
 .library-grid .library-item-title {
-  padding: 0 30px 12px 2px;
+  padding: 0 8px 12px 2px;
 }
 .library-item-title strong {
   display: block;
@@ -107,8 +93,7 @@
   font-size: 12px;
   color: var(--muted-foreground);
 }
-.library-preview,
-.library-folder-preview {
+.library-preview {
   aspect-ratio: 1.5;
   display: grid;
   place-items: center;
@@ -126,33 +111,13 @@
   color: var(--muted-foreground);
   opacity: 0.4;
 }
-.library-folder-preview {
-  color: var(--muted-foreground);
-  background: transparent;
-}
-.library-item-menu {
-  position: absolute;
-  top: 10px;
-  right: 8px;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 5px;
-  cursor: pointer;
-  color: var(--muted-foreground);
-}
-.library-item-menu:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
 .library-list-head,
 .library-list .library-item-open {
   display: grid;
   grid-template-columns: minmax(220px, 2fr) minmax(100px, 1fr) minmax(100px, 1fr);
   gap: 24px;
   align-items: center;
-  padding-right: 36px;
+  padding-right: 12px;
 }
 .library-list-head {
   font-size: 12px;
@@ -181,8 +146,7 @@
 .library-list .library-item-title small {
   display: none;
 }
-.library-list .library-preview,
-.library-list .library-folder-preview {
+.library-list .library-preview {
   grid-column: 1;
   grid-row: 1;
   width: 94px;
@@ -192,9 +156,6 @@
 .library-date {
   color: var(--muted-foreground);
   font-size: 12px;
-}
-.library-list .library-item-menu {
-  top: 30px;
 }
 .library-empty {
   display: flex;
@@ -208,13 +169,6 @@
 }
 .library-empty span {
   font-size: 12px;
-}
-.library-destination {
-  width: 100%;
-  background: var(--card);
-  border: 1px solid var(--border);
-  padding: 8px;
-  border-radius: 6px;
 }
 @media (max-width: 650px) {
   .library-home {
@@ -239,8 +193,7 @@
   .library-list .library-item-title {
     padding-left: 82px;
   }
-  .library-list .library-preview,
-  .library-list .library-folder-preview {
+  .library-list .library-preview {
     width: 68px;
     height: 48px;
   }

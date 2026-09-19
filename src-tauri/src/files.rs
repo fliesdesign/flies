@@ -38,20 +38,10 @@ pub struct ProjectFile {
 pub struct FileSummary {
     id: String,
     name: String,
+    created_at: u64,
     updated_at: u64,
     node_count: usize,
-    created_at: u64,
-    folder_id: Option<String>,
     preview: Vec<Value>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Folder {
-    id: String,
-    name: String,
-    parent_id: Option<String>,
-    created_at: u64,
 }
 
 #[derive(Serialize)]
@@ -59,7 +49,6 @@ pub struct FileLibrary {
     files: Vec<FileSummary>,
     warnings: Vec<String>,
     directory: String,
-    folders: Vec<Folder>,
 }
 
 pub struct FileStore {
@@ -233,12 +222,31 @@ impl FileStore {
         let db = Connection::open(root.join("library.sqlite3")).map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
-        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
-            CREATE TABLE IF NOT EXISTS folders(id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT REFERENCES folders(id), created_at INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, revision INTEGER NOT NULL, node_count INTEGER NOT NULL, folder_id TEXT REFERENCES folders(id), blob TEXT NOT NULL, preview TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS documents_folder ON documents(folder_id, updated_at);
-            CREATE INDEX IF NOT EXISTS folders_parent ON folders(parent_id);
-            PRAGMA user_version=1;").map_err(db_error)?;
+        db.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX IF EXISTS documents_folder;
+             DROP INDEX IF EXISTS folders_parent;
+             DROP TABLE IF EXISTS folders;",
+        )
+        .map_err(db_error)?;
+        let _ = db.execute_batch("ALTER TABLE documents DROP COLUMN folder_id");
+        db.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             PRAGMA journal_mode=WAL;
+             CREATE TABLE IF NOT EXISTS documents(
+               id TEXT PRIMARY KEY,
+               name TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL,
+               revision INTEGER NOT NULL,
+               node_count INTEGER NOT NULL,
+               blob TEXT NOT NULL,
+               preview TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS documents_updated ON documents(updated_at);
+             PRAGMA user_version=1;",
+        )
+        .map_err(db_error)?;
         let store = Self { root, db };
         Ok(store)
     }
@@ -301,16 +309,7 @@ impl FileStore {
             params![file.id, file.name, i64::try_from(file.created_at).map_err(|e| e.to_string())?, i64::try_from(file.updated_at).map_err(|e| e.to_string())?, i64::try_from(file.revision).map_err(|e| e.to_string())?, file.nodes.len() as i64, blob, serde_json::to_string(&preview(&file.nodes)).map_err(|e| e.to_string())?]).map_err(db_error)?;
         Ok(())
     }
-    #[cfg(test)]
     pub fn create(&self, name: &str, nodes: Vec<Value>) -> Result<ProjectFile> {
-        self.create_in(name, nodes, None)
-    }
-    pub fn create_in(
-        &self,
-        name: &str,
-        nodes: Vec<Value>,
-        folder: Option<String>,
-    ) -> Result<ProjectFile> {
         let name = valid_name(name)?;
         validate_nodes(&nodes)?;
         let timestamp = now()?;
@@ -325,13 +324,7 @@ impl FileStore {
             nodes,
         };
         let tx = self.transaction()?;
-        self.check_folder(folder.as_deref())?;
         self.write(&tx, &file)?;
-        tx.execute(
-            "UPDATE documents SET folder_id=?1 WHERE id=?2",
-            params![folder, file.id],
-        )
-        .map_err(db_error)?;
         tx.commit().map_err(db_error)?;
         Ok(file)
     }
@@ -370,87 +363,13 @@ impl FileStore {
         }
         Ok(file)
     }
-    fn check_folder(&self, id: Option<&str>) -> Result<()> {
-        if let Some(id) = id {
-            valid_id(id)?;
-            let exists: bool = self
-                .db
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM folders WHERE id=?1)",
-                    [id],
-                    |r| r.get(0),
-                )
-                .map_err(db_error)?;
-            if !exists {
-                return Err("This folder no longer exists.".into());
-            }
-        }
-        Ok(())
-    }
-    pub fn create_folder(&self, name: &str, parent_id: Option<String>) -> Result<Folder> {
-        let tx = self.transaction()?;
-        self.check_folder(parent_id.as_deref())?;
-        let folder = Folder {
-            id: new_id()?,
-            name: valid_name(name)?,
-            parent_id,
-            created_at: now()?,
-        };
-        tx.execute(
-            "INSERT INTO folders VALUES(?1,?2,?3,?4)",
-            params![
-                folder.id,
-                folder.name,
-                folder.parent_id,
-                folder.created_at as i64
-            ],
-        )
-        .map_err(db_error)?;
-        tx.commit().map_err(db_error)?;
-        Ok(folder)
-    }
-    pub fn rename_folder(&self, id: &str, name: &str) -> Result<()> {
-        let name = valid_name(name)?;
-        if self
-            .db
-            .execute("UPDATE folders SET name=?1 WHERE id=?2", params![name, id])
-            .map_err(db_error)?
-            == 0
-        {
-            return Err("Folder not found.".into());
-        }
-        Ok(())
-    }
-    pub fn move_item(&self, id: &str, folder: Option<String>, is_folder: bool) -> Result<()> {
-        let tx = self.transaction()?;
-        self.check_folder(folder.as_deref())?;
-        if is_folder {
-            self.check_folder(Some(id))?;
-            let mut ancestor = folder.clone();
-            while let Some(parent) = ancestor {
-                if parent == id {
-                    return Err("A folder cannot be moved into itself or its descendants.".into());
-                }
-                ancestor = tx
-                    .query_row("SELECT parent_id FROM folders WHERE id=?1", [parent], |r| {
-                        r.get(0)
-                    })
-                    .map_err(db_error)?;
-            }
-        }
-        let query = if is_folder {
-            "UPDATE folders SET parent_id=?1 WHERE id=?2"
-        } else {
-            "UPDATE documents SET folder_id=?1 WHERE id=?2"
-        };
-        if tx.execute(query, params![folder, id]).map_err(db_error)? == 0 {
-            return Err("Item not found.".into());
-        }
-        tx.commit().map_err(db_error)?;
-        Ok(())
-    }
     pub fn list(&self) -> Result<FileLibrary> {
-        let mut query = self.db.prepare("SELECT id,name,created_at,updated_at,node_count,folder_id,preview,blob FROM documents ORDER BY updated_at DESC,id").map_err(db_error)?;
+        let mut query = self
+            .db
+            .prepare(
+                "SELECT id,name,created_at,updated_at,node_count,preview,blob FROM documents ORDER BY updated_at DESC,id",
+            )
+            .map_err(db_error)?;
         let rows = query
             .query_map([], |r| {
                 Ok((
@@ -460,10 +379,9 @@ impl FileStore {
                         created_at: r.get::<_, i64>(2)? as u64,
                         updated_at: r.get::<_, i64>(3)? as u64,
                         node_count: r.get::<_, i64>(4)? as usize,
-                        folder_id: r.get(5)?,
-                        preview: serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default(),
+                        preview: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
                     },
-                    r.get::<_, String>(7)?,
+                    r.get::<_, String>(6)?,
                 ))
             })
             .map_err(db_error)?;
@@ -476,27 +394,8 @@ impl FileStore {
             }
             files.push(file);
         }
-        let mut query = self
-            .db
-            .prepare(
-                "SELECT id,name,parent_id,created_at FROM folders ORDER BY name COLLATE NOCASE,id",
-            )
-            .map_err(db_error)?;
-        let folders = query
-            .query_map([], |r| {
-                Ok(Folder {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    parent_id: r.get(2)?,
-                    created_at: r.get::<_, i64>(3)? as u64,
-                })
-            })
-            .map_err(db_error)?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(db_error)?;
         Ok(FileLibrary {
             files,
-            folders,
             warnings,
             directory: self.root.to_string_lossy().into_owned(),
         })
@@ -527,9 +426,8 @@ pub async fn create_file(
     state: State<'_, LocalFiles>,
     name: String,
     nodes: Vec<Value>,
-    folder_id: Option<String>,
 ) -> Result<ProjectFile> {
-    with_store(state, move |store| store.create_in(&name, nodes, folder_id)).await
+    with_store(state, move |store| store.create(&name, nodes)).await
 }
 #[tauri::command]
 pub async fn open_file(state: State<'_, LocalFiles>, id: String) -> Result<ProjectFile> {
@@ -565,31 +463,6 @@ pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>
     })
     .await
     .map_err(|e| format!("File picker failed: {e}"))?
-}
-
-#[tauri::command]
-pub async fn create_folder(
-    state: State<'_, LocalFiles>,
-    name: String,
-    parent_id: Option<String>,
-) -> Result<Folder> {
-    with_store(state, move |store| store.create_folder(&name, parent_id)).await
-}
-#[tauri::command]
-pub async fn rename_folder(state: State<'_, LocalFiles>, id: String, name: String) -> Result<()> {
-    with_store(state, move |store| store.rename_folder(&id, &name)).await
-}
-#[tauri::command]
-pub async fn move_library_item(
-    state: State<'_, LocalFiles>,
-    id: String,
-    folder_id: Option<String>,
-    is_folder: bool,
-) -> Result<()> {
-    with_store(state, move |store| {
-        store.move_item(&id, folder_id, is_folder)
-    })
-    .await
 }
 
 #[cfg(test)]
@@ -669,45 +542,28 @@ mod tests {
         );
     }
     #[test]
-    fn folders_moves_and_names_persist_without_changing_document_revisions() {
+    fn leftover_folders_are_dropped_and_files_stay_listed() {
         let dir = tempfile::tempdir().unwrap();
+        let db = Connection::open(dir.path().join("library.sqlite3")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE folders(id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, created_at INTEGER NOT NULL);
+             CREATE TABLE documents(id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, revision INTEGER NOT NULL, node_count INTEGER NOT NULL, folder_id TEXT, blob TEXT NOT NULL, preview TEXT NOT NULL);
+             INSERT INTO folders VALUES('folder','Old',NULL,1);
+             INSERT INTO documents VALUES('abc-1','Kept',1,1,0,0,'folder','missing.json','[]');",
+        )
+        .unwrap();
+        drop(db);
         let store = FileStore::new(dir.path().into()).unwrap();
-        let parent = store.create_folder("Parent", None).unwrap();
-        let child = store
-            .create_folder("Child", Some(parent.id.clone()))
+        assert_eq!(store.list().unwrap().files[0].name, "Kept");
+        let leftover: i64 = store
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='folders'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        let file = store
-            .create_in("File", vec![node()], Some(child.id.clone()))
-            .unwrap();
-        assert!(store
-            .move_item(&parent.id, Some(child.id.clone()), true)
-            .is_err());
-        assert!(store
-            .move_item(&file.id, Some("bad".into()), false)
-            .is_err());
-        store
-            .move_item(&file.id, Some(parent.id.clone()), false)
-            .unwrap();
-        store.rename_folder(&parent.id, "Renamed").unwrap();
-        store.save(&file.id, 0, "File", vec![]).unwrap();
-        drop(store);
-        let store = FileStore::new(dir.path().into()).unwrap();
-        let library = store.list().unwrap();
-        assert_eq!(
-            library.files[0].folder_id.as_deref(),
-            Some(parent.id.as_str())
-        );
-        assert!(library.folders.iter().any(|f| f.name == "Renamed"));
-        store.move_item(&child.id, None, true).unwrap();
-        assert!(store
-            .list()
-            .unwrap()
-            .folders
-            .iter()
-            .find(|f| f.id == child.id)
-            .unwrap()
-            .parent_id
-            .is_none());
+        assert_eq!(leftover, 0);
     }
     #[test]
     fn uncommitted_snapshot_never_replaces_the_indexed_document() {

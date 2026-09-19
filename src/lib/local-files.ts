@@ -13,49 +13,32 @@ export type LocalFile = {
   revision: number;
   nodes: CanvasFrame[];
 };
-export type LibraryFolder = {
-  id: string;
-  name: string;
-  parentId: string | null;
-  createdAt: number;
-};
 export type FileSummary = {
   id: string;
   name: string;
   updatedAt: number;
   createdAt: number;
   nodeCount: number;
-  folderId: string | null;
   preview: CanvasFrame[];
 };
 export type FileLibrary = {
   files: FileSummary[];
-  folders: LibraryFolder[];
   warnings: string[];
   directory: string;
 };
 export const listFiles = () => invoke<FileLibrary>("list_files");
-export const createFile = (
-  name: string,
-  nodes: CanvasFrame[] = [],
-  folderId: string | null = null,
-) => invoke<LocalFile>("create_file", { name, nodes, folderId });
-export const createFolder = (name: string, parentId: string | null) =>
-  invoke<LibraryFolder>("create_folder", { name, parentId });
-export const renameFolder = (id: string, name: string) =>
-  invoke<void>("rename_folder", { id, name });
-export const moveLibraryItem = (id: string, folderId: string | null, isFolder: boolean) =>
-  invoke<void>("move_library_item", { id, folderId, isFolder });
+export const createFile = (name: string, nodes: CanvasFrame[] = []) =>
+  invoke<LocalFile>("create_file", { name, nodes });
 export async function openFile(id: string) {
   const file = await invoke<LocalFile>("open_file", { id });
   file.nodes = new CanvasDocument(file.nodes).getCommittedFrames();
   return file;
 }
-export async function importFile(folderId: string | null = null) {
+export async function importFile() {
   const source = await invoke<string | null>("choose_project_json");
   if (source === null) return null;
   const project = parseCanvasProject(source);
-  return createFile(project.name, project.nodes, folderId);
+  return createFile(project.name, project.nodes);
 }
 export const saveFile = (file: LocalFile, nodes: CanvasFrame[]) =>
   invoke<LocalFile>("save_file", { id: file.id, revision: file.revision, name: file.name, nodes });

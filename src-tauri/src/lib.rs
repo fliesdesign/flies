@@ -26,10 +26,7 @@ pub fn run() {
             files::create_file,
             files::open_file,
             files::save_file,
-            files::choose_project_json,
-            files::create_folder,
-            files::rename_folder,
-            files::move_library_item
+            files::choose_project_json
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
