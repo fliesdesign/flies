@@ -21,8 +21,15 @@ bun test src         # canvas geometry, document, rendering, interaction, and hi
 
 ## Canvas
 
-Open `/` for the canvas and its compact vertical toolbar at the top left. There is no
-navigation bar, footer, layers panel, properties panel, or router devtools. A native
+Open `/` for the canvas, a compact layers sidebar on the left, and a vertical toolbar beside it.
+Layers follow frame/group nesting and stacking order, with selection, expand/collapse,
+inline renaming, lock controls, and eye buttons to hide/show nodes. Drag rows to reorder them;
+drop in the middle of a frame/group to nest them, or below the list to move them to the root.
+Dragging left of a nested row moves the drop to its parent's level. These edits support undo,
+and hidden states persist with the document. Ctrl/Cmd + Shift + H toggles the selected nodes.
+Shift-click selects a range; Cmd/Ctrl-click toggles a layer.
+The sidebar can be collapsed to give the canvas more space. There is no
+navigation bar, footer, properties panel, or router devtools. A native
 `<canvas>` provides the plain background; objects and selection controls use HTML/CSS and
 SVG above it, without particles. Editing runs entirely in the frontend, without native IPC.
 

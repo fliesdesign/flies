@@ -1,4 +1,5 @@
 import {
+  PanelLeftOpenIcon,
   CopyIcon,
   ClipboardIcon,
   ScissorsIcon,
@@ -80,6 +81,7 @@ import { viewportBounds } from "@/lib/canvas-spatial-index";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@/lib/canvas-tools";
 
 import { CanvasAlignmentGuides } from "./canvas-guides";
+import { CanvasLayers } from "./canvas-layers";
 import { CanvasNodeContent } from "./canvas-node-content";
 import {
   CanvasFrames,
@@ -177,6 +179,9 @@ export function DesignCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
+  const [layersOpen, setLayersOpen] = useState(true);
+  const layerAnchorRef = useRef<string | null>(null);
+  const reopenLayersRef = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<CanvasTool>("select");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -347,6 +352,96 @@ export function DesignCanvas({
     ],
   );
 
+  const selectLayer = useCallback(
+    (
+      id: string,
+      modifiers: { additive: boolean; range: boolean; visibleIds: readonly string[] },
+    ) => {
+      if (!document.getFrame(id) || isNodeLocked(document, id)) return;
+      finishInteraction(true);
+      setEditingId(null);
+      setTool("select");
+      setHoveredId(null);
+      const node = document.getFrame(id)!;
+      setGroupScope(node.parentId ?? null);
+      setSelection((current) => {
+        const anchor =
+          layerAnchorRef.current && current.includes(layerAnchorRef.current)
+            ? layerAnchorRef.current
+            : current[current.length - 1];
+        const start = anchor ? modifiers.visibleIds.indexOf(anchor) : -1;
+        const end = modifiers.visibleIds.indexOf(id);
+        if (modifiers.range && start !== -1 && end !== -1) {
+          const range = modifiers.visibleIds
+            .slice(Math.min(start, end), Math.max(start, end) + 1)
+            .filter((item) => !isNodeLocked(document, item));
+          return modifiers.additive ? [...new Set([...current, ...range])] : range;
+        }
+        return modifiers.additive
+          ? current.includes(id)
+            ? current.filter((item) => item !== id)
+            : [...current, id]
+          : [id];
+      });
+      if (!modifiers.range) layerAnchorRef.current = id;
+    },
+    [document, finishInteraction],
+  );
+
+  const renameLayer = useCallback(
+    (id: string, name: string) => {
+      const node = document.getFrame(id);
+      if (node && name.trim()) document.update({ ...node, name: name.trim() });
+    },
+    [document],
+  );
+
+  const toggleLayerLock = useCallback(
+    (id: string) => {
+      const node = document.getFrame(id);
+      if (!node) return;
+      finishInteraction(true);
+      document.update({ ...node, locked: !node.locked });
+      setHoveredId(null);
+    },
+    [document, finishInteraction],
+  );
+
+  const toggleLayerHidden = useCallback(
+    (id: string) => {
+      const node = document.getFrame(id);
+      if (!node) return;
+      finishInteraction(true);
+      setEditingId(null);
+      document.update({ ...node, hidden: !node.hidden });
+      setHoveredId(null);
+    },
+    [document, finishInteraction],
+  );
+
+  const moveLayers = useCallback(
+    (
+      layerIds: readonly string[],
+      targetId: string | null,
+      placement: "before" | "after" | "inside",
+    ) => {
+      finishInteraction(true);
+      setEditingId(null);
+      if (document.moveLayers(layerIds, targetId, placement)) setSelection([...layerIds]);
+      setHoveredId(null);
+    },
+    [document, finishInteraction],
+  );
+
+  const collapseLayers = useCallback(() => {
+    setLayersOpen(false);
+    setHoveredId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!layersOpen) reopenLayersRef.current?.focus({ preventScroll: true });
+  }, [layersOpen]);
+
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -356,7 +451,13 @@ export function DesignCanvas({
       camera.setSize(nextSize);
       if (!initialized) {
         initialized = true;
-        if (document.getIds().length) changeViewport(fitViewport(document.getFrames(), nextSize));
+        if (document.getIds().length)
+          changeViewport(
+            fitViewport(
+              document.getFrames().filter((node) => !document.isHidden(node.id)),
+              nextSize,
+            ),
+          );
       }
     });
     observer.observe(surface);
@@ -455,6 +556,7 @@ export function DesignCanvas({
     }
     const onFrame = document
       .getFrames()
+      .filter((node) => !document.isHidden(node.id))
       .some(
         (frame) =>
           (!frame.kind ||
@@ -592,7 +694,7 @@ export function DesignCanvas({
     focusCanvas();
   }
 
-  function copySelection(event: ClipboardEvent<HTMLDivElement>, cut = false) {
+  function copySelection(event: ClipboardEvent<HTMLElement>, cut = false) {
     if (isEditingTarget(event.target) || interactionRef.current) return;
     const payload = encodeCanvasClipboard(document.getFrames(), selectedIds);
     if (!payload) return;
@@ -832,13 +934,15 @@ export function DesignCanvas({
       );
       return;
     }
-    const roots = handle
-      ? selectedIds
-      : frame
-        ? selectedIds.includes(frame.id)
-          ? selectedIds
-          : [frame.id]
-        : [];
+    const roots = (
+      handle
+        ? selectedIds
+        : frame
+          ? selectedIds.includes(frame.id)
+            ? selectedIds
+            : [frame.id]
+          : []
+    ).filter((id) => !document.isHidden(id));
     const all = document.getFrames();
     const frames = document.getDescendantIds(roots).map((id) => document.getFrame(id)!);
     const bounds = selectionBounds(frames, roots) ?? undefined;
@@ -863,7 +967,7 @@ export function DesignCanvas({
       collapseTo: kind === "move" && roots.length > 1 ? frame?.id : undefined,
       guides: bounds
         ? new AlignmentGuideIndex(
-            all,
+            all.filter((node) => !document.isHidden(node.id)),
             new Set(frames.map((node) => node.id)),
             viewportBounds(view, camera.getCurrent().size, 0),
           )
@@ -999,9 +1103,15 @@ export function DesignCanvas({
     }
   }
 
-  function keyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function keyDown(event: KeyboardEvent<HTMLElement>) {
     const { size } = camera.getCurrent();
     if (menuOpen || event.nativeEvent.isComposing || isEditingTarget(event.target)) return;
+    if (
+      (event.key === "Enter" || event.code === "Space") &&
+      (event.target as HTMLElement).closest("button") &&
+      !(event.target as HTMLElement).closest(".design-canvas")
+    )
+      return;
     const command = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
     if (key === "escape") {
@@ -1027,11 +1137,17 @@ export function DesignCanvas({
       duplicateFrame();
     } else if (command && key === "a") {
       setSelection(
-        document.getChildren(groupScope ?? undefined).filter((id) => !isNodeLocked(document, id)),
+        document
+          .getChildren(groupScope ?? undefined)
+          .filter((id) => !isNodeLocked(document, id) && !document.isHidden(id)),
       );
     } else if (command && key === "g") {
       if (event.shiftKey) ungroupObjects();
       else groupObjects(event.altKey);
+    } else if (command && event.shiftKey && key === "h") {
+      const hidden = selectedIds.some((id) => !document.getFrame(id)?.hidden);
+      document.updateMany(selectedIds.map((id) => ({ ...document.getFrame(id)!, hidden })));
+      setHoveredId(null);
     } else if (command && event.shiftKey && key === "l") {
       if (selectedIds.length) lockSelection();
       else unlockAll();
@@ -1083,7 +1199,12 @@ export function DesignCanvas({
         ),
       );
     } else if (event.shiftKey && event.code === "Digit1") {
-      changeViewport(fitViewport(document.getFrames(), size));
+      changeViewport(
+        fitViewport(
+          document.getFrames().filter((node) => !document.isHidden(node.id)),
+          size,
+        ),
+      );
     } else if (key === "0" && !event.altKey) {
       changeViewport(
         zoomAtPoint(camera.getCurrent().viewport, { x: size.x / 2, y: size.y / 2 }, 1),
@@ -1149,7 +1270,57 @@ export function DesignCanvas({
   }
 
   return (
-    <>
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Delegate shortcuts from the canvas and accessible layer tree; inputs and tree navigation handle their own keys.
+    <main
+      className="canvas-editor"
+      aria-label="Canvas editor"
+      data-layers-open={layersOpen || undefined}
+      onKeyDown={keyDown}
+      onCopy={(event) => copySelection(event)}
+      onCut={(event) => copySelection(event, true)}
+      onPaste={(event) => {
+        if (isEditingTarget(event.target)) return;
+        const files = Array.from(event.clipboardData.files).filter((file) =>
+          file.type.startsWith("image/"),
+        );
+        if (files.length) {
+          event.preventDefault();
+          void importImages(files);
+          return;
+        }
+        const text =
+          event.clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
+          event.clipboardData.getData("text/plain");
+        if (text) {
+          event.preventDefault();
+          if (!pasteObjects(text)) pasteText(text);
+        }
+      }}
+    >
+      {layersOpen ? (
+        <CanvasLayers
+          document={document}
+          selectedIds={selectedIds}
+          onSelect={selectLayer}
+          onRename={renameLayer}
+          onToggleLock={toggleLayerLock}
+          onToggleHidden={toggleLayerHidden}
+          onMove={moveLayers}
+          onHover={setHoveredId}
+          onCollapse={collapseLayers}
+        />
+      ) : (
+        <button
+          ref={reopenLayersRef}
+          type="button"
+          className="canvas-layers-reopen"
+          aria-label="Show layers"
+          title="Show layers"
+          onClick={() => setLayersOpen(true)}
+        >
+          <PanelLeftOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
+        </button>
+      )}
       <ContextMenu
         open={menuOpen}
         onOpenChange={(open, details) => {
@@ -1227,26 +1398,6 @@ export function DesignCanvas({
               screenToWorld(localPoint(event.clientX, event.clientY), camera.getCurrent().viewport),
             );
           }}
-          onCopy={(event) => copySelection(event)}
-          onCut={(event) => copySelection(event, true)}
-          onPaste={(event) => {
-            if (isEditingTarget(event.target)) return;
-            const files = Array.from(event.clipboardData.files).filter((file) =>
-              file.type.startsWith("image/"),
-            );
-            if (files.length) {
-              event.preventDefault();
-              void importImages(files);
-              return;
-            }
-            const text =
-              event.clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
-              event.clipboardData.getData("text/plain");
-            if (text) {
-              event.preventDefault();
-              if (!pasteObjects(text)) pasteText(text);
-            }
-          }}
           onPointerDown={startInteraction}
           onPointerMove={(event) => {
             moveInteraction(event);
@@ -1283,7 +1434,6 @@ export function DesignCanvas({
           onLostPointerCapture={(event) => {
             if (event.pointerId === interactionRef.current?.pointerId) finishInteraction();
           }}
-          onKeyDown={keyDown}
         >
           <canvas className="canvas-surface" width={1} height={1} aria-hidden="true" />
           <p id="canvas-instructions" className="sr-only">
@@ -1484,7 +1634,12 @@ export function DesignCanvas({
           <ContextMenuItem
             disabled={!ids.length}
             onClick={() =>
-              changeViewport(fitViewport(document.getFrames(), camera.getCurrent().size))
+              changeViewport(
+                fitViewport(
+                  document.getFrames().filter((node) => !document.isHidden(node.id)),
+                  camera.getCurrent().size,
+                ),
+              )
             }
           >
             <MaximizeIcon />
@@ -1551,6 +1706,6 @@ export function DesignCanvas({
       {(notice || importing) && (
         <output className="canvas-notice">{notice || "Opening image…"}</output>
       )}
-    </>
+    </main>
   );
 }

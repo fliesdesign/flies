@@ -3,7 +3,7 @@ import type { FrameRect, Point } from "./canvas-geometry";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
 type CanvasNodeBase = Readonly<
-  FrameRect & { id: string; name: string; parentId?: string; locked?: boolean }
+  FrameRect & { id: string; name: string; parentId?: string; locked?: boolean; hidden?: boolean }
 >;
 export type CanvasFrameNode = CanvasNodeBase & {
   readonly kind?: "frame";
@@ -94,6 +94,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.name !== second.name ||
     first.parentId !== second.parentId ||
     first.locked !== second.locked ||
+    first.hidden !== second.hidden ||
     first.x !== second.x ||
     first.y !== second.y ||
     first.width !== second.width ||
@@ -168,6 +169,7 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     typeof frame.name !== "string" ||
     (frame.parentId !== undefined && typeof frame.parentId !== "string") ||
     (frame.locked !== undefined && typeof frame.locked !== "boolean") ||
+    (frame.hidden !== undefined && typeof frame.hidden !== "boolean") ||
     !isFiniteNumber(frame.x) ||
     !isFiniteNumber(frame.y) ||
     !isFiniteNumber(frame.width) ||
@@ -220,6 +222,7 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     name: frame.name,
     ...(frame.parentId !== undefined && { parentId: frame.parentId }),
     ...(frame.locked !== undefined && { locked: frame.locked }),
+    ...(frame.hidden !== undefined && { hidden: frame.hidden }),
     x: frame.x,
     y: frame.y,
     width: frame.width,
@@ -334,6 +337,14 @@ export class CanvasDocument {
   }
 
   getFrame = (id: string) => this.frames.get(id);
+  isHidden = (id: string): boolean => {
+    let node = this.frames.get(id);
+    while (node) {
+      if (node.hidden) return true;
+      node = node.parentId ? this.frames.get(node.parentId) : undefined;
+    }
+    return false;
+  };
   getIds = () => this.ids;
   getSnapshot = () => this.snapshot;
   getChildren = (parentId?: string): readonly string[] => this.children.get(parentId) ?? EMPTY_IDS;
@@ -606,6 +617,82 @@ export class CanvasDocument {
     }
     const operation: DocumentOperation = {
       patches: [],
+      beforeIds: this.ids,
+      afterIds: Object.freeze(order),
+    };
+    this.apply(operation, false);
+    this.record(operation);
+    return true;
+  };
+
+  /** Layer-list order is front-to-back; geometry stays in world coordinates. */
+  moveLayers = (
+    ids: readonly string[],
+    targetId: string | null,
+    placement: "before" | "after" | "inside",
+  ): boolean => {
+    this.endGesture();
+    const roots = this.getRootIds(ids);
+    const target = targetId ? this.frames.get(targetId) : undefined;
+    if (!roots.length || (targetId && !target)) return false;
+    const subtree = new Set(this.getDescendantIds(roots));
+    if (targetId && subtree.has(targetId)) return false;
+    if (
+      placement === "inside" &&
+      (!target || (target.kind && target.kind !== "frame" && target.kind !== "group"))
+    )
+      return false;
+    const parentId = placement === "inside" ? targetId! : target?.parentId;
+    const isLocked = (id: string | undefined) => {
+      let node = id ? this.frames.get(id) : undefined;
+      while (node) {
+        if (node.locked) return true;
+        node = node.parentId ? this.frames.get(node.parentId) : undefined;
+      }
+      return false;
+    };
+    if (roots.some(isLocked) || isLocked(parentId)) return false;
+    const patches = roots.map((id) => {
+      const before = this.frames.get(id)!;
+      return { id, before, after: immutableFrame({ ...before, parentId }) };
+    });
+    const prepared = this.prepare(patches);
+    if (!prepared) return false;
+    const next = new Map(this.frames);
+    for (const patch of prepared.patches) {
+      if (patch.after) next.set(patch.id, patch.after);
+      else next.delete(patch.id);
+    }
+    const hierarchy = hierarchyFor(next, prepared.afterIds ?? this.ids);
+    if (!hierarchy) return false;
+    const moving = new Set(roots);
+    const siblings = this.getChildren(parentId).filter((id) => !moving.has(id));
+    // Keep a disappearing empty group as an insertion anchor until after the splice.
+    const anchor = targetId ? siblings.indexOf(targetId) : -1;
+    const index =
+      placement === "inside"
+        ? siblings.length
+        : targetId
+          ? anchor + Number(placement === "before")
+          : 0;
+    if (targetId && placement !== "inside" && anchor < 0) return false;
+    siblings.splice(index, 0, ...roots);
+    const children = new Map(hierarchy.children);
+    children.set(
+      parentId,
+      siblings.filter((id) => next.has(id)),
+    );
+    const order: string[] = [];
+    const stack = [...(children.get(undefined) ?? [])].reverse();
+    while (stack.length) {
+      const id = stack.pop()!;
+      order.push(id);
+      const descendants = children.get(id) ?? [];
+      for (let i = descendants.length - 1; i >= 0; i--) stack.push(descendants[i]);
+    }
+    if (!prepared.patches.length && sameIds(order, this.ids)) return false;
+    const operation: DocumentOperation = {
+      patches: prepared.patches,
       beforeIds: this.ids,
       afterIds: Object.freeze(order),
     };

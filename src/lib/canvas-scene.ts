@@ -99,6 +99,7 @@ export class CanvasScene {
     this.pinnedFrames = new Map(this.pinnedIds.map((id) => [id, this.document.getFrame(id)]));
     const mounted = new Set<string>();
     for (const id of candidates) {
+      if (this.document.isHidden(id)) continue;
       let node = this.document.getFrame(id);
       while (node && !mounted.has(node.id)) {
         mounted.add(node.id);

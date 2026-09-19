@@ -94,7 +94,7 @@ const FrameNode = memo(function FrameNode({
   const frame = useCanvasFrame(document, id);
   const parent = useCanvasFrame(document, frame?.parentId ?? null);
   const children = useChildren(document, id);
-  if (!frame) return null;
+  if (!frame || frame.hidden) return null;
   const isFrame = frame.kind === undefined || frame.kind === "frame";
   const isGroup = frame.kind === "group";
   const locked = parentLocked || Boolean(frame.locked);
@@ -318,6 +318,7 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
   );
   const frames = document
     .getRootIds(ids)
+    .filter((id) => !document.isHidden(id))
     .map((id) => document.getFrame(id))
     .filter((frame): frame is CanvasFrame => Boolean(frame));
   if (frames.length === 0) return null;
@@ -382,7 +383,7 @@ export const CanvasOutline = memo(function CanvasOutline({
     camera.getSnapshot,
   );
   const frame = id ? document.getFrame(id) : undefined;
-  if (!frame || isLocked(document, frame)) return null;
+  if (!frame || document.isHidden(frame.id) || isLocked(document, frame)) return null;
   if (selection) return <CanvasSelectionOutline document={document} camera={camera} ids={ids} />;
   return (
     <div

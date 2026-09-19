@@ -1,3 +1,50 @@
+.canvas-editor {
+  --canvas-sidebar-width: 0px;
+  --canvas-header-height: 48px;
+  --canvas-toolbar-top: 60px;
+}
+
+.canvas-editor[data-layers-open] {
+  --canvas-sidebar-width: 240px;
+  --canvas-toolbar-top: 4px;
+}
+
+.canvas-editor > .design-canvas {
+  left: var(--canvas-sidebar-width);
+}
+
+.canvas-layers-reopen {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.canvas-layers-reopen:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.canvas-layers-reopen:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .canvas-editor[data-layers-open] {
+    --canvas-sidebar-width: 180px;
+  }
+}
+
 .design-canvas {
   --canvas-select-cursor: url("/cursor.svg") 1 1, default;
   position: fixed;
@@ -65,7 +112,7 @@
   position: fixed;
   z-index: 50;
   bottom: 20px;
-  left: 20px;
+  left: calc(var(--canvas-sidebar-width, 0px) + 20px);
   max-width: min(360px, calc(100vw - 40px));
   padding: 10px 14px;
   border: 1px solid var(--border);

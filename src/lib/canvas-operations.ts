@@ -155,6 +155,7 @@ function visibleBounds(
   node: CanvasFrame,
   byId: ReadonlyMap<string, CanvasFrame>,
 ): FrameRect | null {
+  if (node.hidden || ancestors(node, byId).some((id) => byId.get(id)?.hidden)) return null;
   let x = node.x;
   let y = node.y;
   let right = node.x + node.width;
@@ -206,7 +207,8 @@ export function reparentSelection(
       (node) =>
         (node.kind === undefined || node.kind === "frame") &&
         !excluded.has(node.id) &&
-        !node.locked,
+        !node.locked &&
+        !node.hidden,
     )
     .map((node) => {
       const parents = ancestors(node, byId);
@@ -233,6 +235,7 @@ export function reparentSelection(
           const ancestor = byId.get(id)!;
           return (
             ancestor.locked ||
+            ancestor.hidden ||
             ((ancestor.kind === undefined || ancestor.kind === "frame") &&
               ancestor.clipContent !== false &&
               !containsPoint(ancestor, center))
@@ -260,6 +263,7 @@ export function adoptFrameContents(nodes: readonly CanvasFrame[], frameId: strin
         node.id !== frame.id &&
         node.parentId === frame.parentId &&
         !node.locked &&
+        !node.hidden &&
         containsRect(frame, node),
     )
     .map((node) => withParent(node, frameId));

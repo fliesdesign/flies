@@ -1,0 +1,246 @@
+.canvas-layers {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: var(--canvas-sidebar-width, 240px);
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #363636;
+  background: #282828;
+  color: #e5e5e5;
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+}
+
+.canvas-layers-header {
+  display: flex;
+  height: var(--canvas-header-height, 48px);
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid #363636;
+}
+
+.canvas-layers-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.canvas-layers-collapse,
+.canvas-layer-disclosure,
+.canvas-layer-visibility,
+.canvas-layer-lock {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #a6a6a6;
+  cursor: default;
+}
+
+.canvas-layers-collapse {
+  width: 26px;
+  height: 26px;
+}
+
+.canvas-layers-collapse:hover,
+.canvas-layer-disclosure:hover,
+.canvas-layer-visibility:hover:not(:disabled),
+.canvas-layer-lock:hover:not(:disabled) {
+  background: #ffffff0d;
+  color: #ededed;
+}
+
+.canvas-layers-collapse:focus-visible,
+.canvas-layer-visibility:focus-visible,
+.canvas-layer-lock:focus-visible {
+  outline: 1px solid #969696;
+  outline-offset: -2px;
+}
+
+.canvas-layers-tree {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0;
+  scrollbar-width: thin;
+  scrollbar-color: #515151 transparent;
+}
+
+.canvas-layers-spacer {
+  position: relative;
+}
+
+.canvas-layer-row {
+  display: flex;
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 calc(8px + var(--layer-depth) * 16px);
+  outline: none;
+  cursor: default;
+}
+
+.canvas-layer-row:hover {
+  background: #ffffff08;
+}
+
+.canvas-layer-row[aria-selected="true"] {
+  background: #3a3a3a;
+}
+
+.canvas-layer-row:focus-visible {
+  box-shadow: inset 0 0 0 1px #858585;
+}
+
+.canvas-layer-disclosure,
+.canvas-layer-disclosure-space {
+  width: 12px;
+  height: 20px;
+  flex: none;
+  margin-right: -3px;
+}
+
+.canvas-layer-disclosure .is-expanded {
+  transform: rotate(90deg);
+}
+
+.canvas-layer-icon {
+  flex: none;
+  color: #a6a6a6;
+}
+
+.canvas-layer-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  line-height: 30px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-layer-name-input {
+  width: 0;
+  min-width: 0;
+  height: 24px;
+  flex: 1;
+  padding: 0 4px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  outline: none;
+  background: #212121;
+  color: #ededed;
+  font: inherit;
+  line-height: 22px;
+  user-select: text;
+}
+
+/* Actions stay out of the name's layout until the row is active. */
+.canvas-layer-actions {
+  position: absolute;
+  right: 6px;
+  display: none;
+  gap: 1px;
+  background: #282828;
+}
+
+.canvas-layer-row:is(:hover, :focus-within, [data-hidden], [data-locked]) .canvas-layer-actions {
+  display: flex;
+}
+
+.canvas-layer-row:is(:hover, :focus-within, [data-hidden], [data-locked]) .canvas-layer-name {
+  padding-right: 42px;
+}
+
+.canvas-layer-row:hover .canvas-layer-actions {
+  background: #303030;
+}
+
+.canvas-layer-row[aria-selected="true"] .canvas-layer-actions {
+  background: #3a3a3a;
+}
+
+.canvas-layer-visibility,
+.canvas-layer-lock {
+  width: 19px;
+  height: 22px;
+}
+
+.canvas-layer-actions button:disabled {
+  opacity: 0.45;
+}
+
+.canvas-layer-row:is([data-locked], [data-hidden]) .canvas-layer-name {
+  color: #929292;
+}
+
+.canvas-layer-row[data-hidden] .canvas-layer-icon {
+  opacity: 0.5;
+}
+
+.canvas-layer-name-input {
+  margin-right: 42px;
+}
+
+.canvas-layers-tree[data-dragging],
+.canvas-layers-tree[data-dragging] .canvas-layer-row {
+  cursor: grabbing;
+}
+
+.canvas-layer-row {
+  touch-action: none;
+}
+
+.canvas-layer-row[data-dragging] {
+  opacity: 0.4;
+}
+
+.canvas-layer-row[data-drop-inside] {
+  box-shadow: inset 0 0 0 1px #8aabed;
+  background: #8aabed18;
+}
+
+.canvas-layer-drop-line {
+  position: absolute;
+  z-index: 2;
+  right: 6px;
+  height: 2px;
+  background: #8aabed;
+  pointer-events: none;
+}
+
+.canvas-layer-drop-line::before {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #8aabed;
+  border-radius: 50%;
+  background: #282828;
+  content: "";
+}
+
+.canvas-layers-empty {
+  margin: 20px 16px;
+  color: #a6a6a6;
+  font-size: 12px;
+  line-height: 18px;
+}
