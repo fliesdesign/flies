@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { DesignCanvas } from "@/components/canvas/design-canvas";
+import { FileWorkspace } from "@/components/workspace/file-workspace";
 
 export const Route = createFileRoute("/")({
-  component: DesignCanvas,
+  component: FileWorkspace,
 });

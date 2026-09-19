@@ -1,4 +1,5 @@
 import type { CanvasFrame, CanvasText } from "./canvas-document";
+import { DEFAULT_CANVAS_LAYOUT } from "./canvas-layout";
 import {
   moveSelection,
   resizeSelection,
@@ -22,6 +23,11 @@ export type CanvasProperty =
   | "textAlign"
   | "strokeWidth"
   | "clipContent"
+  | "layoutMode"
+  | "layoutGap"
+  | "layoutPadding"
+  | "layoutAlign"
+  | "layoutJustify"
   | "hidden"
   | "locked";
 
@@ -67,6 +73,38 @@ function styleChange(
     }
     case "clipContent":
       return frame && typeof value === "boolean" ? { ...node, clipContent: value } : node;
+    case "layoutMode": {
+      if (node.kind && node.kind !== "frame") return node;
+      if (value === "none") {
+        const { layout: _layout, ...withoutLayout } = node;
+        return withoutLayout;
+      }
+      return value === "row" || value === "column"
+        ? { ...node, layout: { ...(node.layout ?? DEFAULT_CANVAS_LAYOUT), direction: value } }
+        : node;
+    }
+    case "layoutGap":
+    case "layoutPadding":
+    case "layoutAlign":
+    case "layoutJustify": {
+      if ((node.kind && node.kind !== "frame") || !node.layout) return node;
+      if ((property === "layoutGap" || property === "layoutPadding") && numeric && value >= 0)
+        return {
+          ...node,
+          layout: { ...node.layout, [property === "layoutGap" ? "gap" : "padding"]: value },
+        };
+      if (
+        property === "layoutAlign" &&
+        (value === "start" || value === "center" || value === "end")
+      )
+        return { ...node, layout: { ...node.layout, align: value } };
+      if (
+        property === "layoutJustify" &&
+        (value === "start" || value === "center" || value === "end" || value === "space-between")
+      )
+        return { ...node, layout: { ...node.layout, justify: value } };
+      return node;
+    }
     case "strokeWidth":
       return node.kind === "pen" && numeric && value > 0 ? { ...node, strokeWidth: value } : node;
     case "fontFamily":

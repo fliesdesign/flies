@@ -158,6 +158,76 @@ describe("canvas property geometry", () => {
   });
 });
 
+describe("canvas layout properties", () => {
+  it("enables, adjusts and disables layout only on eligible frames", () => {
+    const nodes = [outer, text];
+    const enabled = changeCanvasProperty(
+      nodes,
+      ["outer", "text"],
+      "layoutMode",
+      "column",
+      noMeasurement,
+    );
+    assert.equal(enabled.length, 1);
+    const laidOut = enabled[0];
+    assert.ok(!laidOut.kind || laidOut.kind === "frame");
+    assert.deepEqual(laidOut.layout, {
+      direction: "column",
+      gap: 16,
+      padding: 16,
+      align: "start",
+      justify: "start",
+    });
+    for (const [property, key, value] of [
+      ["layoutGap", "gap", 24],
+      ["layoutPadding", "padding", 8],
+      ["layoutAlign", "align", "center"],
+      ["layoutJustify", "justify", "space-between"],
+    ] as const) {
+      const changed: CanvasFrame = changeCanvasProperty(
+        [laidOut],
+        ["outer"],
+        property,
+        value,
+        noMeasurement,
+      )[0];
+      assert.ok(!changed.kind || changed.kind === "frame");
+      assert.equal(changed.layout?.[key], value);
+    }
+    assert.deepEqual(
+      changeCanvasProperty([laidOut], ["outer"], "layoutMode", "none", noMeasurement),
+      [outer],
+    );
+    assert.deepEqual(changeCanvasProperty([outer], ["outer"], "layoutGap", 12, noMeasurement), []);
+  });
+
+  it("rejects unsupported layout values and edits to locked frames", () => {
+    const enabled = changeCanvasProperty([outer], ["outer"], "layoutMode", "row", noMeasurement)[0];
+    for (const [property, value] of [
+      ["layoutMode", "grid"],
+      ["layoutGap", -1],
+      ["layoutPadding", Infinity],
+      ["layoutAlign", "stretch"],
+      ["layoutJustify", "between"],
+    ] as const) {
+      assert.deepEqual(
+        changeCanvasProperty([enabled], ["outer"], property, value, noMeasurement),
+        [],
+      );
+    }
+    assert.deepEqual(
+      changeCanvasProperty(
+        [{ ...enabled, locked: true }],
+        ["outer"],
+        "layoutGap",
+        10,
+        noMeasurement,
+      ),
+      [],
+    );
+  });
+});
+
 describe("canvas property text reflow", () => {
   it("measures the changed width and commits height together, while explicit height stays manual", () => {
     const measured: CanvasText[] = [];

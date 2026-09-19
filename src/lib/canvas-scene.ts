@@ -86,12 +86,15 @@ export class CanvasScene {
     const hasViewport = size.x > 0 && size.y > 0;
     const subtree = this.document.getDescendantIds(this.pinnedIds);
     const pinnedSubtree = new Set(subtree);
+    if (this.pinnedIds.length) {
+      for (const id of this.document.getPreviewIds()) pinnedSubtree.add(id);
+    }
     const candidates = hasViewport
       ? this.index.query(bounds).filter((id) => !pinnedSubtree.has(id))
       : [];
     // Committed spatial bounds stay stable during gestures. Query the live bounds
-    // only for selected subtrees, so dragging a large frame still culls its children.
-    for (const id of subtree) {
+    // for selected subtrees and their derived layout changes, while retaining culling.
+    for (const id of pinnedSubtree) {
       const frame = this.document.getFrame(id)!;
       if (hasViewport && intersects(frame, bounds)) candidates.push(id);
     }

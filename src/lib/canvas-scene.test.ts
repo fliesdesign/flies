@@ -226,4 +226,34 @@ describe("canvas scene visibility", () => {
       assert.equal(notifications, 0);
     });
   });
+
+  it("culls auto-layout siblings using live positions during resize and restores them on cancel", () => {
+    const root = {
+      ...frame("root"),
+      width: 10000,
+      layout: {
+        direction: "row" as const,
+        gap: 0,
+        padding: 0,
+        align: "start" as const,
+        justify: "start" as const,
+      },
+    };
+    const first = { ...frame("first"), width: 5000, parentId: "root" };
+    const second = { ...frame("second", 5000), parentId: "root" };
+    withScene([root, first, second], (scene, document) => {
+      scene.setPinned("first");
+      assert.deepEqual(scene.getSnapshot(), ["root", "first"]);
+      document.beginGesture("first");
+      document.preview({ ...first, width: 100 });
+      assert.deepEqual(scene.getSnapshot(), ["root", "first", "second"]);
+      assert.equal(document.getFrame("second")?.x, 100);
+      document.preview(first);
+      assert.deepEqual(scene.getSnapshot(), ["root", "first"]);
+      document.preview({ ...first, width: 200 });
+      assert.deepEqual(scene.getSnapshot(), ["root", "first", "second"]);
+      document.endGesture(true);
+      assert.deepEqual(scene.getSnapshot(), ["root", "first"]);
+    });
+  });
 });

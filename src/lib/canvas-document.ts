@@ -1,5 +1,6 @@
 /* oxlint-disable unicorn/no-array-sort, unicorn/no-array-reverse -- Sort/reverse only owned arrays; the app targets ES2020. */
 import type { FrameRect, Point } from "./canvas-geometry";
+import { canvasLayoutPositions, isCanvasLayout, type CanvasLayout } from "./canvas-layout";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
 type CanvasNodeBase = Readonly<
@@ -17,6 +18,7 @@ export type CanvasFrameNode = CanvasNodeBase & {
   readonly kind?: "frame";
   readonly clipContent?: boolean;
   readonly fill?: string;
+  readonly layout?: CanvasLayout;
 };
 export type CanvasGroup = CanvasNodeBase & { readonly kind: "group" };
 export type CanvasRectangle = CanvasNodeBase & {
@@ -151,7 +153,12 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
       return (
         (second.kind === undefined || second.kind === "frame") &&
         first.clipContent === second.clipContent &&
-        first.fill === second.fill
+        first.fill === second.fill &&
+        first.layout?.direction === second.layout?.direction &&
+        first.layout?.gap === second.layout?.gap &&
+        first.layout?.padding === second.layout?.padding &&
+        first.layout?.align === second.layout?.align &&
+        first.layout?.justify === second.layout?.justify
       );
   }
 }
@@ -199,6 +206,7 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.opacity !== undefined && !isNumberInRange(frame.opacity, 0, 1)) ||
     (frame.cornerRadius !== undefined &&
       (!isFiniteNumber(frame.cornerRadius) || frame.cornerRadius < 0)) ||
+    (frame.layout !== undefined && frame.kind !== undefined && frame.kind !== "frame") ||
     !isFiniteNumber(frame.x) ||
     !isFiniteNumber(frame.y) ||
     !isFiniteNumber(frame.width) ||
@@ -213,7 +221,8 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     case "frame":
       return (
         (frame.clipContent === undefined || typeof frame.clipContent === "boolean") &&
-        (frame.fill === undefined || isColor(frame.fill))
+        (frame.fill === undefined || isColor(frame.fill)) &&
+        (frame.layout === undefined || isCanvasLayout(frame.layout))
       );
     case "group":
       return true;
@@ -316,6 +325,15 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...(frame.kind === "frame" && { kind: frame.kind }),
         ...(frame.clipContent !== undefined && { clipContent: frame.clipContent }),
         ...(frame.fill !== undefined && { fill: frame.fill }),
+        ...(frame.layout !== undefined && {
+          layout: Object.freeze({
+            direction: frame.layout.direction,
+            gap: frame.layout.gap,
+            padding: frame.layout.padding,
+            align: frame.layout.align,
+            justify: frame.layout.justify,
+          }),
+        }),
       });
   }
 }
@@ -392,6 +410,18 @@ export class CanvasDocument {
     this.children = hierarchy.children;
     this.order = new Map(this.ids.map((id, index) => [id, index]));
     this.snapshot = Object.freeze({ ids: this.ids, revision: 0, canUndo: false, canRedo: false });
+    const layouts = initial.filter((node) => (!node.kind || node.kind === "frame") && node.layout);
+    if (layouts.length) {
+      const operation = this.prepare(
+        layouts.map((node) => ({
+          id: node.id,
+          before: this.frames.get(node.id),
+          after: this.frames.get(node.id),
+        })),
+      );
+      if (!operation) throw new Error("Canvas layout must produce finite, valid bounds.");
+      this.apply(operation, false);
+    }
   }
 
   getFrame = (id: string) => this.frames.get(id);
@@ -406,6 +436,8 @@ export class CanvasDocument {
   getIds = () => this.ids;
   getSnapshot = () => this.snapshot;
   getChildren = (parentId?: string): readonly string[] => this.children.get(parentId) ?? EMPTY_IDS;
+  /** Includes derived layout changes so viewport culling can use their live preview bounds. */
+  getPreviewIds = (): Iterable<string> => this.gesture?.keys() ?? EMPTY_IDS;
 
   /** Selected descendants are represented by their selected ancestor exactly once. */
   getRootIds = (ids: readonly string[]): string[] => {
@@ -493,6 +525,33 @@ export class CanvasDocument {
   remove = (id: string) => this.removeMany([id]);
   removeMany = (ids: readonly string[]) => this.transact({ remove: this.getDescendantIds(ids) });
 
+  /** Open a complete project atomically, retaining one undo back to the previous document. */
+  replaceAll = (frames: readonly CanvasFrame[]): boolean => {
+    let replacement: CanvasDocument;
+    try {
+      replacement = new CanvasDocument(frames);
+    } catch {
+      return false;
+    }
+    this.endGesture();
+    const patches: FramePatch[] = [];
+    for (const id of new Set([...this.ids, ...replacement.getIds()])) {
+      const before = this.frames.get(id);
+      const after = replacement.getFrame(id);
+      if (before && after ? !framesEqual(before, after) : before !== after)
+        patches.push({ id, before, after });
+    }
+    if (!patches.length && sameIds(this.ids, replacement.getIds())) return false;
+    const operation: DocumentOperation = {
+      patches,
+      beforeIds: this.ids,
+      afterIds: replacement.getIds(),
+    };
+    this.apply(operation, false);
+    this.record(operation);
+    return true;
+  };
+
   /** All input is validated before any node changes; mixed operations form one undo entry. */
   transact = ({ add = [], update = [], remove = [] }: CanvasTransaction): boolean => {
     const seen = new Set<string>();
@@ -546,7 +605,7 @@ export class CanvasDocument {
 
   preview = (frame: CanvasFrame) => this.previewMany([frame]);
 
-  /** O(changed nodes): no global render, history, ids array, or spatial-index changes. */
+  /** Reflow only affected containers; preview never changes history, ids, or the spatial index. */
   previewMany = (frames: readonly CanvasFrame[]): boolean => {
     if (!this.gesture) return false;
     const seen = new Set<string>();
@@ -564,9 +623,30 @@ export class CanvasDocument {
       seen.add(frame.id);
       if (!framesEqual(before, frame)) updates.push(immutableFrame(frame));
     }
-    for (const frame of updates) this.frames.set(frame.id, frame);
-    for (const frame of updates) this.notifyFrame(frame.id);
-    return updates.length > 0;
+    const patches = updates.map((frame) => ({
+      id: frame.id,
+      before: this.frames.get(frame.id),
+      after: frame,
+    }));
+    const hasLayout = patches.some((patch) => {
+      for (const initial of [patch.before, patch.after]) {
+        let node = initial;
+        while (node) {
+          if ((!node.kind || node.kind === "frame") && node.layout) return true;
+          node = node.parentId ? this.frames.get(node.parentId) : undefined;
+        }
+      }
+      return false;
+    });
+    const operation = hasLayout ? this.prepare(patches) : { patches };
+    if (!operation) return false;
+    for (const patch of operation.patches) {
+      if (!patch.after) continue;
+      if (!this.gesture.has(patch.id) && patch.before) this.gesture.set(patch.id, patch.before);
+      this.frames.set(patch.id, patch.after);
+    }
+    for (const patch of operation.patches) this.notifyFrame(patch.id);
+    return operation.patches.length > 0;
   };
 
   /** Optional final updates include reparenting in the same undo entry as the drag. */
@@ -673,11 +753,8 @@ export class CanvasDocument {
       const children = childLists.get(id) ?? [];
       for (let index = children.length - 1; index >= 0; index--) stack.push(children[index]);
     }
-    const operation: DocumentOperation = {
-      patches: [],
-      beforeIds: this.ids,
-      afterIds: Object.freeze(order),
-    };
+    const operation = this.prepare([], order, selected);
+    if (!operation) return false;
     this.apply(operation, false);
     this.record(operation);
     return true;
@@ -749,11 +826,8 @@ export class CanvasDocument {
       for (let i = descendants.length - 1; i >= 0; i--) stack.push(descendants[i]);
     }
     if (!prepared.patches.length && sameIds(order, this.ids)) return false;
-    const operation: DocumentOperation = {
-      patches: prepared.patches,
-      beforeIds: this.ids,
-      afterIds: Object.freeze(order),
-    };
+    const operation = this.prepare(prepared.patches, order, roots);
+    if (!operation) return false;
     this.apply(operation, false);
     this.record(operation);
     return true;
@@ -777,15 +851,21 @@ export class CanvasDocument {
     this.notifyCommit(operation);
   };
 
-  private prepare(input: readonly FramePatch[]): DocumentOperation | undefined {
+  private prepare(
+    input: readonly FramePatch[],
+    requestedOrder?: readonly string[],
+    dirtyIds: Iterable<string> = [],
+  ): DocumentOperation | undefined {
     const patches = new Map(input.map((patch) => [patch.id, patch]));
-    let structural = input.some(
-      (patch) =>
-        !patch.before ||
-        !patch.after ||
-        patch.before.parentId !== patch.after.parentId ||
-        patch.before.kind !== patch.after.kind,
-    );
+    let structural =
+      requestedOrder !== undefined ||
+      input.some(
+        (patch) =>
+          !patch.before ||
+          !patch.after ||
+          patch.before.parentId !== patch.after.parentId ||
+          patch.before.kind !== patch.after.kind,
+      );
     const read = (id: string) => (patches.has(id) ? patches.get(id)!.after : this.frames.get(id));
     const createHierarchy = () => {
       const next = new Map(this.frames);
@@ -794,9 +874,9 @@ export class CanvasDocument {
         else next.delete(patch.id);
       }
       const order = [
-        ...this.ids.filter((id) => next.has(id)),
+        ...(requestedOrder ?? this.ids).filter((id) => next.has(id)),
         ...[...patches.values()]
-          .filter((patch) => !patch.before && patch.after)
+          .filter((patch) => !patch.before && patch.after && !requestedOrder?.includes(patch.id))
           .map((patch) => patch.id),
       ];
       // A newly created wrapper occupies its highest wrapped sibling's old position.
@@ -809,6 +889,7 @@ export class CanvasDocument {
         else wrapped.set(member.after.parentId, [member.before]);
       }
       for (const addition of patches.values()) {
+        if (requestedOrder) break;
         const container = addition.after;
         if (
           addition.before ||
@@ -836,22 +917,24 @@ export class CanvasDocument {
     if (structural && !hierarchy) return undefined;
     const children = hierarchy?.children ?? this.children;
 
-    // Groups derive their bounds from their direct children. A nested group's new bounds
-    // must reach its ancestors in this same undo entry, without scanning unrelated nodes.
-    const groups = new Set<string>();
-    const collectGroups = (
+    // Derive containers bottom-up: groups measure their contents before a parent layout
+    // positions them. Moving a layout child translates its whole subtree exactly once.
+    const containers = new Set<string>();
+    const collectContainers = (
       node: CanvasFrame | undefined,
       lookup: (id: string) => CanvasFrame | undefined,
     ) => {
       while (node) {
-        if (node.kind === "group") groups.add(node.id);
+        if (node.kind === "group" || ((!node.kind || node.kind === "frame") && node.layout))
+          containers.add(node.id);
         node = node.parentId === undefined ? undefined : lookup(node.parentId);
       }
     };
     for (const patch of input) {
-      collectGroups(patch.before, (id) => this.frames.get(id));
-      collectGroups(patch.after, read);
+      collectContainers(patch.before, (id) => this.frames.get(id));
+      collectContainers(patch.after, read);
     }
+    for (const id of dirtyIds) collectContainers(read(id), read);
     const depth = (id: string) => {
       let result = 0;
       let node = read(id);
@@ -862,14 +945,39 @@ export class CanvasDocument {
       return result;
     };
     let removedGroup = false;
-    for (const id of [...groups].sort((first, second) => depth(second) - depth(first))) {
+    for (const id of [...containers].sort((first, second) => depth(second) - depth(first))) {
       const group = read(id);
-      if (group?.kind !== "group") continue;
+      if (!group) continue;
       const members = (children.get(id) ?? []).flatMap((child) => {
         const node = read(child);
         return node ? [node] : [];
       });
       const before = patches.has(id) ? patches.get(id)!.before : this.frames.get(id);
+      if (!group.kind || group.kind === "frame") {
+        for (const [childId, position] of canvasLayoutPositions(group, members)) {
+          const child = read(childId)!;
+          const dx = position.x - child.x;
+          const dy = position.y - child.y;
+          if (dx === 0 && dy === 0) continue;
+          const stack = [childId];
+          while (stack.length) {
+            const memberId = stack.pop()!;
+            const member = read(memberId);
+            if (!member) continue;
+            const original = patches.has(memberId)
+              ? patches.get(memberId)!.before
+              : this.frames.get(memberId);
+            patches.set(memberId, {
+              id: memberId,
+              before: original,
+              after: immutableFrame({ ...member, x: member.x + dx, y: member.y + dy }),
+            });
+            for (const descendant of children.get(memberId) ?? []) stack.push(descendant);
+          }
+        }
+        continue;
+      }
+      if (group.kind !== "group") continue;
       if (members.length === 0) {
         if (this.getChildren(id).length > 0) {
           patches.set(id, { id, before, after: undefined });
@@ -896,6 +1004,11 @@ export class CanvasDocument {
       structural = true;
       hierarchy = createHierarchy();
       if (!hierarchy) return undefined;
+    }
+    // Finite inputs can overflow during layout arithmetic. Validate derived geometry
+    // before a preview, import or commit can publish it or serialize Infinity as null.
+    for (const patch of patches.values()) {
+      if (patch.after && !isFrame(patch.after, patch.before)) return undefined;
     }
     const effective = [...patches.values()].filter((patch) =>
       patch.before && patch.after

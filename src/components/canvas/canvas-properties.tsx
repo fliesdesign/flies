@@ -12,20 +12,14 @@ import {
   UnlinkIcon,
   UnlockKeyholeIcon,
 } from "lucide-react";
-import {
-  memo,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import type { CanvasArrangeAction } from "@/lib/canvas-arrange";
 import type { CanvasDocument, CanvasFrame } from "@/lib/canvas-document";
 import type { CanvasProperty, CanvasPropertyOptions } from "@/lib/canvas-properties";
 
+import { ColorSwatch, PropertyField, type PropertyPreview } from "./canvas-property-controls";
+import { normalizeCanvasHex } from "./canvas-property-values";
 import "./canvas-properties.css";
 
 export type { CanvasProperty, CanvasPropertyOptions } from "@/lib/canvas-properties";
@@ -38,111 +32,17 @@ type CanvasPropertiesProps = {
     value: string | number | boolean,
     options?: CanvasPropertyOptions,
   ) => void;
+  onPreviewStart: () => void;
+  onPreview: (
+    property: CanvasProperty,
+    value: string | number | boolean,
+    options?: CanvasPropertyOptions,
+  ) => void;
+  onPreviewEnd: (cancel: boolean) => void;
   onArrange: (action: CanvasArrangeAction) => void;
   onFitText: () => void;
   onCollapse: () => void;
 };
-
-type FieldProps = {
-  label: string;
-  prefix?: ReactNode;
-  value: string | number | undefined;
-  disabled?: boolean;
-  suffix?: string;
-  min?: number;
-  max?: number;
-  numeric?: boolean;
-  onCommit: (value: string) => void;
-};
-
-function displayNumber(value: number) {
-  return String(Math.round(value * 100) / 100);
-}
-
-function PropertyField({
-  label,
-  prefix,
-  value,
-  disabled,
-  suffix,
-  min,
-  max,
-  numeric = false,
-  onCommit,
-}: FieldProps) {
-  const source = typeof value === "number" ? displayNumber(value) : (value ?? "");
-  const [draft, setDraft] = useState<{ source: string; value: string } | null>(null);
-  const skipCommit = useRef(false);
-  const shown = draft?.source === source ? draft.value : source;
-  return (
-    <label className="canvas-property-field" data-disabled={disabled || undefined}>
-      {prefix && (
-        <span className="canvas-property-prefix" aria-hidden="true">
-          {prefix}
-        </span>
-      )}
-      <input
-        aria-label={label}
-        title={label}
-        type="text"
-        inputMode={numeric ? "decimal" : undefined}
-        value={shown}
-        placeholder={value === undefined ? "Mixed" : undefined}
-        disabled={disabled}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(event) => setDraft({ source, value: event.target.value })}
-        onFocus={(event) => event.currentTarget.select()}
-        onBlur={() => {
-          if (skipCommit.current) {
-            skipCommit.current = false;
-          } else if (shown.trim() !== source && shown.trim() !== "") {
-            const number = Number(shown);
-            if (
-              !numeric ||
-              (Number.isFinite(number) &&
-                (min === undefined || number >= min) &&
-                (max === undefined || number <= max))
-            ) {
-              onCommit(numeric ? String(number) : shown.trim());
-            }
-          }
-          setDraft(null);
-        }}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Enter") {
-            event.preventDefault();
-            const panel = event.currentTarget.closest<HTMLElement>(".canvas-properties");
-            event.currentTarget.blur();
-            panel?.focus({ preventScroll: true });
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            skipCommit.current = true;
-            setDraft(null);
-            const panel = event.currentTarget.closest<HTMLElement>(".canvas-properties");
-            event.currentTarget.blur();
-            panel?.focus({ preventScroll: true });
-          } else if (numeric && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-            event.preventDefault();
-            const number = Number(shown || 0);
-            const step = event.shiftKey ? 10 : 1;
-            const next = Math.min(
-              max ?? Infinity,
-              Math.max(min ?? -Infinity, number + (event.key === "ArrowUp" ? step : -step)),
-            );
-            setDraft({ source, value: displayNumber(next) });
-          }
-        }}
-      />
-      {suffix && (
-        <span className="canvas-property-suffix" aria-hidden="true">
-          {suffix}
-        </span>
-      )}
-    </label>
-  );
-}
 
 function IconButton({
   label,
@@ -317,49 +217,6 @@ function fillFor(node: CanvasFrame) {
   }
 }
 
-function normalizeHex(value: string) {
-  const hex = value.replace(/^#/, "");
-  if (/^[\da-f]{3,4}$/i.test(hex))
-    return `#${hex
-      .split("")
-      .map((digit) => digit + digit)
-      .join("")}`;
-  return /^[\da-f]{6}([\da-f]{2})?$/i.test(hex) ? `#${hex}` : null;
-}
-
-function ColorSwatch({
-  value,
-  disabled,
-  onCommit,
-}: {
-  value: string | undefined;
-  disabled: boolean;
-  onCommit: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState<{ source: string | undefined; value: string } | null>(null);
-  const shown = draft && draft.source === value ? draft.value : value;
-  return (
-    <label
-      className="canvas-property-swatch"
-      title="Choose fill color"
-      data-mixed={value === undefined || undefined}
-      style={{ backgroundColor: shown }}
-    >
-      <input
-        type="color"
-        aria-label="Fill color picker"
-        disabled={disabled}
-        value={normalizeHex(shown ?? "")?.slice(0, 7) ?? "#000000"}
-        onChange={(event) => setDraft({ source: value, value: event.target.value })}
-        onBlur={() => {
-          if (draft && draft.source === value && draft.value !== value) onCommit(draft.value);
-          setDraft(null);
-        }}
-      />
-    </label>
-  );
-}
-
 const ALIGN_ACTIONS = [
   { action: "left", label: "Align left" },
   { action: "center", label: "Align horizontal centers" },
@@ -420,6 +277,9 @@ export const CanvasProperties = memo(function CanvasProperties({
   document,
   selectedIds,
   onChange,
+  onPreviewStart,
+  onPreview,
+  onPreviewEnd,
   onArrange,
   onFitText,
   onCollapse,
@@ -435,6 +295,10 @@ export const CanvasProperties = memo(function CanvasProperties({
       ancestor = ancestor.parentId ? document.getFrame(ancestor.parentId) : undefined;
     }
     return false;
+  });
+  const managedPosition = nodes.some((node) => {
+    const parent = node.parentId ? document.getFrame(node.parentId) : undefined;
+    return parent && (!parent.kind || parent.kind === "frame") && !!parent.layout;
   });
   const ownLocked = nodes.some((node) => node.locked);
   const allHidden = nodes.length > 0 && nodes.every((node) => node.hidden);
@@ -455,8 +319,25 @@ export const CanvasProperties = memo(function CanvasProperties({
   const radius = commonValue(nodes, (node) => node.cornerRadius ?? 0);
   const numberChange = (property: CanvasProperty) => (value: string) =>
     onChange(property, Number(value));
+  const numberPreview = (
+    property: CanvasProperty,
+    scale = 1,
+    options?: CanvasPropertyOptions,
+  ): PropertyPreview => ({
+    onStart: onPreviewStart,
+    onPreview: (value) => onPreview(property, value * scale, options),
+    onEnd: onPreviewEnd,
+  });
+  const layoutValue = <T,>(
+    read: (layout: NonNullable<Extract<CanvasFrame, { kind?: "frame" }>["layout"]>) => T,
+    fallback: T,
+  ) =>
+    commonValue(nodes, (node) =>
+      (!node.kind || node.kind === "frame") && node.layout ? read(node.layout) : fallback,
+    );
+  const layoutMode = layoutValue((layout) => layout.direction as string, "none");
   const changeFill = (value: string) => {
-    const hex = normalizeHex(value);
+    const hex = normalizeCanvasHex(value);
     if (hex) onChange("fill", hex);
   };
   const textValue = <T,>(read: (node: Extract<CanvasFrame, { kind: "text" }>) => T) =>
@@ -504,7 +385,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                   <IconButton
                     key={action}
                     label={label}
-                    disabled={nodes.length < 2 || anyLocked}
+                    disabled={nodes.length < 2 || anyLocked || managedPosition}
                     onClick={() => onArrange(action)}
                   >
                     <AlignIcon action={action} />
@@ -517,7 +398,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                   prefix="X"
                   value={left - (parent?.x ?? 0)}
                   numeric
-                  disabled={anyLocked}
+                  disabled={anyLocked || managedPosition}
+                  preview={numberPreview("x")}
                   onCommit={numberChange("x")}
                 />
                 <PropertyField
@@ -525,7 +407,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                   prefix="Y"
                   value={top - (parent?.y ?? 0)}
                   numeric
-                  disabled={anyLocked}
+                  disabled={anyLocked || managedPosition}
+                  preview={numberPreview("y")}
                   onCommit={numberChange("y")}
                 />
                 <PropertyField
@@ -535,6 +418,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                   numeric
                   min={1}
                   disabled={anyLocked}
+                  preview={numberPreview("width", 1, { preserveAspect })}
                   onCommit={(value) => onChange("width", Number(value), { preserveAspect })}
                 />
                 <PropertyField
@@ -544,9 +428,13 @@ export const CanvasProperties = memo(function CanvasProperties({
                   numeric
                   min={1}
                   disabled={anyLocked}
+                  preview={numberPreview("height", 1, { preserveAspect })}
                   onCommit={(value) => onChange("height", Number(value), { preserveAspect })}
                 />
               </div>
+              {managedPosition && (
+                <p className="canvas-property-hint">Position managed by auto layout.</p>
+              )}
               <div className="canvas-property-option">
                 <label>
                   <input
@@ -580,6 +468,76 @@ export const CanvasProperties = memo(function CanvasProperties({
                 </div>
               )}
             </Section>
+            {allFrames && (
+              <Section title="Auto layout">
+                <PropertySelect
+                  label="Auto layout direction"
+                  value={layoutMode}
+                  disabled={anyLocked}
+                  choices={[
+                    { value: "none", label: "Free layout" },
+                    { value: "row", label: "Horizontal" },
+                    { value: "column", label: "Vertical" },
+                  ]}
+                  onChange={(value) => onChange("layoutMode", value)}
+                />
+                {layoutMode !== "none" && (
+                  <>
+                    <div className="canvas-properties-grid">
+                      <PropertyField
+                        label="Layout gap"
+                        prefix="↔"
+                        value={layoutValue((layout) => layout.gap, 16)}
+                        numeric
+                        min={0}
+                        disabled={anyLocked}
+                        preview={numberPreview("layoutGap")}
+                        onCommit={numberChange("layoutGap")}
+                      />
+                      <PropertyField
+                        label="Layout padding"
+                        prefix="⊞"
+                        value={layoutValue((layout) => layout.padding, 16)}
+                        numeric
+                        min={0}
+                        disabled={anyLocked}
+                        preview={numberPreview("layoutPadding")}
+                        onCommit={numberChange("layoutPadding")}
+                      />
+                    </div>
+                    <div className="canvas-property-labeled-select">
+                      <span>Align</span>
+                      <PropertySelect
+                        label="Layout cross alignment"
+                        value={layoutValue((layout) => layout.align, "start")}
+                        disabled={anyLocked}
+                        choices={[
+                          { value: "start", label: "Start" },
+                          { value: "center", label: "Center" },
+                          { value: "end", label: "End" },
+                        ]}
+                        onChange={(value) => onChange("layoutAlign", value)}
+                      />
+                    </div>
+                    <div className="canvas-property-labeled-select">
+                      <span>Justify</span>
+                      <PropertySelect
+                        label="Layout main alignment"
+                        value={layoutValue((layout) => layout.justify, "start")}
+                        disabled={anyLocked}
+                        choices={[
+                          { value: "start", label: "Start" },
+                          { value: "center", label: "Center" },
+                          { value: "end", label: "End" },
+                          { value: "space-between", label: "Space between" },
+                        ]}
+                        onChange={(value) => onChange("layoutJustify", value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </Section>
+            )}
             <Section
               title="Appearance"
               actions={
@@ -611,6 +569,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                   max={100}
                   suffix="%"
                   disabled={anyLocked}
+                  preview={numberPreview("opacity", 0.01)}
                   onCommit={(value) => onChange("opacity", Number(value) / 100)}
                 />
                 {hasRadius && (
@@ -633,6 +592,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                     numeric
                     min={0}
                     disabled={anyLocked}
+                    preview={numberPreview("cornerRadius")}
                     onCommit={numberChange("cornerRadius")}
                   />
                 )}
@@ -641,7 +601,13 @@ export const CanvasProperties = memo(function CanvasProperties({
             {hasFill && (
               <Section title={allPens ? "Stroke" : "Fill"}>
                 <div className="canvas-properties-color">
-                  <ColorSwatch value={fill} disabled={anyLocked} onCommit={changeFill} />
+                  <ColorSwatch
+                    value={fill}
+                    disabled={anyLocked}
+                    onStart={onPreviewStart}
+                    onPreview={(value) => onPreview("fill", value)}
+                    onEnd={onPreviewEnd}
+                  />
                   <PropertyField
                     label={allPens ? "Stroke color" : "Fill color"}
                     value={fill?.replace(/^#/, "").toUpperCase()}
@@ -662,6 +628,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                     max={1000}
                     suffix="px"
                     disabled={anyLocked}
+                    step={0.1}
+                    preview={numberPreview("strokeWidth")}
                     onCommit={numberChange("strokeWidth")}
                   />
                 )}
@@ -692,6 +660,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                     min={1}
                     max={1000}
                     disabled={anyLocked}
+                    preview={numberPreview("fontSize")}
                     onCommit={numberChange("fontSize")}
                   />
                   <PropertyField
@@ -702,6 +671,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                     min={0.5}
                     max={4}
                     disabled={anyLocked}
+                    step={0.01}
+                    preview={numberPreview("lineHeight")}
                     onCommit={numberChange("lineHeight")}
                   />
                   <PropertyField
@@ -712,6 +683,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                     min={-10}
                     max={100}
                     disabled={anyLocked}
+                    step={0.1}
+                    preview={numberPreview("letterSpacing")}
                     onCommit={numberChange("letterSpacing")}
                   />
                 </div>

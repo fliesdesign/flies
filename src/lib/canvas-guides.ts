@@ -1,5 +1,8 @@
 import { AnimationFrameBatch } from "./canvas-camera";
+import type { CanvasDocument } from "./canvas-document";
 import type { FrameRect, ResizeHandle } from "./canvas-geometry";
+import { getClippingAncestors, getVisibleBoundsInRoundedClips } from "./canvas-outline";
+import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
 type Anchor = { position: number; start: number; end: number };
 export type AlignmentGuide = Anchor & { axis: "x" | "y" };
@@ -7,6 +10,30 @@ type Match = { anchor: Anchor; delta: number };
 
 const SNAP_DISTANCE = 6;
 const NO_GUIDES: readonly AlignmentGuide[] = [];
+
+/** Freeze visible geometry once, then query nearby targets as an edge drag pans the camera. */
+export class AlignmentGuideTargets {
+  private readonly frames = new Map<string, FrameRect & { id: string }>();
+  private readonly spatial = new CanvasSpatialIndex();
+
+  constructor(document: CanvasDocument, excludedIds: ReadonlySet<string>) {
+    for (const frame of document.getFrames()) {
+      if (excludedIds.has(frame.id) || document.isHidden(frame.id)) continue;
+      const bounds = getVisibleBoundsInRoundedClips(frame, getClippingAncestors(document, frame));
+      if (!bounds) continue;
+      const target = { id: frame.id, ...bounds };
+      this.frames.set(frame.id, target);
+      this.spatial.upsert(target);
+    }
+  }
+
+  inViewport(bounds: FrameRect) {
+    return new AlignmentGuideIndex(
+      this.spatial.query(bounds).map((id) => this.frames.get(id)!),
+      "",
+    );
+  }
+}
 
 function addAnchor(anchors: Map<number, Anchor>, position: number, start: number, end: number) {
   const existing = anchors.get(position);
@@ -158,6 +185,8 @@ export class CanvasGuides {
     this.current = guides;
     this.batch.schedule();
   };
+
+  flush = () => this.batch.flush();
 
   clear = () => {
     this.batch.cancel();

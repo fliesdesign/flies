@@ -18,6 +18,59 @@ function frame(id: string, x = 0): CanvasFrameNode {
   return { id, name: `Frame ${id}`, x, y: 0, width: 320, height: 240 };
 }
 
+describe("canvas project replacement", () => {
+  it("replaces nodes and ordering atomically with overlapping IDs and a single undo", () => {
+    const document = new CanvasDocument([frame("a"), frame("b"), frame("c")]);
+    const original = document.getFrames();
+    const replacement = [frame("b", 200), frame("a", 400), frame("new", 600)];
+    let commits = 0;
+    const unsubscribe = document.subscribe(() => {
+      commits++;
+      assert.deepEqual(document.getFrames(), replacement);
+    });
+    assert.equal(document.replaceAll(replacement), true);
+    assert.equal(commits, 1);
+    assert.equal(document.getHistoryStats().undoEntries, 1);
+    unsubscribe();
+    document.undo();
+    assert.deepEqual(document.getFrames(), original);
+    document.redo();
+    assert.deepEqual(document.getFrames(), replacement);
+  });
+
+  it("supports empty and order-only projects without recording a no-op", () => {
+    const document = new CanvasDocument([frame("a"), frame("b")]);
+    assert.equal(document.replaceAll([frame("b"), frame("a")]), true);
+    assert.deepEqual(document.getIds(), ["b", "a"]);
+    assert.equal(document.replaceAll([frame("b"), frame("a")]), false);
+    document.undo();
+    assert.deepEqual(document.getIds(), ["a", "b"]);
+    assert.equal(document.replaceAll([]), true);
+    assert.deepEqual(document.getFrames(), []);
+    document.undo();
+    assert.deepEqual(document.getIds(), ["a", "b"]);
+  });
+
+  it("rejects invalid projects before changing an existing document or active preview", () => {
+    const document = new CanvasDocument([frame("a")]);
+    document.beginGesture("a");
+    document.preview(frame("a", 40));
+    const snapshot = document.getSnapshot();
+    for (const invalid of [
+      [frame("b"), frame("b")],
+      [{ ...frame("b"), width: -1 }],
+      [{ ...frame("b"), parentId: "missing" }],
+    ]) {
+      assert.equal(document.replaceAll(invalid), false);
+      assert.deepEqual(document.getFrames(), [frame("a", 40)]);
+      assert.strictEqual(document.getSnapshot(), snapshot);
+      assert.deepEqual(document.getCommittedFrames(), [frame("a")]);
+    }
+    document.endGesture(true);
+    assert.deepEqual(document.getFrames(), [frame("a")]);
+  });
+});
+
 describe("canvas document subscriptions", () => {
   it("changes only the previewed frame among 10,000 nodes until the gesture commits", () => {
     const document = new CanvasDocument(Array.from({ length: 10000 }, (_, i) => frame(String(i))));

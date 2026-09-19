@@ -1,9 +1,15 @@
 import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { isTauri } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
+
+// Reserve native window controls only in the macOS desktop webview.
+if (isTauri() && /Mac/.test(navigator.userAgent)) {
+  document.documentElement.dataset.nativeTitlebar = "macos";
+}
 
 const router = createRouter({
   routeTree,

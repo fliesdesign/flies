@@ -47,6 +47,9 @@ function render(nodes: readonly CanvasFrame[], selectedIds: readonly string[]) {
       document={new CanvasDocument(nodes)}
       selectedIds={selectedIds}
       onChange={() => {}}
+      onPreviewStart={() => {}}
+      onPreview={() => {}}
+      onPreviewEnd={() => {}}
       onArrange={() => {}}
       onFitText={() => {}}
       onCollapse={() => {}}
@@ -80,10 +83,11 @@ describe("canvas properties panel", () => {
     assert.doesNotMatch(markup, /Clip contents|Font family/);
   });
 
-  it("accepts abbreviated alpha colors and gives the native picker a six-digit color", () => {
+  it("accepts abbreviated alpha colors and exposes an accessible color popover", () => {
     const markup = render([{ ...rectangle, parentId: undefined, fill: "#abcd" }], [rectangle.id]);
     assert.match(input(markup, "Fill color"), /value="ABCD"/);
-    assert.match(input(markup, "Fill color picker"), /value="#aabbcc"/);
+    assert.match(button(markup, "Fill color picker"), /aria-haspopup="dialog"/);
+    assert.match(button(markup, "Fill color picker"), /aria-expanded="false"/);
     assert.match(markup, /aria-label="Properties panel"[^>]*tabindex="-1"/);
   });
 
@@ -170,5 +174,59 @@ describe("canvas properties panel", () => {
     assert.match(input(markup, "Stroke color"), /value="FF0000"/);
     assert.match(input(markup, "Stroke width"), /value="3"/);
     assert.doesNotMatch(markup, /Corner radius|Font family/);
+  });
+
+  it("provides accessible numeric scrub controls while keeping locked labels inert", () => {
+    const editable = render([frame, rectangle], [rectangle.id]);
+    assert.doesNotMatch(button(editable, "Adjust width"), /disabled/);
+    assert.match(button(editable, "Adjust width"), /Shift: faster. Alt: finer./);
+    const locked = render([frame, { ...rectangle, locked: true }], [rectangle.id]);
+    assert.match(button(locked, "Adjust width"), /disabled/);
+  });
+
+  it("shows frame auto layout settings and keeps free layout controls compact", () => {
+    const free = render([frame], [frame.id]);
+    assert.match(free, /aria-label="Auto layout direction"/);
+    assert.match(free, /<option value="none" selected="">Free layout/);
+    assert.doesNotMatch(free, /aria-label="Layout gap"/);
+    const arranged = render(
+      [
+        {
+          ...frame,
+          layout: {
+            direction: "row",
+            gap: 20,
+            padding: 12,
+            align: "center",
+            justify: "space-between",
+          },
+        },
+      ],
+      [frame.id],
+    );
+    assert.match(arranged, /<option value="row" selected="">Horizontal/);
+    assert.match(input(arranged, "Layout gap"), /value="20"/);
+    assert.match(input(arranged, "Layout padding"), /value="12"/);
+    assert.match(arranged, /<option value="space-between" selected="">Space between/);
+  });
+
+  it("disables auto-managed child positions and alignment while allowing sizing", () => {
+    const markup = render(
+      [
+        {
+          ...frame,
+          layout: { direction: "column", gap: 16, padding: 16, align: "start", justify: "start" },
+        },
+        rectangle,
+      ],
+      [rectangle.id],
+    );
+    assert.match(input(markup, "X position"), /disabled/);
+    assert.match(input(markup, "Y position"), /disabled/);
+    assert.match(button(markup, "Adjust x position"), /disabled/);
+    assert.match(button(markup, "Align left"), /disabled/);
+    assert.doesNotMatch(input(markup, "Width"), /disabled/);
+    assert.match(markup, /Position managed by auto layout/);
+    assert.doesNotMatch(markup, /aria-label="Auto layout direction"/);
   });
 });

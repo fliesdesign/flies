@@ -1,0 +1,335 @@
+{
+  "recordedAt": "2026-09-19T19:40:44.340Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+  "build": "benchmark",
+  "viewport": {
+    "x": 780,
+    "y": 720
+  },
+  "window": {
+    "width": 1280,
+    "height": 720
+  },
+  "devicePixelRatio": 2,
+  "methodology": "Real typed document nodes and production HTML/CSS renderer; nested frames/groups, text, embedded PNG images, rectangles, pen paths and auto layout. Layers and Properties remain open, with text selected during pan/zoom. Exact total node counts (not boards or fake DOM content). Persistent storage disabled. Scene-ready includes fixture creation, initial fit, panel opening, camera reset, six settling frames and mounted image decode. Each phase uses 20 warmup + 100 sampled animation-frame intervals; pan and subtree drag submit four coalesced samples/tick. Five phases per scene. Mounted/visible nodes and DOM counts include ancestors/overscan and are measured after each phase; visible count intersects rounded ancestor clips and viewport. Editor DOM includes both panels, document DOM also includes benchmark controls. These are display frame intervals, not hardware input latency. Optional Chromium heap is coarse, not process/peak memory. No baseline speedup claim.",
+  "results": [
+    {
+      "totalNodes": 1000,
+      "rootBoards": 100,
+      "nodesByKind": {
+        "frame": 200,
+        "text": 300,
+        "image": 100,
+        "group": 100,
+        "rectangle": 200,
+        "pen": 100
+      },
+      "autoLayoutFrames": 50,
+      "panels": {
+        "layers": true,
+        "properties": true
+      },
+      "sceneReadyMs": 139.4,
+      "phases": [
+        {
+          "phase": "pan-100%-text-selected",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9.8,
+          "maxFrameMs": 10.2,
+          "framesOver34ms": 0,
+          "mountedNodes": 110,
+          "visibleNodes": 44,
+          "canvasDomElements": 396,
+          "editorDomElements": 1146,
+          "documentDomElements": 1167,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-100%-10%-full-detail",
+          "meanFrameMs": 16.17,
+          "p95FrameMs": 41.7,
+          "maxFrameMs": 133.3,
+          "framesOver34ms": 7,
+          "mountedNodes": 1000,
+          "visibleNodes": 1000,
+          "canvasDomElements": 3415,
+          "editorDomElements": 4165,
+          "documentDomElements": 4186,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 358
+        },
+        {
+          "phase": "drag-10-node-subtree",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9.5,
+          "maxFrameMs": 10.1,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 214,
+          "editorDomElements": 929,
+          "documentDomElements": 950,
+          "propertiesPanelElements": 114,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "resize-auto-layout-frame",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9.3,
+          "maxFrameMs": 10.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 213,
+          "editorDomElements": 954,
+          "documentDomElements": 975,
+          "propertiesPanelElements": 140,
+          "layerRows": 31,
+          "frameStyleChanges": 236,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "text-font-size-preview",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 10.3,
+          "maxFrameMs": 10.4,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 215,
+          "editorDomElements": 965,
+          "documentDomElements": 986,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        }
+      ],
+      "heapMB": 52.5,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 20
+      }
+    },
+    {
+      "totalNodes": 5000,
+      "rootBoards": 500,
+      "nodesByKind": {
+        "frame": 1000,
+        "text": 1500,
+        "image": 500,
+        "group": 500,
+        "rectangle": 1000,
+        "pen": 500
+      },
+      "autoLayoutFrames": 250,
+      "panels": {
+        "layers": true,
+        "properties": true
+      },
+      "sceneReadyMs": 864.1,
+      "phases": [
+        {
+          "phase": "pan-100%-text-selected",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9.8,
+          "maxFrameMs": 10.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 110,
+          "visibleNodes": 44,
+          "canvasDomElements": 396,
+          "editorDomElements": 1146,
+          "documentDomElements": 1167,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-100%-10%-full-detail",
+          "meanFrameMs": 22.49,
+          "p95FrameMs": 83,
+          "maxFrameMs": 191.7,
+          "framesOver34ms": 17,
+          "mountedNodes": 4559,
+          "visibleNodes": 2992,
+          "canvasDomElements": 15503,
+          "editorDomElements": 16253,
+          "documentDomElements": 16274,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 358
+        },
+        {
+          "phase": "drag-10-node-subtree",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 8.5,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 214,
+          "editorDomElements": 929,
+          "documentDomElements": 950,
+          "propertiesPanelElements": 114,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "resize-auto-layout-frame",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 8.7,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 213,
+          "editorDomElements": 954,
+          "documentDomElements": 975,
+          "propertiesPanelElements": 140,
+          "layerRows": 31,
+          "frameStyleChanges": 236,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "text-font-size-preview",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 8.7,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 215,
+          "editorDomElements": 965,
+          "documentDomElements": 986,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        }
+      ],
+      "heapMB": 80.64,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 20
+      }
+    },
+    {
+      "totalNodes": 10000,
+      "rootBoards": 1000,
+      "nodesByKind": {
+        "frame": 2000,
+        "text": 3000,
+        "image": 1000,
+        "group": 1000,
+        "rectangle": 2000,
+        "pen": 1000
+      },
+      "autoLayoutFrames": 500,
+      "panels": {
+        "layers": true,
+        "properties": true
+      },
+      "sceneReadyMs": 1536.8,
+      "phases": [
+        {
+          "phase": "pan-100%-text-selected",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 110,
+          "visibleNodes": 44,
+          "canvasDomElements": 396,
+          "editorDomElements": 1146,
+          "documentDomElements": 1167,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-100%-10%-full-detail",
+          "meanFrameMs": 25.25,
+          "p95FrameMs": 99.6,
+          "maxFrameMs": 208.3,
+          "framesOver34ms": 18,
+          "mountedNodes": 5016,
+          "visibleNodes": 2992,
+          "canvasDomElements": 17055,
+          "editorDomElements": 17805,
+          "documentDomElements": 17826,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 358
+        },
+        {
+          "phase": "drag-10-node-subtree",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 9.1,
+          "maxFrameMs": 9.2,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 214,
+          "editorDomElements": 929,
+          "documentDomElements": 950,
+          "propertiesPanelElements": 114,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "resize-auto-layout-frame",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 8.7,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 213,
+          "editorDomElements": 954,
+          "documentDomElements": 975,
+          "propertiesPanelElements": 140,
+          "layerRows": 31,
+          "frameStyleChanges": 236,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "text-font-size-preview",
+          "meanFrameMs": 8.33,
+          "p95FrameMs": 8.5,
+          "maxFrameMs": 9.3,
+          "framesOver34ms": 0,
+          "mountedNodes": 57,
+          "visibleNodes": 38,
+          "canvasDomElements": 215,
+          "editorDomElements": 965,
+          "documentDomElements": 986,
+          "propertiesPanelElements": 149,
+          "layerRows": 31,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        }
+      ],
+      "heapMB": 76.01,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 20
+      }
+    }
+  ]
+}

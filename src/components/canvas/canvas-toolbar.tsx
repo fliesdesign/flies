@@ -7,7 +7,7 @@ import {
   SquareIcon,
   TypeIcon,
 } from "lucide-react";
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { CanvasTool } from "@/lib/canvas-tools";
@@ -28,6 +28,7 @@ type CanvasToolbarProps = {
   tool: CanvasTool;
   onToolChange: (tool: CanvasTool) => void;
   disabled?: boolean;
+  actions?: ReactNode;
 };
 
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
@@ -46,7 +47,12 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-export function CanvasToolbar({ tool, onToolChange, disabled = false }: CanvasToolbarProps) {
+export function CanvasToolbar({
+  tool,
+  onToolChange,
+  disabled = false,
+  actions,
+}: CanvasToolbarProps) {
   const [focusTool, setFocusTool] = useState(tool);
 
   return (
@@ -85,6 +91,12 @@ export function CanvasToolbar({ tool, onToolChange, disabled = false }: CanvasTo
             </TooltipContent>
           </Tooltip>
         ))}
+        {actions && (
+          <>
+            <div className="canvas-toolbar-divider" aria-hidden="true" />
+            {actions}
+          </>
+        )}
       </div>
     </TooltipProvider>
   );

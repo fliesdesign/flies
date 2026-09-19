@@ -1,21 +1,4 @@
-import {
-  PanelLeftOpenIcon,
-  PanelRightOpenIcon,
-  CopyIcon,
-  ClipboardIcon,
-  ScissorsIcon,
-  FrameIcon,
-  GroupIcon,
-  UngroupIcon,
-  LockIcon,
-  UnlockIcon,
-  PencilIcon,
-  LayersIcon,
-  MaximizeIcon,
-  Redo2Icon,
-  Trash2Icon,
-  Undo2Icon,
-} from "lucide-react";
+import { PanelLeftOpenIcon, PanelRightOpenIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -49,6 +32,7 @@ import {
   type CanvasFrame,
 } from "@/hooks/use-canvas-document";
 import { arrangeSelection, type CanvasArrangeAction } from "@/lib/canvas-arrange";
+import { CanvasAutoPan, pointerWorldDelta } from "@/lib/canvas-auto-pan";
 import { CanvasCamera, LatestValueFrameBatch } from "@/lib/canvas-camera";
 import type { CanvasDocument } from "@/lib/canvas-document";
 import {
@@ -62,8 +46,9 @@ import {
   type ResizeHandle,
   type Viewport,
 } from "@/lib/canvas-geometry";
-import { AlignmentGuideIndex, CanvasGuides } from "@/lib/canvas-guides";
+import { AlignmentGuideTargets, CanvasGuides, type AlignmentGuideIndex } from "@/lib/canvas-guides";
 import { readCanvasImage } from "@/lib/canvas-image";
+import { finalizeCanvasMove } from "@/lib/canvas-move";
 import {
   CANVAS_CLIPBOARD_MIME,
   encodeCanvasClipboard,
@@ -87,6 +72,7 @@ import {
 import { viewportBounds } from "@/lib/canvas-spatial-index";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@/lib/canvas-tools";
 
+import { CanvasFileMenu, type CanvasFileActions } from "./canvas-file-menu";
 import { CanvasAlignmentGuides } from "./canvas-guides";
 import { CanvasLayers } from "./canvas-layers";
 import { CanvasNodeContent, measureCanvasTextHeight } from "./canvas-node-content";
@@ -105,11 +91,15 @@ export type CanvasControls = {
   camera: CanvasCamera;
   select: (id: string | null) => void;
   preview: (frame: CanvasFrame) => void;
+  previewMany: (frames: readonly CanvasFrame[]) => void;
+  setPanelsOpen: (open: boolean) => void;
   flushPreview: () => void;
+  prepare: () => void;
   surface: HTMLDivElement;
 };
 
 type DesignCanvasProps = {
+  fileActions?: CanvasFileActions;
   initialFrames?: CanvasFrame[];
   persist?: boolean;
   FrameContent?: FrameContentComponent;
@@ -134,6 +124,10 @@ type Interaction = {
   points?: Point[];
   moved?: boolean;
   guides?: AlignmentGuideIndex;
+  guideTargets?: AlignmentGuideTargets;
+  guideViewport?: Viewport;
+  modifiers?: { shiftKey: boolean; altKey: boolean };
+  requestedMove?: CanvasFrame[];
 };
 
 function isEditingTarget(target: EventTarget | null) {
@@ -171,6 +165,7 @@ function DrawingPreview({ frame, camera }: { frame: CanvasFrame; camera: CanvasC
 
 export function DesignCanvas({
   initialFrames,
+  fileActions,
   persist = true,
   FrameContent,
   onReady,
@@ -186,6 +181,7 @@ export function DesignCanvas({
   const { undo, redo } = document;
   const [camera] = useState(() => new CanvasCamera());
   const [guides] = useState(() => new CanvasGuides());
+  const [autoPan] = useState(() => new CanvasAutoPan());
   const surfaceRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -193,6 +189,11 @@ export function DesignCanvas({
   const [propertiesOpen, setPropertiesOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 760,
   );
+  const setPanelsOpen = useCallback((open: boolean) => {
+    setLayersOpen(open);
+    setPropertiesOpen(open);
+  }, []);
+  const propertyPreviewRef = useRef<{ frames: CanvasFrame[]; ids: readonly string[] } | null>(null);
   const reopenPropertiesRef = useRef<HTMLButtonElement>(null);
   const propertiesCollapsedRef = useRef(false);
   const layerAnchorRef = useRef<string | null>(null);
@@ -221,6 +222,8 @@ export function DesignCanvas({
         : [],
     [document, selection, snapshot],
   );
+  const hasPropertySelection = propertyIds.length > 0;
+  const showProperties = propertiesOpen && hasPropertySelection;
   const selectedIds = useMemo(
     () =>
       snapshot.ids.length
@@ -270,29 +273,17 @@ export function DesignCanvas({
   // Camera motion changes the hit target even when the pointer stays still.
   useEffect(() => camera.subscribe(() => setHoveredId(null)), [camera]);
 
-  useEffect(() => {
-    if (surfaceRef.current)
-      onReady?.({
-        document,
-        camera,
-        select: selectOne,
-        preview: previewFrame,
-        flushPreview: previewBatch.flush,
-        surface: surfaceRef.current,
-      });
-    return () => onReady?.(null);
-  }, [document, camera, onReady, previewFrame, previewBatch, selectOne]);
-
   useEffect(
     () => () => {
       previewBatch.cancel();
       draftBatch.cancel();
       marqueeBatch.cancel();
+      autoPan.stop();
       camera.cancel();
       guides.clear();
       document.endGesture(true);
     },
-    [document, camera, previewBatch, draftBatch, guides, marqueeBatch],
+    [document, camera, previewBatch, draftBatch, guides, marqueeBatch, autoPan],
   );
 
   const localPoint = useCallback((clientX: number, clientY: number): Point => {
@@ -318,11 +309,12 @@ export function DesignCanvas({
     (cancel = false) => {
       const active = interactionRef.current;
       if (!active) return;
+      autoPan.stop();
       guides.clear();
       interactionRef.current = null;
       if (cancel) {
         previewBatch.cancel();
-        if (active.kind === "pan") changeViewport(active.viewport);
+        changeViewport(active.viewport);
       } else {
         previewBatch.flush();
       }
@@ -350,7 +342,11 @@ export function DesignCanvas({
       } else if (active.kind !== "pan") {
         const parents =
           !cancel && active.kind === "move" && active.moved
-            ? reparentSelection(document.getFrames(), active.roots ?? [])
+            ? finalizeCanvasMove(
+                document.getFrames(),
+                active.roots ?? [],
+                active.requestedMove ?? [],
+              )
             : undefined;
         document.endGesture(cancel, parents);
         if (!cancel && !active.moved && active.collapseTo) selectOne(active.collapseTo);
@@ -371,6 +367,7 @@ export function DesignCanvas({
       marqueeBatch,
       addNode,
       selectOne,
+      autoPan,
     ],
   );
 
@@ -501,6 +498,114 @@ export function DesignCanvas({
     [document, finishInteraction, propertyIds],
   );
 
+  const endPropertyPreview = useCallback(
+    (cancel: boolean) => {
+      if (!propertyPreviewRef.current) return;
+      if (cancel) previewBatch.cancel();
+      else previewBatch.flush();
+      propertyPreviewRef.current = null;
+      document.endGesture(cancel);
+    },
+    [document, previewBatch],
+  );
+
+  const startPropertyPreview = useCallback(() => {
+    finishInteraction(true);
+    endPropertyPreview(true);
+    const subtree = document.getDescendantIds(propertyIds);
+    const related = new Set(subtree);
+    for (const id of propertyIds) {
+      let parent = document.getFrame(id)?.parentId;
+      while (parent && !related.has(parent)) {
+        related.add(parent);
+        parent = document.getFrame(parent)?.parentId;
+      }
+    }
+    propertyPreviewRef.current = {
+      frames: [...related].map((id) => document.getFrame(id)!),
+      ids: propertyIds,
+    };
+    document.beginGesture(subtree);
+    setHoveredId(null);
+  }, [document, propertyIds, finishInteraction, endPropertyPreview]);
+
+  const previewProperty = useCallback(
+    (
+      property: CanvasProperty,
+      value: string | number | boolean,
+      options?: CanvasPropertyOptions,
+    ) => {
+      if (!propertyPreviewRef.current) startPropertyPreview();
+      const active = propertyPreviewRef.current;
+      if (!active) return;
+      previewBatch.schedule(
+        changeCanvasProperty(
+          active.frames,
+          active.ids,
+          property,
+          value,
+          measureCanvasTextHeight,
+          options,
+        ),
+      );
+    },
+    [previewBatch, startPropertyPreview],
+  );
+
+  const prepareFileAction = useCallback(() => {
+    const active = window.document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    finishInteraction(true);
+    endPropertyPreview(false);
+  }, [finishInteraction, endPropertyPreview]);
+
+  useEffect(() => {
+    if (surfaceRef.current)
+      onReady?.({
+        prepare: prepareFileAction,
+        document,
+        camera,
+        select: selectOne,
+        preview: previewFrame,
+        previewMany: previewBatch.schedule,
+        setPanelsOpen,
+        flushPreview: previewBatch.flush,
+        surface: surfaceRef.current,
+      });
+    return () => onReady?.(null);
+  }, [
+    prepareFileAction,
+    document,
+    camera,
+    onReady,
+    previewFrame,
+    previewBatch,
+    selectOne,
+    setPanelsOpen,
+  ]);
+
+  const openProject = useCallback(
+    (nodes: CanvasFrame[]) => {
+      finishInteraction(true);
+      endPropertyPreview(true);
+      setEditingId(null);
+      document.replaceAll(nodes);
+      setSelection([]);
+      setGroupScope(null);
+      setHoveredId(null);
+      setTool("select");
+      camera.setViewport(
+        fitViewport(
+          nodes.filter((node) => !document.isHidden(node.id)),
+          camera.getCurrent().size,
+        ),
+      );
+      camera.flush();
+      surfaceRef.current?.focus({ preventScroll: true });
+    },
+    [camera, document, finishInteraction, endPropertyPreview],
+  );
+
   const arrangeFromProperties = useCallback(
     (action: CanvasArrangeAction) => {
       finishInteraction(true);
@@ -579,6 +684,8 @@ export function DesignCanvas({
 
   useEffect(() => {
     function releaseSpace(event: globalThis.KeyboardEvent) {
+      const active = interactionRef.current;
+      if (active) active.modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
       if (event.code === "Space") {
         spaceRef.current = false;
         setSpaceHeld(false);
@@ -1030,6 +1137,10 @@ export function DesignCanvas({
     const frames = document.getDescendantIds(roots).map((id) => document.getFrame(id)!);
     const bounds = selectionBounds(frames, roots) ?? undefined;
     const kind = hand ? "pan" : handle && roots.length ? "resize" : frame ? "move" : "marquee";
+    const guideTargets =
+      bounds && (kind === "move" || kind === "resize")
+        ? new AlignmentGuideTargets(document, new Set(frames.map((node) => node.id)))
+        : undefined;
     if (kind === "marquee") {
       if (!event.shiftKey) setSelection([]);
       setGroupScope(null);
@@ -1038,6 +1149,7 @@ export function DesignCanvas({
       kind,
       pointerId: event.pointerId,
       start,
+      worldStart,
       viewport: view,
       frame,
       handle,
@@ -1048,13 +1160,9 @@ export function DesignCanvas({
       candidates:
         kind === "marquee" ? all.filter((node) => !isNodeLocked(document, node.id)) : undefined,
       collapseTo: kind === "move" && roots.length > 1 ? frame?.id : undefined,
-      guides: bounds
-        ? new AlignmentGuideIndex(
-            all.filter((node) => !document.isHidden(node.id)),
-            new Set(frames.map((node) => node.id)),
-            viewportBounds(view, camera.getCurrent().size, 0),
-          )
-        : undefined,
+      guideTargets,
+      guideViewport: view,
+      guides: guideTargets?.inViewport(viewportBounds(view, camera.getCurrent().size, 0)),
     };
     if (kind === "move" || kind === "resize") document.beginGesture(frames.map((node) => node.id));
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1065,14 +1173,50 @@ export function DesignCanvas({
     const active = interactionRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     const point = localPoint(event.clientX, event.clientY);
+    const modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
+    active.modifiers = modifiers;
+    const samples =
+      active.kind === "draw" && active.draft?.kind === "pen"
+        ? (event.nativeEvent.getCoalescedEvents?.() ?? []).map((sample) =>
+            localPoint(sample.clientX, sample.clientY),
+          )
+        : [];
+    updateInteraction(active, point, modifiers, samples);
+    if (
+      active.moved &&
+      (active.kind === "move" || active.kind === "resize" || active.kind === "marquee")
+    ) {
+      autoPan.update(point, camera.getCurrent().size, (delta) => {
+        if (interactionRef.current !== active) {
+          autoPan.stop();
+          return;
+        }
+        const view = camera.getCurrent().viewport;
+        changeViewport({ ...view, x: view.x + delta.x, y: view.y + delta.y });
+        updateInteraction(active, point, active.modifiers ?? modifiers);
+        // The camera, objects and guides must publish in the same animation frame.
+        previewBatch.flush();
+        marqueeBatch.flush();
+        guides.flush();
+        camera.flush();
+      });
+    }
+  }
+
+  function updateInteraction(
+    active: Interaction,
+    point: Point,
+    modifiers: { shiftKey: boolean; altKey: boolean },
+    samples: readonly Point[] = [],
+  ) {
+    const view = camera.getCurrent().viewport;
     const delta = { x: point.x - active.start.x, y: point.y - active.start.y };
     if (active.kind === "draw" && active.draft && active.worldStart) {
       const world = screenToWorld(point, active.viewport);
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       if (active.draft.kind === "pen" && active.points) {
-        const samples = event.nativeEvent.getCoalescedEvents?.() ?? [];
         for (const sample of samples) {
-          const next = screenToWorld(localPoint(sample.clientX, sample.clientY), active.viewport);
+          const next = screenToWorld(sample, active.viewport);
           const last = active.points[active.points.length - 1];
           if (Math.hypot(next.x - last.x, next.y - last.y) >= 0.5 / active.viewport.zoom)
             active.points.push(next);
@@ -1081,7 +1225,7 @@ export function DesignCanvas({
         if (world.x !== last.x || world.y !== last.y) active.points.push(world);
         active.draft = { ...active.draft, ...penFromPoints(active.points)! };
       } else {
-        const end = event.shiftKey
+        const end = modifiers.shiftKey
           ? {
               x:
                 active.worldStart.x +
@@ -1114,19 +1258,19 @@ export function DesignCanvas({
       }
       draftBatch.schedule(active.draft);
     } else if (active.kind === "marquee") {
-      const rect = rectFromPoints(active.start, point, 0);
-      const topLeft = screenToWorld({ x: rect.x, y: rect.y }, active.viewport);
-      const worldRect = {
-        ...topLeft,
-        width: rect.width / active.viewport.zoom,
-        height: rect.height / active.viewport.zoom,
+      const worldRect = rectFromPoints(active.worldStart!, screenToWorld(point, view), 0);
+      const rect = {
+        x: worldRect.x * view.zoom + view.x,
+        y: worldRect.y * view.zoom + view.y,
+        width: worldRect.width * view.zoom,
+        height: worldRect.height * view.zoom,
       };
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       const matches = active.moved ? marqueeSelection(active.candidates ?? [], worldRect) : [];
       marqueeBatch.schedule({
         rect,
         ids: document.getRootIds(
-          event.shiftKey ? [...(active.initialSelection ?? []), ...matches] : matches,
+          modifiers.shiftKey ? [...(active.initialSelection ?? []), ...matches] : matches,
         ),
       });
     } else if (active.kind === "pan") {
@@ -1138,9 +1282,9 @@ export function DesignCanvas({
     } else if (active.bounds && active.frames && active.roots) {
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       if (!active.moved) return;
-      const worldDelta = { x: delta.x / active.viewport.zoom, y: delta.y / active.viewport.zoom };
-      if (event.shiftKey && active.kind === "move") {
-        if (Math.abs(delta.x) > Math.abs(delta.y)) worldDelta.y = 0;
+      const worldDelta = pointerWorldDelta(active.worldStart!, point, view);
+      if (modifiers.shiftKey && active.kind === "move") {
+        if (Math.abs(worldDelta.x) > Math.abs(worldDelta.y)) worldDelta.y = 0;
         else worldDelta.x = 0;
       }
       const onlyFrame =
@@ -1150,7 +1294,7 @@ export function DesignCanvas({
       const minimum = onlyFrame && (!onlyFrame.kind || onlyFrame.kind === "frame") ? 40 : 1;
       const next =
         active.kind === "resize" && active.handle
-          ? (event.shiftKey ? resizeFrameProportionally : resizeFrame)(
+          ? (modifiers.shiftKey ? resizeFrameProportionally : resizeFrame)(
               active.bounds,
               active.handle,
               worldDelta,
@@ -1161,11 +1305,17 @@ export function DesignCanvas({
               x: Math.round(active.bounds.x + worldDelta.x),
               y: Math.round(active.bounds.y + worldDelta.y),
             };
+      if (active.guideTargets && active.guideViewport !== view) {
+        active.guideViewport = view;
+        active.guides = active.guideTargets.inViewport(
+          viewportBounds(view, camera.getCurrent().size, 0),
+        );
+      }
       const snapped =
-        event.altKey || (event.shiftKey && active.kind === "resize")
+        modifiers.altKey || (modifiers.shiftKey && active.kind === "resize")
           ? { rect: next, guides: [] }
           : active.guides!.snap(next, active.viewport.zoom, active.handle, minimum);
-      if (event.shiftKey && active.kind === "move") {
+      if (modifiers.shiftKey && active.kind === "move") {
         if (worldDelta.y === 0) {
           snapped.rect.y = active.bounds.y;
           snapped.guides = snapped.guides.filter((guide) => guide.axis === "x");
@@ -1181,6 +1331,7 @@ export function DesignCanvas({
               x: snapped.rect.x - active.bounds.x,
               y: snapped.rect.y - active.bounds.y,
             });
+      if (active.kind === "move") active.requestedMove = updates;
       previewBatch.schedule(updates);
       guides.set(snapped.guides);
     }
@@ -1188,6 +1339,8 @@ export function DesignCanvas({
 
   function keyDown(event: KeyboardEvent<HTMLElement>) {
     const { size } = camera.getCurrent();
+    const active = interactionRef.current;
+    if (active) active.modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
     if (menuOpen || event.nativeEvent.isComposing || isEditingTarget(event.target)) return;
     if (
       (event.key === "Enter" || event.code === "Space") &&
@@ -1367,7 +1520,7 @@ export function DesignCanvas({
       className="canvas-editor"
       aria-label="Canvas editor"
       data-layers-open={layersOpen || undefined}
-      data-properties-open={propertiesOpen || undefined}
+      data-properties-open={showProperties || undefined}
       onKeyDown={keyDown}
       onCopy={(event) => copySelection(event)}
       onCut={(event) => copySelection(event, true)}
@@ -1417,16 +1570,19 @@ export function DesignCanvas({
           <PanelLeftOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
         </button>
       )}
-      {propertiesOpen ? (
+      {showProperties ? (
         <CanvasProperties
           document={document}
           selectedIds={propertyIds}
           onChange={changeProperty}
+          onPreviewStart={startPropertyPreview}
+          onPreview={previewProperty}
+          onPreviewEnd={endPropertyPreview}
           onArrange={arrangeFromProperties}
           onFitText={fitTextHeight}
           onCollapse={collapseProperties}
         />
-      ) : (
+      ) : hasPropertySelection ? (
         <button
           ref={reopenPropertiesRef}
           type="button"
@@ -1440,7 +1596,7 @@ export function DesignCanvas({
         >
           <PanelRightOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
         </button>
-      )}
+      ) : null}
       <ContextMenu
         open={menuOpen}
         onOpenChange={(open, details) => {
@@ -1612,36 +1768,29 @@ export function DesignCanvas({
           )}
           <CanvasAlignmentGuides guides={guides} camera={camera} />
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56" finalFocus={surfaceRef}>
+        <ContextMenuContent className="canvas-menu" finalFocus={surfaceRef}>
           <ContextMenuItem onClick={() => createFrame(menuPointRef.current)}>
-            <FrameIcon />
             New frame<ContextMenuShortcut>F</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem disabled={!selectedIds.length} onClick={() => void copyFromMenu()}>
-            <CopyIcon />
             Copy<ContextMenuShortcut>⌘ C</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem disabled={!selectedIds.length} onClick={() => void copyFromMenu(true)}>
-            <ScissorsIcon />
             Cut<ContextMenuShortcut>⌘ X</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void pasteFromMenu()}>
-            <ClipboardIcon />
             Paste<ContextMenuShortcut>⌘ V</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem onClick={() => void pasteFromMenu(true)}>
-            <span className="size-4" />
             Paste in place<ContextMenuShortcut>⇧ ⌘ V</ContextMenuShortcut>
           </ContextMenuItem>
           {selectedIds.length > 0 && (
             <>
               <ContextMenuItem onClick={duplicateFrame}>
-                <CopyIcon />
                 Duplicate<ContextMenuShortcut>⌘ D</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem onClick={deleteFrame}>
-                <Trash2Icon />
                 Delete<ContextMenuShortcut>⌫</ContextMenuShortcut>
               </ContextMenuItem>
             </>
@@ -1650,25 +1799,19 @@ export function DesignCanvas({
             <>
               <ContextMenuSeparator />
               <ContextMenuItem onClick={() => groupObjects()}>
-                <GroupIcon />
                 Group selection<ContextMenuShortcut>⌘ G</ContextMenuShortcut>
               </ContextMenuItem>
               {selectedIds.some((id) => document.getFrame(id)?.kind === "group") && (
                 <ContextMenuItem onClick={ungroupObjects}>
-                  <UngroupIcon />
                   Ungroup<ContextMenuShortcut>⇧ ⌘ G</ContextMenuShortcut>
                 </ContextMenuItem>
               )}
               <ContextMenuItem onClick={() => groupObjects(true)}>
-                <FrameIcon />
                 Frame selection<ContextMenuShortcut>⌥ ⌘ G</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <LayersIcon />
-                  Arrange
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
+                <ContextMenuSubTrigger>Arrange</ContextMenuSubTrigger>
+                <ContextMenuSubContent className="canvas-menu">
                   {selectedIds.length > 1 && (
                     <>
                       {(
@@ -1715,12 +1858,10 @@ export function DesignCanvas({
                 <ContextMenuItem
                   onClick={() => setRename({ id: selected.id, name: selected.name })}
                 >
-                  <PencilIcon />
                   Rename<ContextMenuShortcut>F2</ContextMenuShortcut>
                 </ContextMenuItem>
               )}
               <ContextMenuItem onClick={lockSelection}>
-                <LockIcon />
                 Lock selection<ContextMenuShortcut>⇧ ⌘ L</ContextMenuShortcut>
               </ContextMenuItem>
               {selected && (!selected.kind || selected.kind === "frame") && (
@@ -1736,18 +1877,13 @@ export function DesignCanvas({
             </>
           )}
           {ids.some((id) => document.getFrame(id)?.locked) && (
-            <ContextMenuItem onClick={unlockAll}>
-              <UnlockIcon />
-              Unlock all
-            </ContextMenuItem>
+            <ContextMenuItem onClick={unlockAll}>Unlock all</ContextMenuItem>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem disabled={!canUndo} onClick={undo}>
-            <Undo2Icon />
             Undo<ContextMenuShortcut>⌘ Z</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem disabled={!canRedo} onClick={redo}>
-            <Redo2Icon />
             Redo<ContextMenuShortcut>⇧ ⌘ Z</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
@@ -1762,7 +1898,6 @@ export function DesignCanvas({
               )
             }
           >
-            <MaximizeIcon />
             Zoom to fit<ContextMenuShortcut>⇧ 1</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem
@@ -1771,12 +1906,25 @@ export function DesignCanvas({
               changeViewport(zoomAtPoint(viewport, { x: size.x / 2, y: size.y / 2 }, 1));
             }}
           >
-            <span className="size-4" />
             Zoom to 100%<ContextMenuShortcut>0</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
-      <CanvasToolbar tool={tool} onToolChange={chooseTool} disabled={importing} />
+      <CanvasToolbar
+        tool={tool}
+        onToolChange={chooseTool}
+        disabled={importing}
+        actions={
+          <CanvasFileMenu
+            fileActions={fileActions}
+            document={document}
+            selectedIds={propertyIds}
+            onPrepare={prepareFileAction}
+            onOpen={openProject}
+            onNotice={setNotice}
+          />
+        }
+      />
       <Dialog
         open={rename !== null}
         onOpenChange={(open) => {

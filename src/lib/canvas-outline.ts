@@ -62,17 +62,18 @@ export function roundedClipsContainPoint(ancestors: readonly CanvasFrame[], poin
 type Circle = Point & { radius: number };
 
 /** Rounded clips are convex. Their boundary crossings and extrema bound any visible overlap. */
-export function isRectVisibleInRoundedClips(frame: FrameRect, ancestors: readonly CanvasFrame[]) {
+export function getVisibleBoundsInRoundedClips(
+  frame: FrameRect,
+  ancestors: readonly CanvasFrame[],
+): FrameRect | undefined {
   const clip = getClipBounds(ancestors);
-  if (!isRectVisibleInClip(frame, clip)) return false;
+  if (!isRectVisibleInClip(frame, clip)) return;
   const left = Math.max(frame.x, clip.left);
   const top = Math.max(frame.y, clip.top);
   const right = Math.min(frame.x + frame.width, clip.right);
   const bottom = Math.min(frame.y + frame.height, clip.bottom);
   const rounded = ancestors.filter((ancestor) => clippingRadius(ancestor) > 0);
-  if (!rounded.length) return true;
-  const middle = { x: (left + right) / 2, y: (top + bottom) / 2 };
-  if (rounded.every((ancestor) => pointInRoundedClip(ancestor, middle, true))) return true;
+  if (!rounded.length) return { x: left, y: top, width: right - left, height: bottom - top };
   const candidates: Point[] = [];
   const add = (x: number, y: number) => {
     const point = { x, y };
@@ -131,7 +132,7 @@ export function isRectVisibleInRoundedClips(frame: FrameRect, ancestors: readonl
       add(x + (dy * across) / distance, y - (dx * across) / distance);
     }
   }
-  if (!candidates.length) return false;
+  if (!candidates.length) return;
   // Averaging feasible points stays inside every convex clip. Strict containment
   // distinguishes an actual visible area from a boundary-only touch.
   const center = candidates.reduce(
@@ -140,8 +141,23 @@ export function isRectVisibleInRoundedClips(frame: FrameRect, ancestors: readonl
   );
   center.x /= candidates.length;
   center.y /= candidates.length;
-  if (center.x <= left || center.x >= right || center.y <= top || center.y >= bottom) return false;
-  return rounded.every((ancestor) => pointInRoundedClip(ancestor, center, true));
+  if (center.x <= left || center.x >= right || center.y <= top || center.y >= bottom) return;
+  if (!rounded.every((ancestor) => pointInRoundedClip(ancestor, center, true))) return;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of candidates) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+export function isRectVisibleInRoundedClips(frame: FrameRect, ancestors: readonly CanvasFrame[]) {
+  return getVisibleBoundsInRoundedClips(frame, ancestors) !== undefined;
 }
 
 /** A layer can stay selected in the tree without creating invisible canvas controls. */

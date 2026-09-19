@@ -1,0 +1,125 @@
+.file-home {
+  min-height: calc(100dvh - var(--desktop-titlebar-height, 0px));
+  padding: 64px 28px;
+  background: var(--background);
+}
+.file-home-content {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.file-home header {
+  margin-bottom: 36px;
+}
+.file-home h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.file-home header p {
+  color: var(--muted-foreground);
+  margin-top: 6px;
+  font-size: 14px;
+}
+.file-create {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 40px;
+}
+.file-create input {
+  flex: 1;
+  min-width: 0;
+}
+.file-home h2 {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin-bottom: 12px;
+}
+.file-list {
+  border-top: 1px solid var(--border);
+}
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 10px;
+  width: 100%;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.file-row:hover {
+  background: var(--accent);
+}
+.file-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.file-row:disabled {
+  opacity: 0.5;
+}
+.file-row strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.file-row small,
+.file-row time {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.file-row time {
+  flex-shrink: 0;
+}
+.file-empty {
+  padding: 32px 0;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+.file-empty p {
+  margin-bottom: 16px;
+}
+.file-storage-note {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+}
+.file-storage-note summary {
+  cursor: pointer;
+}
+.file-library-error {
+  color: var(--destructive);
+  font-size: 13px;
+  margin: 12px 0;
+}
+.file-save-error {
+  position: fixed;
+  z-index: 100;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80vw;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+@media (max-width: 540px) {
+  .file-create {
+    flex-wrap: wrap;
+  }
+  .file-create input {
+    flex-basis: 100%;
+  }
+  .file-row time {
+    max-width: 100px;
+    text-align: right;
+  }
+}

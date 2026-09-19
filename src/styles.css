@@ -6,7 +6,7 @@
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: Arial, Helvetica, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -54,8 +54,8 @@
   --color-new: #924ff7;
   --color-new-subtle: #332341;
   --color-new-foreground: #cba9f4;
-  --color-tooltip: #afafaf;
-  --color-tooltip-foreground: #0d0d0d;
+  --color-tooltip: var(--foreground);
+  --color-tooltip-foreground: var(--background);
   --color-warning: #302a20;
   --color-warning-border: #6b5330;
   --color-danger: #302121;
@@ -76,48 +76,52 @@
   --animate-accordion-up: oui-accordion-up 150ms ease;
 }
 
-/* Paper: OpenAI Platform — UI Kit, Default page.
-   The supplied kit is dark-only. Arial is its explicit OpenAI Sans fallback. */
+/* Neutral dark theme shared by the editor and portaled UI. */
 :root {
   color-scheme: dark;
-  --background: #212121;
-  --foreground: #ededed;
+  --background: #181818;
+  --foreground: #e8e8e8;
   --shell: #121212;
-  --card: #212121;
-  --card-foreground: #ededed;
-  --card-border: #424242;
-  --popover: #303030;
-  --popover-foreground: #ededed;
-  --primary: #ededed;
-  --primary-hover: #ffffff;
-  --primary-foreground: #0d0d0d;
-  --secondary: #414141;
-  --secondary-foreground: #ededed;
-  --muted: #303030;
-  --muted-foreground: #afafaf;
-  --accent: #454545;
-  --accent-foreground: #ededed;
-  --destructive: #e02e2a;
-  --border: #383838;
-  --input: #595959;
-  --ring: #4285d4;
-  /* Charts use the kit's neutral hierarchy plus its two accent families. */
-  --chart-1: #ededed;
-  --chart-2: #afafaf;
-  --chart-3: #8f8f8f;
-  --chart-4: #924ff7;
-  --chart-5: #cba9f4;
+  --card: #222222;
+  --card-foreground: var(--foreground);
+  --card-border: #3a3a3a;
+  --popover: #292929;
+  --popover-foreground: var(--foreground);
+  --primary: #bcbcbc;
+  --primary-hover: #eeeeee;
+  --primary-foreground: #1c1c1c;
+  --secondary: #333333;
+  --secondary-foreground: #e0e0e0;
+  --muted: #252525;
+  --muted-foreground: #a3a3a3;
+  --accent: #343434;
+  --accent-foreground: #eeeeee;
+  --destructive: #e05252;
+  --border: #333333;
+  --input: #484848;
+  --ring: #bcbcbc;
+  --chart-1: #bcbcbc;
+  --chart-2: #a0a0a0;
+  --chart-3: #888888;
+  --chart-4: #707070;
+  --chart-5: #585858;
   --radius: 8px;
-  --sidebar: #121212;
-  --sidebar-foreground: #ededed;
-  --sidebar-primary: #ededed;
-  --sidebar-primary-foreground: #0d0d0d;
-  --sidebar-accent: #303030;
-  --sidebar-accent-foreground: #ededed;
-  --sidebar-border: #383838;
-  --sidebar-ring: #4285d4;
-  --default-transition-duration: 150ms;
-  --default-transition-timing-function: ease;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --editor-field: #1a1a1a;
+  --editor-field-hover: #202020;
+  --editor-selection: #353535;
+  --editor-selection-text: #eeeeee;
+  --editor-guide: #bcbcbc;
+  --editor-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: ease-out;
 }
 
 @layer base {
@@ -134,8 +138,8 @@
     margin: 0;
   }
   ::selection {
-    background: #ededed;
-    color: #0d0d0d;
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
 }
 
@@ -265,4 +269,24 @@
   [data-slot="skeleton"] {
     animation: none !important;
   }
+}
+
+/* Native macOS controls sit above the webview; this strip delegates gestures to Tauri. */
+:root[data-native-titlebar="macos"] {
+  --desktop-titlebar-height: 36px;
+}
+
+.desktop-drag-region {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 40;
+  height: var(--desktop-titlebar-height);
+  background: var(--card);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+html[data-native-titlebar="macos"] body {
+  padding-top: var(--desktop-titlebar-height);
 }

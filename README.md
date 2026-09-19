@@ -1,8 +1,8 @@
-# lra-dsgn
+# Flies
 
 A full-screen design canvas built with React 19, TypeScript, Vite, and TanStack Router,
 with a Tauri v2 desktop shell. The frontend uses Tailwind CSS v4 and shadcn/ui
-(Base UI primitives, OUI dark theme).
+(Base UI primitives, neutral dark theme).
 
 ## Commands
 
@@ -23,6 +23,9 @@ bun test src         # canvas geometry, document, rendering, interaction, and hi
 
 Open `/` for the canvas, a compact layers sidebar on the left, a vertical toolbar beside it,
 and a properties panel on the right.
+On macOS, the desktop window uses an overlay title bar with native traffic lights. Drag the
+slim top strip to move the window; double-click it to maximize or restore. The strip only
+appears in the desktop app, and editor controls sit below it.
 Layers follow frame/group nesting and stacking order, with selection, expand/collapse,
 inline renaming, lock controls, and eye buttons to hide/show nodes. Drag rows to reorder them;
 drop in the middle of a frame/group to nest them, or below the list to move them to the root.
@@ -31,6 +34,7 @@ container for 600 ms while dragging to expand it; a destination label identifies
 These edits support undo,
 and hidden states persist with the document. Ctrl/Cmd + Shift + H toggles the selected nodes.
 Shift-click selects a range; Cmd/Ctrl-click toggles a layer.
+The properties panel and its reopen button are hidden when no layer is selected.
 Both panels can be collapsed to give the canvas more space. At narrow widths properties start
 collapsed, and opening one panel closes the other. There is no
 navigation bar, footer, or router devtools. A native
@@ -58,8 +62,17 @@ The properties panel edits position, dimensions, proportions, opacity, fill, cor
 visibility, and locking. It also exposes frame clipping, pen stroke width, and multi-selection
 alignment. A single child's position is relative to its parent; multi-selection coordinates
 describe the combined world bounds. Enter or blur commits a field as one undoable edit;
-Escape discards the draft. Invalid values revert, and locked layers can be inspected and
-unlocked in the panel without enabling canvas manipulation.
+Escape discards the draft. Drag a numeric label horizontally to scrub its value live; Shift
+adjusts faster, Alt (Option) adjusts more finely. Each drag is one undoable edit, and Escape
+cancels it. Click a fill swatch for live saturation, brightness, hue, alpha, and hex controls;
+Done or clicking outside commits the color, while Cancel or Escape restores it. Invalid values
+revert, and locked layers can be inspected and unlocked without enabling canvas manipulation.
+
+Frame properties offer **Auto layout** with horizontal or vertical flow, gap, uniform padding,
+cross-axis alignment, and start/center/end/space-between justification. Direct children follow
+their layer order; changing child sizes or the frame bounds reflows them. Their X/Y fields are
+read-only while layout manages their positions. Choose **Free layout** to keep the current
+positions and return to manual placement.
 
 Objects dropped into a frame become its children and move with it. Drawing a frame around
 existing objects wraps them without moving them. Frames clip their contents by default;
@@ -71,7 +84,10 @@ Enter or double-click a group to edit inside it; Cmd-click selects a nested obje
 
 Alignment guides appear while moving or resizing objects near the edges or centers of other
 visible objects. Snapping uses a six-pixel screen distance at every zoom level; hold Alt (Option)
-while dragging to bypass it. Guides disappear when the gesture ends or is cancelled.
+while dragging to bypass it. Hidden nodes and fully clipped children are excluded; partially
+clipped nodes snap only to their visible bounds. Guides disappear when the gesture ends or is
+cancelled. Moving, resizing, or marquee-selecting near a canvas edge pans the view automatically
+without releasing the pointer; returning inward or ending the gesture stops the pan.
 
 Double-click text, or press Enter with a text object selected, to edit it. Enter inserts a
 line break; Ctrl/Cmd + Enter or clicking outside commits. Escape cancels the current text
@@ -99,6 +115,9 @@ Layers; their geometry and styling cannot be edited until unlocked. **Unlock all
 | Ctrl/Cmd + C / X / V                | Copy / cut / paste                                                      |
 | Ctrl/Cmd + Shift + V                | Paste in place                                                          |
 | Ctrl/Cmd + D                        | Duplicate the selection                                                 |
+| Ctrl/Cmd + S                        | Download the current project as a portable `.lra` file                  |
+| Ctrl/Cmd + O                        | Open a `.lra` project                                                   |
+| Ctrl/Cmd + Shift + E                | Export the selected frame or layers as a PNG                            |
 | Delete / Backspace                  | Delete the selection and its descendants                                |
 | Ctrl/Cmd + G / Ctrl/Cmd + Shift + G | Group / ungroup                                                         |
 | Ctrl/Cmd + Alt + G                  | Frame the selection                                                     |
@@ -118,7 +137,13 @@ Small raster originals are preserved; larger images are compressed, and SVGs are
 Imported images use embedded data URLs without uploads or remote image requests. Tauri's
 window sets `dragDropEnabled: false` so HTML5 file dropping can reach the frontend on Windows.
 
-Objects are saved in browser `localStorage` under `lra-dsgn.canvas.v1`, using a version 2
+Use the toolbar's **Project menu** to save/open portable `.lra` files or export a selection as
+PNG. Project files include the complete hierarchy, styling, and embedded images. Opening a
+project replaces the current canvas as one undoable action; an invalid file leaves it intact.
+PNG exports use the selected subtree(s) at 1× size, including visible content, opacity, and
+frame clipping, without editor controls.
+
+Objects are also saved in browser `localStorage` under `lra-dsgn.canvas.v1`, using a version 2
 `{ version: 2, nodes }` document. Older flat arrays still load, with frame membership inferred
 from containment during migration. Clipboard imports use their explicit hierarchy instead.
 Up to 100 undo edits remain in memory per session. A failed
@@ -156,7 +181,7 @@ costs, so the benchmark includes a full-detail 10% overview.
 ```
 src/
   main.tsx              creates the router, registers its type, mounts RouterProvider
-  styles.css            Tailwind entry + OUI theme tokens, typography, motion, reduced-motion rules
+  styles.css            Tailwind entry + dark theme tokens, typography, motion, reduced-motion rules
   routeTree.gen.ts      generated by @tanstack/router-plugin — do not edit
   routes/
     __root.tsx          chrome-free <Outlet /> and 404; fixed dark theme
@@ -175,6 +200,8 @@ src/
   lib/canvas-operations.ts  subtree transforms, grouping, parenting, and clipboard plans
   lib/canvas-arrange.ts   alignment and distribution
   lib/canvas-properties.ts  atomic property edits and text reflow
+  lib/canvas-layout.ts   frame auto layout and child placement
+  lib/canvas-project.ts  portable project validation and serialization
   lib/canvas-outline.ts   clipping-aware selection visibility and controls
   lib/canvas-tools.ts     tool types, drawing bounds, and local pen coordinates
   lib/canvas-image.ts     local image decoding, size limits, and raster conversion
@@ -219,18 +246,21 @@ for class names, so deleting components you never use will shrink the CSS.
 Re-sync or add later with `bun x shadcn@latest add <name>`. They are built on
 [Base UI](https://base-ui.com) (`@base-ui/react`), not Radix — check Base UI's docs when a
 component's props differ from shadcn examples you find online. Icons are `lucide-react`;
-the font is Arial with Helvetica/sans-serif fallbacks, matching the kit’s explicit fallback for OpenAI Sans.
+the editor uses native system typography with monospaced numeric fields. Canvas text retains its own font settings.
 No proprietary font files or remote font requests are required.
 
-Theme tokens live in `src/styles.css`. The supplied kit is dark-only: `index.html` sets the
+Theme tokens live in `src/styles.css`. The neutral theme is dark-only: `index.html` sets the
 `dark` class before rendering, and CSS declares `color-scheme: dark` independently of OS settings.
 
-## OUI design source
+## Dark theme
 
-Adapted from [OpenAI Platform — UI Kit in Paper](https://app.paper.design/file/01M25GA8KKM41CKAZ2FHEP016Y/1-0),
-Default page, foundation/control boards and extended component specimens.
+The original component foundation was adapted from [OpenAI Platform — UI Kit in Paper](https://app.paper.design/file/01M25GA8KKM41CKAZ2FHEP016Y/1-0),
+Default page. The editor now uses its own palette and control treatment rather than reproducing that kit.
 
-- Shell `#121212`, canvas `#212121`, raised surfaces `#303030`, text `#EDEDED`, secondary text `#AFAFAF`.
+- Canvas `#181818`, panels `#222222`, recessed fields `#1A1A1A`, menus `#292929`.
+- Text `#E8E8E8`, muted text `#A3A3A3`, neutral focus and guide lines `#BCBCBC`.
+- Compact toolbar and selected layers use simple gray active states.
+- System UI typography for the editor and SF Mono/Consolas numeric fields, with no remote font requests.
 - 14/20 px controls, 16/20 px card titles, 20/32 px section headings, 36/44 px page titles.
 - 6–8 px control radii, 12 px menus, 16 px cards; cards/dialogs use 20 px insets.
 - Controls use 150 ms transitions, navigation 200 ms, tooltips 250 ms. Search uses
@@ -247,7 +277,7 @@ menus, overlays, selection, feedback, navigation, and message components also ha
 style adjustments; layout-only primitives keep their behavior. Open `/components` to inspect
 representative controls and interactive states. The preview uses local in-memory sample data.
 
-Registry regeneration can overwrite the OUI adjustments. Review generated changes rather
+Registry regeneration can overwrite the custom theme adjustments. Review generated changes rather
 than blindly replacing customized components.
 
 ## Adding a Rust command

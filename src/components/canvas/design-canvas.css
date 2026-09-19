@@ -15,13 +15,14 @@
 }
 
 .canvas-editor > .design-canvas {
+  top: var(--desktop-titlebar-height, 0px);
   left: var(--canvas-sidebar-width);
   right: var(--canvas-properties-width);
 }
 
 .canvas-layers-reopen {
   position: fixed;
-  top: 16px;
+  top: calc(var(--desktop-titlebar-height, 0px) + 16px);
   left: 16px;
   z-index: 20;
   display: grid;
@@ -47,7 +48,7 @@
 
 .canvas-properties-reopen {
   position: fixed;
-  top: 8px;
+  top: calc(var(--desktop-titlebar-height, 0px) + 8px);
   right: 16px;
   z-index: 20;
   display: grid;
@@ -117,7 +118,7 @@
   overflow: hidden;
   pointer-events: none;
   fill: none;
-  stroke: #f08098;
+  stroke: var(--editor-guide);
   stroke-width: 1;
 }
 
@@ -199,7 +200,7 @@
 }
 
 .canvas-empty > span {
-  color: #8f8f8f;
+  color: var(--muted-foreground);
   font-size: 12px;
 }
 
@@ -377,7 +378,7 @@
   padding: 2px 7px;
   border-radius: 4px;
   background: var(--ring);
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
@@ -404,4 +405,31 @@
   .canvas-resize::after {
     inset: 9px;
   }
+}
+
+/* Plain, compact editor menus; only state checks and submenu arrows remain. */
+.canvas-menu {
+  width: 232px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px #0004;
+}
+
+.canvas-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
+  min-height: 28px;
+  gap: 16px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.canvas-menu :is([data-slot="context-menu-shortcut"], [data-slot="dropdown-menu-shortcut"]) {
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0;
+  white-space: nowrap;
 }

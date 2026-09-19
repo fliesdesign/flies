@@ -1,6 +1,6 @@
 .canvas-toolbar {
   position: fixed;
-  top: var(--canvas-toolbar-top, 16px);
+  top: calc(var(--desktop-titlebar-height, 0px) + var(--canvas-toolbar-top, 16px));
   left: calc(var(--canvas-sidebar-width, 0px) + 16px);
   z-index: 20;
   display: flex;
@@ -9,11 +9,13 @@
   width: 40px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--popover);
+  border-radius: 8px;
+  background: var(--card);
   box-shadow: 0 4px 14px #00000026;
   touch-action: manipulation;
-  max-height: calc(100dvh - var(--canvas-toolbar-top, 16px) - 16px);
+  max-height: calc(
+    100dvh - var(--desktop-titlebar-height, 0px) - var(--canvas-toolbar-top, 16px) - 16px
+  );
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -62,4 +64,11 @@
   font-family: inherit;
   font-size: 11px;
   opacity: 0.65;
+}
+
+.canvas-toolbar-divider {
+  height: 1px;
+  flex: none;
+  margin: 3px 4px;
+  background: var(--border);
 }

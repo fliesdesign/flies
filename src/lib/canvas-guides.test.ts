@@ -3,11 +3,92 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { CanvasDocument } from "./canvas-document";
+import { CanvasDocument, type CanvasFrame } from "./canvas-document";
 import type { ResizeHandle } from "./canvas-geometry";
-import { AlignmentGuideIndex, CanvasGuides, type AlignmentGuide } from "./canvas-guides";
+import {
+  AlignmentGuideIndex,
+  AlignmentGuideTargets,
+  CanvasGuides,
+  type AlignmentGuide,
+} from "./canvas-guides";
 
 const target = { id: "target", x: 100, y: 100, width: 200, height: 200 };
+
+describe("visible alignment targets", () => {
+  const frame: CanvasFrame = { id: "frame", name: "Frame", x: 0, y: 0, width: 100, height: 100 };
+  const child: CanvasFrame = {
+    id: "child",
+    name: "Child",
+    parentId: "frame",
+    kind: "rectangle",
+    fill: "#fff",
+    x: 150,
+    y: 150,
+    width: 30,
+    height: 30,
+  };
+  const viewport = { x: -100, y: -100, width: 1000, height: 1000 };
+
+  it("excludes fully clipped and hidden targets instead of snapping to invisible edges", () => {
+    const document = new CanvasDocument([frame, child, { ...child, id: "hidden", hidden: true }]);
+    const targets = new AlignmentGuideTargets(document, new Set([frame.id]));
+    const rect = { x: 154, y: 400, width: 1, height: 10 };
+    assert.deepEqual(targets.inViewport(viewport).snap(rect, 1), { rect, guides: [] });
+    document.update({ ...frame, clipContent: false });
+    const unclipped = new AlignmentGuideTargets(document, new Set([frame.id]));
+    assert.equal(unclipped.inViewport(viewport).snap(rect, 1).rect.x, 150);
+  });
+
+  it("uses only the visible part of a clipped child for edges, center and guide endpoints", () => {
+    const document = new CanvasDocument([frame, { ...child, x: 80, y: 70, width: 60, height: 60 }]);
+    const index = new AlignmentGuideTargets(document, new Set([frame.id])).inViewport(viewport);
+    assert.equal(index.snap({ x: 93, y: 400, width: 1, height: 10 }, 1).rect.x, 90);
+    const rect = { x: 137, y: 400, width: 1, height: 10 };
+    assert.deepEqual(index.snap(rect, 1), { rect, guides: [] });
+    assert.deepEqual(index.snap({ x: 82, y: 400, width: 1, height: 10 }, 1).guides, [
+      { axis: "x", position: 80, start: 70, end: 410 },
+    ]);
+  });
+
+  it("excludes rounded corner cutouts and snaps to the visible curved overlap bounds", () => {
+    const rounded = { ...frame, cornerRadius: 50 };
+    const document = new CanvasDocument([rounded, { ...child, x: 0, y: 0, width: 5, height: 5 }]);
+    const rect = { x: 4, y: 400, width: 1, height: 10 };
+    assert.deepEqual(
+      new AlignmentGuideTargets(document, new Set([frame.id])).inViewport(viewport).snap(rect, 1),
+      { rect, guides: [] },
+    );
+    document.update({ ...child, x: 0, y: 0, width: 20, height: 40 });
+    const index = new AlignmentGuideTargets(document, new Set([frame.id])).inViewport(viewport);
+    const result = index.snap({ x: 4, y: 400, width: 1, height: 10 }, 1);
+    const visibleLeft = 50 - Math.sqrt(50 ** 2 - 10 ** 2);
+    assert.ok(Math.abs(result.rect.x - visibleLeft) < 1e-8);
+    assert.equal(result.guides[0].start, 10);
+  });
+
+  it("finds newly revealed targets while auto-panning without including distant objects", () => {
+    const document = new CanvasDocument([
+      { ...frame, id: "near", x: 100, y: 100 },
+      { ...frame, id: "far", x: 1000, y: 100 },
+    ]);
+    const targets = new AlignmentGuideTargets(document, new Set());
+    const rect = { x: 1004, y: 400, width: 1, height: 10 };
+    const initial = targets.inViewport({ x: 0, y: 0, width: 800, height: 600 });
+    assert.deepEqual(initial.snap(rect, 1), { rect, guides: [] });
+    const afterPan = targets.inViewport({ x: 300, y: 0, width: 800, height: 600 });
+    assert.equal(afterPan.snap(rect, 1).rect.x, 1000);
+  });
+
+  it("snapshots gesture geometry and excludes all active descendants", () => {
+    const document = new CanvasDocument([frame, { ...child, x: 20, y: 20 }]);
+    const targets = new AlignmentGuideTargets(
+      document,
+      new Set(document.getDescendantIds(["frame"])),
+    );
+    const rect = { x: 23, y: 400, width: 1, height: 10 };
+    assert.deepEqual(targets.inViewport(viewport).snap(rect, 1), { rect, guides: [] });
+  });
+});
 
 describe("alignment guides", () => {
   it("aligns both axes and draws lines spanning the reference and moving object", () => {
