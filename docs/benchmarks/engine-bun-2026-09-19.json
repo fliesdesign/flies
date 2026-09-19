@@ -1,0 +1,253 @@
+{
+  "scope": "Pure JavaScript document/index algorithms; excludes browser layout, paint, React, and localStorage",
+  "runtime": "Bun 1.4.2",
+  "platform": "darwin/arm64",
+  "screen": {
+    "x": 1440,
+    "y": 900
+  },
+  "pointerUpdates": 1000,
+  "historyUpdates": 100,
+  "scenes": [
+    {
+      "count": 1000,
+      "constructDocumentAndSpatialIndex": {
+        "samples": 7,
+        "medianMs": 0.342042,
+        "p95Ms": 0.926083,
+        "totalMs": 3.071459
+      },
+      "queries": [
+        {
+          "zoom": 1,
+          "minCandidates": 20,
+          "maxCandidates": 25,
+          "samples": 200,
+          "medianMs": 0.00275,
+          "p95Ms": 0.003625,
+          "totalMs": 0.563253
+        },
+        {
+          "zoom": 0.1,
+          "minCandidates": 558,
+          "maxCandidates": 1000,
+          "samples": 200,
+          "medianMs": 0.013375,
+          "p95Ms": 0.05025,
+          "totalMs": 3.889798
+        }
+      ],
+      "targetedPreview": {
+        "samples": 1000,
+        "medianMs": 0.000083,
+        "p95Ms": 0.000125,
+        "totalMs": 0.107696
+      },
+      "previewNotifications": {
+        "document": 0,
+        "editedFrame": 1000,
+        "unrelatedFrame": 0,
+        "committedChanges": 0
+      },
+      "committedUpdateIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000625,
+        "p95Ms": 0.00225,
+        "totalMs": 0.099428
+      },
+      "undoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000667,
+        "p95Ms": 0.001208,
+        "totalMs": 0.07938
+      },
+      "redoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000833,
+        "p95Ms": 0.001667,
+        "totalMs": 0.09241
+      },
+      "history": {
+        "undoEntries": 100,
+        "redoEntries": 0,
+        "retainedFrameReferences": 200
+      },
+      "previousAlgorithms": {
+        "previewArrayMap": {
+          "samples": 1000,
+          "medianMs": 0.006792,
+          "p95Ms": 0.009542,
+          "totalMs": 7.828849
+        },
+        "commitArrayMapAndFullSnapshot": {
+          "samples": 100,
+          "medianMs": 0.020625,
+          "p95Ms": 0.0265,
+          "totalMs": 2.758123
+        },
+        "retainedHistoryFrameObjects": 100000,
+        "finalFrameCount": 1000
+      }
+    },
+    {
+      "count": 5000,
+      "constructDocumentAndSpatialIndex": {
+        "samples": 7,
+        "medianMs": 2.558708,
+        "p95Ms": 2.774167,
+        "totalMs": 16.004458
+      },
+      "queries": [
+        {
+          "zoom": 1,
+          "minCandidates": 20,
+          "maxCandidates": 25,
+          "samples": 200,
+          "medianMs": 0.001208,
+          "p95Ms": 0.001708,
+          "totalMs": 0.2617
+        },
+        {
+          "zoom": 0.1,
+          "minCandidates": 1184,
+          "maxCandidates": 1400,
+          "samples": 200,
+          "medianMs": 0.095875,
+          "p95Ms": 0.118375,
+          "totalMs": 20.980251
+        }
+      ],
+      "targetedPreview": {
+        "samples": 1000,
+        "medianMs": 0.000083,
+        "p95Ms": 0.000125,
+        "totalMs": 0.087716
+      },
+      "previewNotifications": {
+        "document": 0,
+        "editedFrame": 1000,
+        "unrelatedFrame": 0,
+        "committedChanges": 0
+      },
+      "committedUpdateIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000583,
+        "p95Ms": 0.001291,
+        "totalMs": 0.081748
+      },
+      "undoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000625,
+        "p95Ms": 0.001083,
+        "totalMs": 0.07075
+      },
+      "redoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000708,
+        "p95Ms": 0.000959,
+        "totalMs": 0.073625
+      },
+      "history": {
+        "undoEntries": 100,
+        "redoEntries": 0,
+        "retainedFrameReferences": 200
+      },
+      "previousAlgorithms": {
+        "previewArrayMap": {
+          "samples": 1000,
+          "medianMs": 0.031583,
+          "p95Ms": 0.051333,
+          "totalMs": 34.845529
+        },
+        "commitArrayMapAndFullSnapshot": {
+          "samples": 100,
+          "medianMs": 0.085333,
+          "p95Ms": 0.307042,
+          "totalMs": 12.253919
+        },
+        "retainedHistoryFrameObjects": 500000,
+        "finalFrameCount": 5000
+      }
+    },
+    {
+      "count": 10000,
+      "constructDocumentAndSpatialIndex": {
+        "samples": 7,
+        "medianMs": 3.103292,
+        "p95Ms": 3.333167,
+        "totalMs": 22.071502
+      },
+      "queries": [
+        {
+          "zoom": 1,
+          "minCandidates": 20,
+          "maxCandidates": 25,
+          "samples": 200,
+          "medianMs": 0.00125,
+          "p95Ms": 0.002584,
+          "totalMs": 0.298075
+        },
+        {
+          "zoom": 0.1,
+          "minCandidates": 1184,
+          "maxCandidates": 1400,
+          "samples": 200,
+          "medianMs": 0.068,
+          "p95Ms": 0.102333,
+          "totalMs": 14.221906
+        }
+      ],
+      "targetedPreview": {
+        "samples": 1000,
+        "medianMs": 0.000083,
+        "p95Ms": 0.000125,
+        "totalMs": 0.104011
+      },
+      "previewNotifications": {
+        "document": 0,
+        "editedFrame": 1000,
+        "unrelatedFrame": 0,
+        "committedChanges": 0
+      },
+      "committedUpdateIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000459,
+        "p95Ms": 0.0015,
+        "totalMs": 0.064296
+      },
+      "undoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000667,
+        "p95Ms": 0.000917,
+        "totalMs": 0.067255
+      },
+      "redoIncludingIndex": {
+        "samples": 100,
+        "medianMs": 0.000625,
+        "p95Ms": 0.00075,
+        "totalMs": 0.064464
+      },
+      "history": {
+        "undoEntries": 100,
+        "redoEntries": 0,
+        "retainedFrameReferences": 200
+      },
+      "previousAlgorithms": {
+        "previewArrayMap": {
+          "samples": 1000,
+          "medianMs": 0.043333,
+          "p95Ms": 0.05125,
+          "totalMs": 45.216992
+        },
+        "commitArrayMapAndFullSnapshot": {
+          "samples": 100,
+          "medianMs": 0.182166,
+          "p95Ms": 0.409541,
+          "totalMs": 21.599787
+        },
+        "retainedHistoryFrameObjects": 1000000,
+        "finalFrameCount": 10000
+      }
+    }
+  ]
+}

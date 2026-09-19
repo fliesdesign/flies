@@ -1,0 +1,85 @@
+.canvas-node-body {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  pointer-events: auto;
+  cursor: default;
+  outline: none;
+}
+
+.canvas-node-body:focus-visible {
+  outline: calc(2px * var(--canvas-inverse-zoom, 1)) solid var(--ring);
+}
+
+.canvas-rectangle-content,
+.canvas-image-content,
+.canvas-pen-content {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.canvas-image-content {
+  object-fit: fill;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.canvas-pen-content {
+  overflow: visible;
+}
+
+.canvas-text-content,
+.canvas-text-editor {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: normal;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+.canvas-text-content {
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-text-editor {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 1;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  outline: calc(1px * var(--canvas-inverse-zoom, 1)) solid var(--ring);
+  outline-offset: calc(2px * var(--canvas-inverse-zoom, 1));
+  caret-color: currentColor;
+  pointer-events: auto;
+  touch-action: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.canvas-text-editor::selection {
+  background: #4285d480;
+  color: inherit;
+}

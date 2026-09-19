@@ -1,0 +1,74 @@
+.canvas-toolbar {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 40px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 4px 14px #00000026;
+  touch-action: manipulation;
+}
+
+.canvas-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.canvas-tool:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.canvas-tool[aria-pressed="true"] {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.canvas-tool:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.canvas-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.canvas-tool-shortcut {
+  margin-left: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+@media (max-height: 264px) {
+  .canvas-toolbar {
+    top: 8px;
+    bottom: 8px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .canvas-tool {
+    flex-shrink: 0;
+  }
+}

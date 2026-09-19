@@ -6,8 +6,8 @@ export const Route = createFileRoute("/about")({
 
 function AboutPage() {
   return (
-    <main className="mx-auto max-w-md space-y-4 px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight">About</h1>
+    <main className="oui-page max-w-2xl space-y-4">
+      <h1 className="oui-page-title">About</h1>
       <p className="text-sm text-muted-foreground">
         Routes live in <code className="font-mono text-xs">src/routes</code>. Adding a file there
         regenerates <code className="font-mono text-xs">src/routeTree.gen.ts</code> automatically

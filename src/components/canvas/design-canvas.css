@@ -1,0 +1,326 @@
+.design-canvas {
+  position: fixed;
+  inset: 0;
+  overflow: clip;
+  isolation: isolate;
+  background: var(--background);
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+}
+
+.canvas-surface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--background);
+}
+
+.canvas-draft {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.canvas-guides {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  fill: none;
+  stroke: #f08098;
+  stroke-width: 1;
+}
+
+.canvas-marquee {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  border: 1px solid var(--ring);
+  background: color-mix(in srgb, var(--ring) 12%, transparent);
+  pointer-events: none;
+}
+
+.canvas-draft[data-kind="frame"] {
+  background: #fff;
+}
+
+.canvas-draft[data-kind="frame"],
+.canvas-draft[data-kind="rectangle"] {
+  outline: 1px solid var(--ring);
+}
+
+.canvas-notice {
+  position: fixed;
+  z-index: 50;
+  bottom: 20px;
+  left: 20px;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: var(--shadow-oui-menu);
+  font-size: 13px;
+}
+
+.design-canvas:is([data-tool="rectangle"], [data-tool="frame"], [data-tool="pen"]),
+.design-canvas:is([data-tool="rectangle"], [data-tool="frame"], [data-tool="pen"]) * {
+  cursor: crosshair;
+}
+
+.design-canvas[data-tool="text"],
+.design-canvas[data-tool="text"] * {
+  cursor: text;
+}
+
+.canvas-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.canvas-frames {
+  pointer-events: none;
+}
+
+.canvas-frame-content {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  pointer-events: none;
+}
+
+.canvas-empty > span {
+  color: #8f8f8f;
+  font-size: 12px;
+}
+
+.canvas-empty kbd {
+  margin-left: 2px;
+  font-family: inherit;
+}
+
+.canvas-frame-position,
+.canvas-hover,
+.canvas-selection {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.canvas-frame-position {
+  isolation: isolate;
+}
+
+.canvas-node-children {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-node-children[data-clip-content] {
+  overflow: clip;
+}
+
+.canvas-frame-position[data-node-locked],
+.canvas-frame-position[data-node-locked] * {
+  pointer-events: none;
+}
+
+.canvas-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: 0 2px 8px #0000001a;
+  pointer-events: auto;
+  cursor: default;
+  outline: none;
+}
+
+.canvas-frame:focus-visible {
+  outline: 2px solid var(--ring);
+}
+
+.canvas-frame-label {
+  position: absolute;
+  bottom: calc(100% + 7px * var(--canvas-inverse-zoom, 1));
+  transform: scale(var(--canvas-inverse-zoom, 1));
+  transform-origin: bottom left;
+  left: 0;
+  max-width: calc(100% * var(--canvas-zoom, 1));
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.canvas-frame-position[data-selected] > .canvas-frame-label {
+  color: var(--ring);
+}
+
+.canvas-frame-position[data-selected]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  outline: calc(1px * var(--canvas-inverse-zoom, 1)) solid var(--ring);
+  pointer-events: none;
+}
+
+.canvas-hover,
+.canvas-selection {
+  z-index: 1;
+  outline: 1px solid var(--ring);
+  pointer-events: none;
+}
+
+.canvas-selection {
+  z-index: 2;
+  outline: none;
+}
+
+.canvas-selection-border {
+  position: absolute;
+  inset: 0;
+  outline: 1px solid var(--ring);
+}
+
+.canvas-resize {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  outline: none;
+}
+
+.canvas-resize::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--ring);
+  background: #fff;
+}
+
+.canvas-resize:focus-visible::after {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+.canvas-resize-nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.canvas-resize-n {
+  left: 50%;
+  top: 0;
+  cursor: ns-resize;
+}
+.canvas-resize-ne {
+  left: 100%;
+  top: 0;
+  cursor: nesw-resize;
+}
+.canvas-resize-e {
+  left: 100%;
+  top: 50%;
+  cursor: ew-resize;
+}
+.canvas-resize-se {
+  left: 100%;
+  top: 100%;
+  cursor: nwse-resize;
+}
+.canvas-resize-s {
+  left: 50%;
+  top: 100%;
+  cursor: ns-resize;
+}
+.canvas-resize-sw {
+  left: 0;
+  top: 100%;
+  cursor: nesw-resize;
+}
+.canvas-resize-w {
+  left: 0;
+  top: 50%;
+  cursor: ew-resize;
+}
+
+.canvas-dimensions {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--ring);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.canvas-dimensions > span {
+  margin-inline: 2px;
+}
+.design-canvas[data-hand],
+.design-canvas[data-hand] * {
+  cursor: grab;
+}
+.design-canvas[data-panning],
+.design-canvas[data-panning] * {
+  cursor: grabbing;
+}
+
+@media (pointer: coarse) {
+  .canvas-resize {
+    width: 28px;
+    height: 28px;
+  }
+  .canvas-resize::after {
+    inset: 9px;
+  }
+}

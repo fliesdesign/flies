@@ -1,0 +1,181 @@
+{
+  "recordedAt": "2026-09-19T17:11:48.053Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15",
+  "build": "benchmark",
+  "viewport": {
+    "x": 1512,
+    "y": 859
+  },
+  "devicePixelRatio": 2,
+  "methodology": "Actual HTML/CSS renderer, text/local SVG images/nested layouts, persistent storage disabled. Scene-ready time includes fixture creation, initial fit-to-view render, camera reset, and six settling frames. 20 warmup + 100 sampled animation-frame intervals per phase; four coalesced input samples/tick in pan and drag. Counts are frames (~30 HTML elements each), mounted/DOM counts at phase end. Frame intervals include rendering workload and display scheduling, not end-to-end hardware input latency. Chromium heap reading is optional/coarse and not total process or peak memory. No baseline browser speedup claim.",
+  "results": [
+    {
+      "totalFrames": 1000,
+      "sceneReadyMs": 707,
+      "phases": [
+        {
+          "phase": "pan-100%",
+          "meanFrameMs": 16.66,
+          "p95FrameMs": 18,
+          "maxFrameMs": 25,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-35%-100%",
+          "meanFrameMs": 20,
+          "p95FrameMs": 31,
+          "maxFrameMs": 34,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 355
+        },
+        {
+          "phase": "drag-100%",
+          "meanFrameMs": 16.67,
+          "p95FrameMs": 18,
+          "maxFrameMs": 18,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 595,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "pan-10%-full-detail",
+          "meanFrameMs": 18.67,
+          "p95FrameMs": 18,
+          "maxFrameMs": 136,
+          "framesOver34ms": 4,
+          "mountedFrames": 968,
+          "domElements": 28076,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 119
+        }
+      ],
+      "heapMB": null,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 2
+      }
+    },
+    {
+      "totalFrames": 5000,
+      "sceneReadyMs": 882,
+      "phases": [
+        {
+          "phase": "pan-100%",
+          "meanFrameMs": 16.66,
+          "p95FrameMs": 18,
+          "maxFrameMs": 23,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-35%-100%",
+          "meanFrameMs": 20.33,
+          "p95FrameMs": 31,
+          "maxFrameMs": 66,
+          "framesOver34ms": 1,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 355
+        },
+        {
+          "phase": "drag-100%",
+          "meanFrameMs": 16.66,
+          "p95FrameMs": 18,
+          "maxFrameMs": 18,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 595,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "pan-10%-full-detail",
+          "meanFrameMs": 20,
+          "p95FrameMs": 43,
+          "maxFrameMs": 181,
+          "framesOver34ms": 8,
+          "mountedFrames": 1312,
+          "domElements": 38052,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 119
+        }
+      ],
+      "heapMB": null,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 2
+      }
+    },
+    {
+      "totalFrames": 10000,
+      "sceneReadyMs": 815,
+      "phases": [
+        {
+          "phase": "pan-100%",
+          "meanFrameMs": 16.66,
+          "p95FrameMs": 18,
+          "maxFrameMs": 23,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 120
+        },
+        {
+          "phase": "zoom-35%-100%",
+          "meanFrameMs": 19.16,
+          "p95FrameMs": 32,
+          "maxFrameMs": 33,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 584,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 355
+        },
+        {
+          "phase": "drag-100%",
+          "meanFrameMs": 16.67,
+          "p95FrameMs": 18,
+          "maxFrameMs": 18,
+          "framesOver34ms": 0,
+          "mountedFrames": 20,
+          "domElements": 595,
+          "frameStyleChanges": 120,
+          "cameraStyleChanges": 0
+        },
+        {
+          "phase": "pan-10%-full-detail",
+          "meanFrameMs": 16.67,
+          "p95FrameMs": 19,
+          "maxFrameMs": 24,
+          "framesOver34ms": 0,
+          "mountedFrames": 1312,
+          "domElements": 38052,
+          "frameStyleChanges": 0,
+          "cameraStyleChanges": 119
+        }
+      ],
+      "heapMB": null,
+      "history": {
+        "undoEntries": 0,
+        "redoEntries": 1,
+        "retainedFrameReferences": 2
+      }
+    }
+  ]
+}

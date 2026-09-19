@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc --noEmit",
+    "benchmark:canvas": "bun scripts/benchmark-canvas.ts",
+    "benchmark:build": "vite build --mode benchmark --outDir dist/benchmark && tsc --noEmit",
+    "benchmark:preview": "vite preview --outDir dist/benchmark --host 127.0.0.1 --port 4174 --strictPort",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
@@ -19,7 +22,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
-    "@fontsource-variable/geist": "^5.3.0",
     "@shadcn/react": "^0.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "^1.170.38",
