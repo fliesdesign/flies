@@ -1,4 +1,5 @@
 .design-canvas {
+  --canvas-select-cursor: url("/cursor.svg") 1 1, default;
   position: fixed;
   inset: 0;
   overflow: clip;
@@ -9,6 +10,7 @@
   user-select: none;
   overscroll-behavior: none;
   -webkit-user-select: none;
+  cursor: var(--canvas-select-cursor);
 }
 
 .canvas-surface {
@@ -164,7 +166,7 @@
   background: #fff;
   box-shadow: 0 2px 8px #0000001a;
   pointer-events: auto;
-  cursor: default;
+  cursor: var(--canvas-select-cursor);
   outline: none;
 }
 
@@ -189,7 +191,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: auto;
-  cursor: default;
+  cursor: var(--canvas-select-cursor);
 }
 
 .canvas-frame-position[data-selected] > .canvas-frame-label {

@@ -10,7 +10,7 @@
   color: inherit;
   text-align: left;
   pointer-events: auto;
-  cursor: default;
+  cursor: var(--canvas-select-cursor);
   outline: none;
 }
 
