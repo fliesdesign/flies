@@ -1,5 +1,6 @@
 import {
   PanelLeftOpenIcon,
+  PanelRightOpenIcon,
   CopyIcon,
   ClipboardIcon,
   ScissorsIcon,
@@ -77,12 +78,19 @@ import {
   groupSelection,
   ungroupSelection,
 } from "@/lib/canvas-operations";
+import { getVisibleSelectionFrames } from "@/lib/canvas-outline";
+import {
+  changeCanvasProperty,
+  type CanvasProperty,
+  type CanvasPropertyOptions,
+} from "@/lib/canvas-properties";
 import { viewportBounds } from "@/lib/canvas-spatial-index";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@/lib/canvas-tools";
 
 import { CanvasAlignmentGuides } from "./canvas-guides";
 import { CanvasLayers } from "./canvas-layers";
-import { CanvasNodeContent } from "./canvas-node-content";
+import { CanvasNodeContent, measureCanvasTextHeight } from "./canvas-node-content";
+import { CanvasProperties } from "./canvas-properties";
 import {
   CanvasFrames,
   CanvasOutline,
@@ -129,7 +137,9 @@ type Interaction = {
 };
 
 function isEditingTarget(target: EventTarget | null) {
-  return target instanceof Element && !!target.closest("textarea, input, [contenteditable=true]");
+  return (
+    target instanceof Element && !!target.closest("textarea, input, select, [contenteditable=true]")
+  );
 }
 
 function isNodeLocked(document: CanvasDocument, id: string): boolean {
@@ -180,6 +190,11 @@ export function DesignCanvas({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const [layersOpen, setLayersOpen] = useState(true);
+  const [propertiesOpen, setPropertiesOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth > 760,
+  );
+  const reopenPropertiesRef = useRef<HTMLButtonElement>(null);
+  const propertiesCollapsedRef = useRef(false);
   const layerAnchorRef = useRef<string | null>(null);
   const reopenLayersRef = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<CanvasTool>("select");
@@ -199,6 +214,13 @@ export function DesignCanvas({
   const spaceRef = useRef(false);
   const [selection, setSelection] = useState<string[]>([]);
   const selectOne = useCallback((id: string | null) => setSelection(id ? [id] : []), []);
+  const propertyIds = useMemo(
+    () =>
+      snapshot.ids.length
+        ? document.getRootIds(selection.filter((id) => document.getFrame(id)))
+        : [],
+    [document, selection, snapshot],
+  );
   const selectedIds = useMemo(
     () =>
       snapshot.ids.length
@@ -357,7 +379,7 @@ export function DesignCanvas({
       id: string,
       modifiers: { additive: boolean; range: boolean; visibleIds: readonly string[] },
     ) => {
-      if (!document.getFrame(id) || isNodeLocked(document, id)) return;
+      if (!document.getFrame(id)) return;
       finishInteraction(true);
       setEditingId(null);
       setTool("select");
@@ -372,9 +394,7 @@ export function DesignCanvas({
         const start = anchor ? modifiers.visibleIds.indexOf(anchor) : -1;
         const end = modifiers.visibleIds.indexOf(id);
         if (modifiers.range && start !== -1 && end !== -1) {
-          const range = modifiers.visibleIds
-            .slice(Math.min(start, end), Math.max(start, end) + 1)
-            .filter((item) => !isNodeLocked(document, item));
+          const range = modifiers.visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1);
           return modifiers.additive ? [...new Set([...current, ...range])] : range;
         }
         return modifiers.additive
@@ -437,6 +457,69 @@ export function DesignCanvas({
     setLayersOpen(false);
     setHoveredId(null);
   }, []);
+
+  const collapseProperties = useCallback(() => {
+    propertiesCollapsedRef.current = true;
+    setPropertiesOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!propertiesOpen && propertiesCollapsedRef.current) {
+      reopenPropertiesRef.current?.focus({ preventScroll: true });
+      propertiesCollapsedRef.current = false;
+    }
+  }, [propertiesOpen]);
+
+  useEffect(() => {
+    const compact = window.matchMedia("(max-width: 760px)");
+    const update = () => {
+      if (compact.matches) setPropertiesOpen(false);
+    };
+    compact.addEventListener("change", update);
+    return () => compact.removeEventListener("change", update);
+  }, []);
+
+  const changeProperty = useCallback(
+    (
+      property: CanvasProperty,
+      value: string | number | boolean,
+      options?: CanvasPropertyOptions,
+    ) => {
+      finishInteraction(true);
+      document.updateMany(
+        changeCanvasProperty(
+          document.getFrames(),
+          propertyIds,
+          property,
+          value,
+          measureCanvasTextHeight,
+          options,
+        ),
+      );
+      setHoveredId(null);
+    },
+    [document, finishInteraction, propertyIds],
+  );
+
+  const arrangeFromProperties = useCallback(
+    (action: CanvasArrangeAction) => {
+      finishInteraction(true);
+      if (propertyIds.some((id) => isNodeLocked(document, id))) return;
+      document.updateMany(arrangeSelection(document.getFrames(), propertyIds, action));
+    },
+    [document, finishInteraction, propertyIds],
+  );
+
+  const fitTextHeight = useCallback(() => {
+    finishInteraction(true);
+    if (propertyIds.some((id) => isNodeLocked(document, id))) return;
+    document.updateMany(
+      propertyIds.flatMap((id) => {
+        const node = document.getFrame(id);
+        return node?.kind === "text" ? [{ ...node, height: measureCanvasTextHeight(node) }] : [];
+      }),
+    );
+  }, [document, finishInteraction, propertyIds]);
 
   useEffect(() => {
     if (!layersOpen) reopenLayersRef.current?.focus({ preventScroll: true });
@@ -936,7 +1019,7 @@ export function DesignCanvas({
     }
     const roots = (
       handle
-        ? selectedIds
+        ? getVisibleSelectionFrames(document, selectedIds).map((node) => node.id)
         : frame
           ? selectedIds.includes(frame.id)
             ? selectedIds
@@ -1114,6 +1197,11 @@ export function DesignCanvas({
       return;
     const command = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
+    if (
+      (event.target as HTMLElement).closest(".canvas-properties") &&
+      !(command && (key === "z" || key === "y"))
+    )
+      return;
     if (key === "escape") {
       if (interactionRef.current) finishInteraction(true);
       else {
@@ -1224,12 +1312,16 @@ export function DesignCanvas({
         y: key === "arrowup" ? -step : key === "arrowdown" ? step : 0,
       };
       const handle = (event.target as HTMLElement).dataset.handle as ResizeHandle | undefined;
-      const all = document.getDescendantIds(selectedIds).map((id) => document.getFrame(id)!);
-      const bounds = selectionBounds(all, selectedIds)!;
+      const activeIds = handle
+        ? getVisibleSelectionFrames(document, selectedIds).map((node) => node.id)
+        : selectedIds;
+      const all = document.getDescendantIds(activeIds).map((id) => document.getFrame(id)!);
+      const bounds = selectionBounds(all, activeIds);
+      if (!bounds) return;
       const updated = handle
         ? resizeSelection(
             all,
-            selectedIds,
+            activeIds,
             bounds,
             resizeFrame(
               bounds,
@@ -1238,7 +1330,7 @@ export function DesignCanvas({
               selected && (!selected.kind || selected.kind === "frame") ? 40 : 1,
             ),
           )
-        : moveSelection(all, selectedIds, delta);
+        : moveSelection(all, activeIds, delta);
       document.updateMany(updated);
     } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       const bounds = surfaceRef.current?.getBoundingClientRect();
@@ -1275,6 +1367,7 @@ export function DesignCanvas({
       className="canvas-editor"
       aria-label="Canvas editor"
       data-layers-open={layersOpen || undefined}
+      data-properties-open={propertiesOpen || undefined}
       onKeyDown={keyDown}
       onCopy={(event) => copySelection(event)}
       onCut={(event) => copySelection(event, true)}
@@ -1300,7 +1393,7 @@ export function DesignCanvas({
       {layersOpen ? (
         <CanvasLayers
           document={document}
-          selectedIds={selectedIds}
+          selectedIds={propertyIds}
           onSelect={selectLayer}
           onRename={renameLayer}
           onToggleLock={toggleLayerLock}
@@ -1316,9 +1409,36 @@ export function DesignCanvas({
           className="canvas-layers-reopen"
           aria-label="Show layers"
           title="Show layers"
-          onClick={() => setLayersOpen(true)}
+          onClick={() => {
+            if (window.innerWidth <= 760) setPropertiesOpen(false);
+            setLayersOpen(true);
+          }}
         >
           <PanelLeftOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
+        </button>
+      )}
+      {propertiesOpen ? (
+        <CanvasProperties
+          document={document}
+          selectedIds={propertyIds}
+          onChange={changeProperty}
+          onArrange={arrangeFromProperties}
+          onFitText={fitTextHeight}
+          onCollapse={collapseProperties}
+        />
+      ) : (
+        <button
+          ref={reopenPropertiesRef}
+          type="button"
+          className="canvas-properties-reopen"
+          aria-label="Show properties"
+          title="Show properties"
+          onClick={() => {
+            if (window.innerWidth <= 760) setLayersOpen(false);
+            setPropertiesOpen(true);
+          }}
+        >
+          <PanelRightOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
         </button>
       )}
       <ContextMenu

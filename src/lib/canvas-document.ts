@@ -3,11 +3,20 @@ import type { FrameRect, Point } from "./canvas-geometry";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
 type CanvasNodeBase = Readonly<
-  FrameRect & { id: string; name: string; parentId?: string; locked?: boolean; hidden?: boolean }
+  FrameRect & {
+    id: string;
+    name: string;
+    parentId?: string;
+    locked?: boolean;
+    hidden?: boolean;
+    opacity?: number;
+    cornerRadius?: number;
+  }
 >;
 export type CanvasFrameNode = CanvasNodeBase & {
   readonly kind?: "frame";
   readonly clipContent?: boolean;
+  readonly fill?: string;
 };
 export type CanvasGroup = CanvasNodeBase & { readonly kind: "group" };
 export type CanvasRectangle = CanvasNodeBase & {
@@ -19,6 +28,11 @@ export type CanvasText = CanvasNodeBase & {
   readonly text: string;
   readonly fontSize: number;
   readonly color: string;
+  readonly fontFamily?: "Arial" | "Helvetica" | "Georgia" | "Courier New";
+  readonly fontWeight?: 400 | 500 | 600 | 700;
+  readonly lineHeight?: number;
+  readonly letterSpacing?: number;
+  readonly textAlign?: "left" | "center" | "right";
 };
 export type CanvasImage = CanvasNodeBase & {
   readonly kind: "image";
@@ -95,6 +109,8 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.parentId !== second.parentId ||
     first.locked !== second.locked ||
     first.hidden !== second.hidden ||
+    first.opacity !== second.opacity ||
+    first.cornerRadius !== second.cornerRadius ||
     first.x !== second.x ||
     first.y !== second.y ||
     first.width !== second.width ||
@@ -111,7 +127,12 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         second.kind === "text" &&
         first.text === second.text &&
         first.fontSize === second.fontSize &&
-        first.color === second.color
+        first.color === second.color &&
+        first.fontFamily === second.fontFamily &&
+        first.fontWeight === second.fontWeight &&
+        first.lineHeight === second.lineHeight &&
+        first.letterSpacing === second.letterSpacing &&
+        first.textAlign === second.textAlign
       );
     case "image":
       return second.kind === "image" && first.src === second.src;
@@ -129,7 +150,8 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     default:
       return (
         (second.kind === undefined || second.kind === "frame") &&
-        first.clipContent === second.clipContent
+        first.clipContent === second.clipContent &&
+        first.fill === second.fill
       );
   }
 }
@@ -140,6 +162,10 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isPositiveNumber(value: unknown): value is number {
   return isFiniteNumber(value) && value > 0;
+}
+
+function isNumberInRange(value: unknown, min: number, max: number): value is number {
+  return isFiniteNumber(value) && value >= min && value <= max;
 }
 
 function isColor(value: unknown): value is string {
@@ -170,6 +196,9 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.parentId !== undefined && typeof frame.parentId !== "string") ||
     (frame.locked !== undefined && typeof frame.locked !== "boolean") ||
     (frame.hidden !== undefined && typeof frame.hidden !== "boolean") ||
+    (frame.opacity !== undefined && !isNumberInRange(frame.opacity, 0, 1)) ||
+    (frame.cornerRadius !== undefined &&
+      (!isFiniteNumber(frame.cornerRadius) || frame.cornerRadius < 0)) ||
     !isFiniteNumber(frame.x) ||
     !isFiniteNumber(frame.y) ||
     !isFiniteNumber(frame.width) ||
@@ -182,14 +211,35 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
   switch (frame.kind) {
     case undefined:
     case "frame":
-      return frame.clipContent === undefined || typeof frame.clipContent === "boolean";
+      return (
+        (frame.clipContent === undefined || typeof frame.clipContent === "boolean") &&
+        (frame.fill === undefined || isColor(frame.fill))
+      );
     case "group":
       return true;
     case "rectangle":
       return isColor(frame.fill);
     case "text":
       return (
-        typeof frame.text === "string" && isPositiveNumber(frame.fontSize) && isColor(frame.color)
+        typeof frame.text === "string" &&
+        isPositiveNumber(frame.fontSize) &&
+        isColor(frame.color) &&
+        (frame.fontFamily === undefined ||
+          frame.fontFamily === "Arial" ||
+          frame.fontFamily === "Helvetica" ||
+          frame.fontFamily === "Georgia" ||
+          frame.fontFamily === "Courier New") &&
+        (frame.fontWeight === undefined ||
+          frame.fontWeight === 400 ||
+          frame.fontWeight === 500 ||
+          frame.fontWeight === 600 ||
+          frame.fontWeight === 700) &&
+        (frame.lineHeight === undefined || isNumberInRange(frame.lineHeight, 0.5, 4)) &&
+        (frame.letterSpacing === undefined || isNumberInRange(frame.letterSpacing, -10, 100)) &&
+        (frame.textAlign === undefined ||
+          frame.textAlign === "left" ||
+          frame.textAlign === "center" ||
+          frame.textAlign === "right")
       );
     case "image":
       return (
@@ -223,6 +273,8 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.parentId !== undefined && { parentId: frame.parentId }),
     ...(frame.locked !== undefined && { locked: frame.locked }),
     ...(frame.hidden !== undefined && { hidden: frame.hidden }),
+    ...(frame.opacity !== undefined && { opacity: frame.opacity }),
+    ...(frame.cornerRadius !== undefined && { cornerRadius: frame.cornerRadius }),
     x: frame.x,
     y: frame.y,
     width: frame.width,
@@ -238,6 +290,11 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         text: frame.text,
         fontSize: frame.fontSize,
         color: frame.color,
+        ...(frame.fontFamily !== undefined && { fontFamily: frame.fontFamily }),
+        ...(frame.fontWeight !== undefined && { fontWeight: frame.fontWeight }),
+        ...(frame.lineHeight !== undefined && { lineHeight: frame.lineHeight }),
+        ...(frame.letterSpacing !== undefined && { letterSpacing: frame.letterSpacing }),
+        ...(frame.textAlign !== undefined && { textAlign: frame.textAlign }),
       });
     case "image":
       return Object.freeze({ ...base, kind: frame.kind, src: frame.src });
@@ -258,6 +315,7 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...base,
         ...(frame.kind === "frame" && { kind: frame.kind }),
         ...(frame.clipContent !== undefined && { clipContent: frame.clipContent }),
+        ...(frame.fill !== undefined && { fill: frame.fill }),
       });
   }
 }

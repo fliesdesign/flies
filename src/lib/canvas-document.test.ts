@@ -157,6 +157,14 @@ describe("canvas node content", () => {
       [text, { ...text, text: "Edited caption" }],
       [text, { ...text, fontSize: 48 }],
       [text, { ...text, color: "#ffffff" }],
+      [text, { ...text, fontFamily: "Georgia" as const }],
+      [text, { ...text, fontWeight: 600 as const }],
+      [text, { ...text, lineHeight: 1.75 }],
+      [text, { ...text, letterSpacing: -0.5 }],
+      [text, { ...text, textAlign: "center" as const }],
+      [text, { ...text, opacity: 0.35 }],
+      [frame("styled"), { ...frame("styled"), cornerRadius: 16 }],
+      [frame("styled"), { ...frame("styled"), fill: "#ffcc88" }],
       [
         { ...frame("rect"), kind: "rectangle", fill: "#000" },
         { ...frame("rect"), kind: "rectangle", fill: "#fff" },
@@ -184,6 +192,61 @@ describe("canvas node content", () => {
       assert.deepEqual(document.getFrame(before.id), before);
       document.redo();
       assert.deepEqual(document.getFrame(before.id), after);
+    }
+  });
+
+  it("roundtrips optional appearance and typography without changing legacy defaults", () => {
+    const styled: CanvasFrame[] = [
+      { ...frame("styled"), fill: "#fff8", opacity: 0, cornerRadius: 12 },
+      {
+        ...text,
+        fontFamily: "Courier New" as const,
+        fontWeight: 700 as const,
+        lineHeight: 1.6,
+        letterSpacing: 2,
+        textAlign: "right" as const,
+        opacity: 0.8,
+      },
+      { ...frame("image"), kind: "image", src: "data:image/png;base64,AAAA", cornerRadius: 8 },
+      frame("legacy"),
+    ];
+    const document = new CanvasDocument(styled);
+    let saved = "";
+    saveCanvasFrames(document.getFrames(), {
+      setItem: (_key, value) => {
+        saved = value;
+      },
+    });
+    const loaded = loadCanvasFrames({ getItem: () => saved });
+    assert.deepEqual(loaded, styled);
+    assert.equal(loaded[loaded.length - 1].opacity, undefined);
+    assert.ok(loaded.every(Object.isFrozen));
+  });
+
+  it("rejects invalid optional style properties in storage and updates without damaging history", () => {
+    const invalid: unknown[] = [
+      { ...text, opacity: -0.01 },
+      { ...text, opacity: 1.01 },
+      { ...text, opacity: "0.5" },
+      { ...text, opacity: NaN },
+      { ...text, cornerRadius: -1 },
+      { ...text, cornerRadius: Infinity },
+      { ...frame("a"), fill: "red" },
+      { ...text, fontFamily: "arbitrary-font" },
+      { ...text, fontWeight: 300 },
+      { ...text, fontWeight: "bold" },
+      { ...text, lineHeight: 0.49 },
+      { ...text, lineHeight: 4.01 },
+      { ...text, letterSpacing: -10.01 },
+      { ...text, letterSpacing: 100.01 },
+      { ...text, textAlign: "justify" },
+    ];
+    for (const node of invalid) {
+      assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify([node]) }), []);
+      const document = new CanvasDocument([text]);
+      document.update(node as CanvasFrame);
+      assert.deepEqual(document.getFrames(), [text]);
+      assert.equal(document.getHistoryStats().undoEntries, 0);
     }
   });
 

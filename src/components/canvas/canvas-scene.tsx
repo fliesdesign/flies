@@ -14,6 +14,15 @@ import { useCanvasFrame } from "@/hooks/use-canvas-document";
 import type { CanvasCamera } from "@/lib/canvas-camera";
 import type { CanvasDocument, CanvasFrame } from "@/lib/canvas-document";
 import type { FrameRect, ResizeHandle, Viewport } from "@/lib/canvas-geometry";
+import {
+  clippingRadius,
+  getClipBounds,
+  getClippingAncestors,
+  getVisibleSelectionFrames,
+  isRectVisibleInRoundedClips,
+  roundedClipsContainPoint,
+  type CanvasClipBounds,
+} from "@/lib/canvas-outline";
 import { CanvasScene } from "@/lib/canvas-scene";
 
 import { CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
@@ -110,6 +119,7 @@ const FrameNode = memo(function FrameNode({
         transform: `translate3d(${frame.x - (parent?.x ?? 0)}px, ${frame.y - (parent?.y ?? 0)}px, 0)`,
         width: frame.width,
         height: frame.height,
+        opacity: frame.opacity,
       }}
     >
       {editingId === id && frame.kind === "text" && !locked ? (
@@ -121,6 +131,9 @@ const FrameNode = memo(function FrameNode({
           aria-label={`${frame.name}, ${Math.round(frame.width)} by ${Math.round(frame.height)}`}
           aria-pressed={selected}
           disabled={locked}
+          style={
+            isFrame ? { backgroundColor: frame.fill, borderRadius: frame.cornerRadius } : undefined
+          }
         >
           {!isFrame && !isGroup && <CanvasNodeContent frame={frame} />}
         </button>
@@ -134,6 +147,7 @@ const FrameNode = memo(function FrameNode({
         <div
           className="canvas-node-children"
           data-clip-content={isFrame && frame.clipContent !== false ? true : undefined}
+          style={isFrame ? { borderRadius: frame.cornerRadius } : undefined}
         >
           {children
             .filter((childId) => visibleIds.has(childId))
@@ -269,25 +283,55 @@ function screenStyle(bounds: FrameRect, viewport: Viewport) {
   };
 }
 
-function clippedOutline(document: CanvasDocument, frame: CanvasFrame, zoom: number) {
-  let left = frame.x;
-  let top = frame.y;
-  let right = frame.x + frame.width;
-  let bottom = frame.y + frame.height;
-  let parent = frame.parentId ? document.getFrame(frame.parentId) : undefined;
-  const visited = new Set([frame.id]);
-  while (parent && !visited.has(parent.id)) {
-    visited.add(parent.id);
-    if ((parent.kind === undefined || parent.kind === "frame") && parent.clipContent !== false) {
-      left = Math.max(left, parent.x);
-      top = Math.max(top, parent.y);
-      right = Math.min(right, parent.x + parent.width);
-      bottom = Math.min(bottom, parent.y + parent.height);
-    }
-    parent = parent.parentId ? document.getFrame(parent.parentId) : undefined;
+function clippedOutline(frame: FrameRect, clip: CanvasClipBounds, zoom: number) {
+  // Negative one pixel preserves the outline on edges not constrained by clipping.
+  const inset = (amount: number) => (amount > 0 ? amount * zoom : -1);
+  return `inset(${inset(clip.top - frame.y)}px ${inset(frame.x + frame.width - clip.right)}px ${inset(frame.y + frame.height - clip.bottom)}px ${inset(clip.left - frame.x)}px)`;
+}
+
+/** Each nested paint wrapper intersects another rounded ancestor without scaling its stroke. */
+function OutlinePaint({
+  bounds,
+  ancestors,
+  zoom,
+}: {
+  bounds: FrameRect;
+  ancestors: readonly CanvasFrame[];
+  zoom: number;
+}) {
+  let paint = (
+    <div
+      className="canvas-selection-border"
+      style={{ clipPath: clippedOutline(bounds, getClipBounds(ancestors), zoom) }}
+    />
+  );
+  for (const ancestor of ancestors) {
+    const radius = clippingRadius(ancestor);
+    if (!radius) continue;
+    const top = (ancestor.y - bounds.y) * zoom;
+    const right = (bounds.x + bounds.width - ancestor.x - ancestor.width) * zoom;
+    const bottom = (bounds.y + bounds.height - ancestor.y - ancestor.height) * zoom;
+    const left = (ancestor.x - bounds.x) * zoom;
+    paint = (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px round ${radius * zoom}px)`,
+        }}
+      >
+        {paint}
+      </div>
+    );
   }
-  // Negative one pixel preserves an outline on edges not constrained by clipping.
-  return `inset(${top === frame.y ? -1 : (top - frame.y) * zoom}px ${right === frame.x + frame.width ? -1 : (frame.x + frame.width - right) * zoom}px ${bottom === frame.y + frame.height ? -1 : (frame.y + frame.height - bottom) * zoom}px ${left === frame.x ? -1 : (left - frame.x) * zoom}px)`;
+  return paint;
+}
+
+function handlePosition(bounds: FrameRect, handle: ResizeHandle) {
+  return {
+    x: bounds.x + bounds.width * (handle.includes("w") ? 0 : handle.includes("e") ? 1 : 0.5),
+    y: bounds.y + bounds.height * (handle.includes("n") ? 0 : handle.includes("s") ? 1 : 0.5),
+  };
 }
 
 function isLocked(document: CanvasDocument, frame: CanvasFrame) {
@@ -316,11 +360,7 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
     camera.getSnapshot,
     camera.getSnapshot,
   );
-  const frames = document
-    .getRootIds(ids)
-    .filter((id) => !document.isHidden(id))
-    .map((id) => document.getFrame(id))
-    .filter((frame): frame is CanvasFrame => Boolean(frame));
+  const frames = getVisibleSelectionFrames(document, ids);
   if (frames.length === 0) return null;
   let left = Infinity;
   let top = Infinity;
@@ -336,18 +376,39 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
   const locked = frames.some((frame) => isLocked(document, frame));
   const single = frames.length === 1 ? frames[0] : undefined;
   const name = single?.name ?? `${frames.length} objects`;
+  const ancestorPaths = frames.map((frame) => getClippingAncestors(document, frame));
+  const sharedClips = ancestorPaths[0].filter((ancestor) =>
+    ancestorPaths.every((path) => path.some((item) => item.id === ancestor.id)),
+  );
+  const clip = getClipBounds(sharedClips);
+  // The badge sits 12 screen pixels below the selection and is 20 pixels tall.
+  const label = `${Math.round(bounds.width)} × ${Math.round(bounds.height)}`;
+  const halfBadgeWidth = (label.length * 7 + 14) / (2 * viewport.zoom);
+  const badgeCenter = bounds.x + bounds.width / 2;
+  const showDimensions =
+    badgeCenter - halfBadgeWidth >= clip.left &&
+    badgeCenter + halfBadgeWidth <= clip.right &&
+    bounds.y + bounds.height + 12 / viewport.zoom >= clip.top &&
+    bounds.y + bounds.height + 32 / viewport.zoom <= clip.bottom &&
+    [badgeCenter - halfBadgeWidth, badgeCenter + halfBadgeWidth].every((x) =>
+      [12, 32].every((offset) =>
+        roundedClipsContainPoint(sharedClips, {
+          x,
+          y: bounds.y + bounds.height + offset / viewport.zoom,
+        }),
+      ),
+    );
   return (
     <div
       className="canvas-selection"
       style={screenStyle(bounds, viewport)}
       data-frame-id={single?.id}
     >
-      <div
-        className="canvas-selection-border"
-        style={single ? { clipPath: clippedOutline(document, single, viewport.zoom) } : undefined}
-      />
+      <OutlinePaint bounds={bounds} ancestors={sharedClips} zoom={viewport.zoom} />
       {!locked &&
-        HANDLES.map((handle) => (
+        HANDLES.filter((handle) =>
+          roundedClipsContainPoint(sharedClips, handlePosition(bounds, handle)),
+        ).map((handle) => (
           <button
             type="button"
             key={handle}
@@ -357,9 +418,11 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
             title={`Resize ${HANDLE_NAMES[handle]}`}
           />
         ))}
-      <span className="canvas-dimensions">
-        {Math.round(bounds.width)} <span>×</span> {Math.round(bounds.height)}
-      </span>
+      {showDimensions && (
+        <span className="canvas-dimensions">
+          {Math.round(bounds.width)} <span>×</span> {Math.round(bounds.height)}
+        </span>
+      )}
     </div>
   );
 });
@@ -384,15 +447,19 @@ export const CanvasOutline = memo(function CanvasOutline({
   );
   const frame = id ? document.getFrame(id) : undefined;
   if (!frame || document.isHidden(frame.id) || isLocked(document, frame)) return null;
+  const ancestors = getClippingAncestors(document, frame);
+  if (!isRectVisibleInRoundedClips(frame, ancestors)) return null;
   if (selection) return <CanvasSelectionOutline document={document} camera={camera} ids={ids} />;
   return (
     <div
       className="canvas-hover"
       style={{
         ...screenStyle(frame, viewport),
-        clipPath: clippedOutline(document, frame, viewport.zoom),
+        outline: "none",
       }}
       aria-hidden="true"
-    />
+    >
+      <OutlinePaint bounds={frame} ancestors={ancestors} zoom={viewport.zoom} />
+    </div>
   );
 });

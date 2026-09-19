@@ -11,6 +11,8 @@ import type { CanvasFrame, CanvasPen, CanvasText } from "@/lib/canvas-document";
 import {
   CanvasNodeContent,
   CanvasTextEditor,
+  canvasTextStyle,
+  measureCanvasTextHeight,
   subscribeTextDraftLifecycle,
 } from "./canvas-node-content";
 
@@ -47,6 +49,51 @@ describe("canvas node content", () => {
     assert.match(markup, /First line\n&lt;\/textarea&gt;&lt;script&gt;/);
     assert.ok(!markup.includes("<script>"));
     assert.equal(markup.match(/<\/textarea>/g)?.length, 1);
+  });
+
+  it("uses identical typography for the text node and its editor", () => {
+    const frame: CanvasText = {
+      ...bounds,
+      kind: "text",
+      text: "A caption",
+      fontSize: 18,
+      color: "#123456",
+      fontFamily: "Georgia",
+      fontWeight: 600,
+      lineHeight: 1.8,
+      letterSpacing: 1.5,
+      textAlign: "right",
+    };
+    const content = render(frame);
+    const editor = renderToStaticMarkup(createElement(CanvasTextEditor, { frame }));
+    assert.equal(content.match(/style="([^"]*)"/)?.[1], editor.match(/style="([^"]*)"/)?.[1]);
+    assert.match(content, /font-family:Georgia/);
+    assert.match(content, /font-weight:600/);
+    assert.match(content, /line-height:1.8/);
+    assert.match(content, /letter-spacing:1.5px/);
+    assert.match(content, /text-align:right/);
+  });
+
+  it("retains default typography and measures unwrapped line heights without a DOM", () => {
+    const frame: CanvasText = {
+      ...bounds,
+      kind: "text",
+      text: "One\nTwo\n",
+      fontSize: 20,
+      color: "#000",
+    };
+    assert.deepEqual(canvasTextStyle(frame), {
+      color: "#000",
+      fontSize: 20,
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontWeight: 400,
+      lineHeight: 1.25,
+      letterSpacing: 0,
+      textAlign: "left",
+    });
+    assert.equal(measureCanvasTextHeight(frame), 75);
+    assert.equal(measureCanvasTextHeight({ ...frame, lineHeight: 2 }), 120);
+    assert.equal(measureCanvasTextHeight({ ...frame, text: "" }), 25);
   });
 
   it("keeps pen geometry in its original viewBox when its node is resized", () => {
@@ -101,6 +148,18 @@ describe("canvas node content", () => {
     assert.match(render({ ...bounds, kind: "rectangle", fill: "#414141" }), /background:#414141/);
     assert.equal(render(bounds), "");
     assert.equal(render({ ...bounds, kind: "frame" }), "");
+  });
+
+  it("applies corner radius to both shape and image content", () => {
+    const rectangle = render({ ...bounds, kind: "rectangle", fill: "#123", cornerRadius: 16 });
+    const image = render({
+      ...bounds,
+      kind: "image",
+      src: "data:image/png;base64,iVBORw0KGgo=",
+      cornerRadius: 24,
+    });
+    assert.match(rectangle, /border-radius:16px/);
+    assert.match(image, /border-radius:24px/);
   });
 });
 

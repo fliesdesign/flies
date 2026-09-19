@@ -238,6 +238,40 @@
   content: "";
 }
 
+.canvas-layer-drag-preview {
+  position: absolute;
+  z-index: 3;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid #454545;
+  border-radius: 8px;
+  background: #303030;
+  box-shadow: 0 3px 12px #0003;
+  pointer-events: none;
+}
+
+.canvas-layer-drag-name,
+.canvas-layer-drag-destination {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-layer-drag-name {
+  font-size: 12px;
+}
+
+.canvas-layer-drag-destination {
+  color: #afafaf;
+  font-size: 11px;
+  line-height: 14px;
+}
+
 .canvas-layers-empty {
   margin: 20px 16px;
   color: #a6a6a6;

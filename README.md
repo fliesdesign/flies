@@ -21,15 +21,19 @@ bun test src         # canvas geometry, document, rendering, interaction, and hi
 
 ## Canvas
 
-Open `/` for the canvas, a compact layers sidebar on the left, and a vertical toolbar beside it.
+Open `/` for the canvas, a compact layers sidebar on the left, a vertical toolbar beside it,
+and a properties panel on the right.
 Layers follow frame/group nesting and stacking order, with selection, expand/collapse,
 inline renaming, lock controls, and eye buttons to hide/show nodes. Drag rows to reorder them;
 drop in the middle of a frame/group to nest them, or below the list to move them to the root.
-Dragging left of a nested row moves the drop to its parent's level. These edits support undo,
+Dragging left of a nested row moves the drop to its parent's level. Hover over a collapsed
+container for 600 ms while dragging to expand it; a destination label identifies the drop.
+These edits support undo,
 and hidden states persist with the document. Ctrl/Cmd + Shift + H toggles the selected nodes.
 Shift-click selects a range; Cmd/Ctrl-click toggles a layer.
-The sidebar can be collapsed to give the canvas more space. There is no
-navigation bar, footer, properties panel, or router devtools. A native
+Both panels can be collapsed to give the canvas more space. At narrow widths properties start
+collapsed, and opening one panel closes the other. There is no
+navigation bar, footer, or router devtools. A native
 `<canvas>` provides the plain background; objects and selection controls use HTML/CSS and
 SVG above it, without particles. Editing runs entirely in the frontend, without native IPC.
 
@@ -50,10 +54,19 @@ Frames have a 40 × 40 minimum size; other objects have a 1 × 1 minimum. Hold S
 resizing to preserve the selection's aspect ratio. Resizing a text box changes its wrapping;
 images and pen strokes scale with their bounds.
 
+The properties panel edits position, dimensions, proportions, opacity, fill, corner radius,
+visibility, and locking. It also exposes frame clipping, pen stroke width, and multi-selection
+alignment. A single child's position is relative to its parent; multi-selection coordinates
+describe the combined world bounds. Enter or blur commits a field as one undoable edit;
+Escape discards the draft. Invalid values revert, and locked layers can be inspected and
+unlocked in the panel without enabling canvas manipulation.
+
 Objects dropped into a frame become its children and move with it. Drawing a frame around
 existing objects wraps them without moving them. Frames clip their contents by default;
 right-click the selected frame to toggle **Clip contents**. Resizing a frame crops or reveals
 its children. Groups have transparent backgrounds, and resizing a group scales its contents.
+Selection borders and handles respect clipping ancestors; fully clipped children remain
+accessible in Layers and Properties without leaving controls on the canvas.
 Enter or double-click a group to edit inside it; Cmd-click selects a nested object directly.
 
 Alignment guides appear while moving or resizing objects near the edges or centers of other
@@ -63,6 +76,10 @@ while dragging to bypass it. Guides disappear when the gesture ends or is cancel
 Double-click text, or press Enter with a text object selected, to edit it. Enter inserts a
 line break; Ctrl/Cmd + Enter or clicking outside commits. Escape cancels the current text
 draft. Text entry keeps ordinary editing shortcuts separate from canvas shortcuts.
+Text properties include font family, weight, size, line height, letter spacing, alignment,
+and color. Typography changes and direct width edits fit the text's height to its new wrapping;
+an explicit height or proportion-locked resize keeps the requested bounds. **Fit text height**
+fits an existing box without changing its width. Rendering and editing use the same typography.
 
 Drag blank space with Select to marquee-select objects. Shift-click adds or removes an object;
 Shift-drag adds to the selection. Use Hand, middle-drag, or hold Space to pan. Wheel scrolling
@@ -73,8 +90,8 @@ Copy, cut, paste, and duplicate preserve complete selected subtrees and give cop
 Paste also accepts plain text and local images; copying or pasting while editing text keeps
 normal text-editing behavior. Moving, resizing, grouping, or deleting a selection and its
 descendants each undo as one operation. The context menu also provides rename, locking, stacking
-order, alignment, and distribution. Locked objects remain visible but cannot be selected or
-edited; **Unlock all** restores access.
+order, alignment, and distribution. Locked objects remain visible and can be inspected from
+Layers; their geometry and styling cannot be edited until unlocked. **Unlock all** restores access.
 
 | Key                                 | Action                                                                  |
 | ----------------------------------- | ----------------------------------------------------------------------- |
@@ -157,6 +174,8 @@ src/
   lib/canvas-spatial-index.ts  world-space viewport queries
   lib/canvas-operations.ts  subtree transforms, grouping, parenting, and clipboard plans
   lib/canvas-arrange.ts   alignment and distribution
+  lib/canvas-properties.ts  atomic property edits and text reflow
+  lib/canvas-outline.ts   clipping-aware selection visibility and controls
   lib/canvas-tools.ts     tool types, drawing bounds, and local pen coordinates
   lib/canvas-image.ts     local image decoding, size limits, and raster conversion
   lib/canvas-*.test.ts    canvas regression tests

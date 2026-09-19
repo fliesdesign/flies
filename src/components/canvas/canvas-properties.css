@@ -1,0 +1,348 @@
+.canvas-properties {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: var(--canvas-properties-width, 260px);
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid #363636;
+  outline: none;
+  background: #282828;
+  color: #e5e5e5;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.canvas-properties-header {
+  display: flex;
+  height: var(--canvas-header-height, 48px);
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid #363636;
+}
+
+.canvas-properties-header > div {
+  min-width: 0;
+}
+
+.canvas-properties-header h2 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-properties-header > div > span {
+  display: block;
+  color: #979797;
+  font-size: 10px;
+  line-height: 13px;
+  text-transform: capitalize;
+}
+
+.canvas-properties-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #515151 transparent;
+}
+
+.canvas-properties-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px 16px;
+  border-bottom: 1px solid #363636;
+}
+
+.canvas-properties-section-heading {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px 0 3px;
+}
+
+.canvas-properties-section-heading h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.canvas-properties-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.canvas-property-icon-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #b9b9b9;
+  cursor: default;
+}
+
+.canvas-property-icon-button:hover:not(:disabled) {
+  background: #ffffff0d;
+  color: #ededed;
+}
+
+.canvas-property-icon-button[aria-pressed="true"] {
+  background: #484848;
+  color: #f0f0f0;
+}
+
+.canvas-property-icon-button:disabled {
+  opacity: 0.3;
+}
+
+.canvas-properties-align {
+  display: flex;
+  justify-content: space-between;
+  margin: -5px -2px 2px;
+}
+
+.canvas-properties-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.canvas-properties-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.canvas-properties-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.canvas-property-field,
+.canvas-property-select,
+.canvas-property-text-button {
+  display: flex;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #424242;
+  border-radius: 5px;
+  background: #383838;
+}
+
+.canvas-property-field {
+  padding: 0 8px;
+}
+
+.canvas-property-field:focus-within,
+.canvas-property-select:focus-within {
+  border-color: #898989;
+}
+
+.canvas-property-field input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+
+.canvas-property-field input::placeholder {
+  color: #969696;
+}
+
+.canvas-property-prefix,
+.canvas-property-suffix {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: #969696;
+  font-size: 11px;
+}
+
+.canvas-property-prefix {
+  min-width: 10px;
+  justify-content: center;
+}
+
+.canvas-property-field[data-disabled],
+.canvas-property-select[data-disabled] {
+  opacity: 0.45;
+}
+
+.canvas-property-select {
+  position: relative;
+  padding-right: 8px;
+}
+
+.canvas-property-select select {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  appearance: none;
+  padding: 0 22px 0 9px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.canvas-property-select select option {
+  background: #303030;
+  color: #ededed;
+}
+
+.canvas-property-select > svg {
+  position: absolute;
+  right: 8px;
+  color: #999;
+  pointer-events: none;
+}
+
+.canvas-property-option {
+  display: flex;
+  min-height: 23px;
+  align-items: center;
+  justify-content: space-between;
+  color: #a9a9a9;
+  font-size: 11px;
+}
+
+.canvas-property-option label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.canvas-property-option input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: #b5b5b5;
+}
+
+.canvas-opacity-icon {
+  width: 12px;
+  height: 12px;
+  background: repeating-conic-gradient(#969696 0% 25%, transparent 0% 50%) 0 / 6px 6px;
+  opacity: 0.7;
+}
+
+.canvas-properties-color {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.canvas-properties-color > .canvas-property-field {
+  flex: 1;
+}
+
+.canvas-property-swatch {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid #575757;
+  border-radius: 5px;
+}
+
+.canvas-property-swatch[data-mixed] {
+  background: linear-gradient(135deg, #717171 50%, #414141 50%);
+}
+
+.canvas-property-swatch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: default;
+}
+
+.canvas-property-swatch:focus-within {
+  outline: 1px solid #a6a6a6;
+  outline-offset: 2px;
+}
+
+.canvas-properties-segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 5px;
+  background: #353535;
+}
+
+.canvas-properties-segmented > button {
+  flex: 1;
+}
+
+.canvas-property-text-button {
+  justify-content: center;
+  color: #d5d5d5;
+  font: inherit;
+  cursor: default;
+}
+
+.canvas-property-text-button:hover:not(:disabled) {
+  background: #414141;
+}
+
+.canvas-property-text-button:disabled {
+  opacity: 0.4;
+}
+
+.canvas-property-icon-button:focus-visible,
+.canvas-property-text-button:focus-visible {
+  outline: 1px solid #969696;
+  outline-offset: 1px;
+}
+
+.canvas-properties-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 23px 20px;
+  color: #8e8e8e;
+}
+
+.canvas-properties-empty svg {
+  flex: none;
+}
+
+.canvas-properties-empty p {
+  max-width: 150px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}

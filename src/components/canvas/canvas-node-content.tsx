@@ -1,8 +1,62 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import type { CanvasFrame, CanvasPen, CanvasText } from "@/lib/canvas-document";
 
 import "./canvas-nodes.css";
+
+const TEXT_FONT_FAMILIES = {
+  Arial: "Arial, Helvetica, sans-serif",
+  Helvetica: "Helvetica, Arial, sans-serif",
+  Georgia: "Georgia, 'Times New Roman', serif",
+  "Courier New": "'Courier New', Courier, monospace",
+} as const;
+
+/** Keep the rendered text, editing field, and height measurement on one typography definition. */
+export function canvasTextStyle(frame: CanvasText): CSSProperties {
+  return {
+    color: frame.color,
+    fontSize: frame.fontSize,
+    fontFamily: TEXT_FONT_FAMILIES[frame.fontFamily ?? "Arial"],
+    fontWeight: frame.fontWeight ?? 400,
+    lineHeight: frame.lineHeight ?? 1.25,
+    letterSpacing: frame.letterSpacing ?? 0,
+    textAlign: frame.textAlign ?? "left",
+  };
+}
+
+/** Measure unscaled content at its actual wrapping width, including an empty trailing line. */
+export function measureCanvasTextHeight(frame: CanvasText): number {
+  const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
+  if (typeof document === "undefined") {
+    return Math.max(1, Math.ceil(frame.text.split("\n").length * lineHeight));
+  }
+  const measurement = document.createElement("span");
+  const typography = canvasTextStyle(frame);
+  measurement.className = "canvas-text-content canvas-text-measurement";
+  Object.assign(measurement.style, typography, {
+    fontSize: `${frame.fontSize}px`,
+    letterSpacing: `${frame.letterSpacing ?? 0}px`,
+    width: `${frame.width}px`,
+  });
+  measurement.textContent = frame.text + "\u200b";
+  document.body.append(measurement);
+  const height = Math.max(
+    1,
+    Math.ceil(lineHeight),
+    Math.ceil(measurement.getBoundingClientRect().height),
+  );
+  measurement.remove();
+  return height;
+}
 
 const PenContent = memo(function PenContent({ frame }: { frame: CanvasPen }) {
   const points = useMemo(
@@ -42,13 +96,15 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
 }) {
   switch (frame.kind) {
     case "rectangle":
-      return <span className="canvas-rectangle-content" style={{ background: frame.fill }} />;
-    case "text":
       return (
         <span
-          className="canvas-text-content"
-          style={{ color: frame.color, fontSize: frame.fontSize }}
-        >
+          className="canvas-rectangle-content"
+          style={{ background: frame.fill, borderRadius: frame.cornerRadius ?? 0 }}
+        />
+      );
+    case "text":
+      return (
+        <span className="canvas-text-content" style={canvasTextStyle(frame)}>
           {frame.text}
         </span>
       );
@@ -60,6 +116,7 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
           alt=""
           draggable={false}
           decoding="async"
+          style={{ borderRadius: frame.cornerRadius ?? 0 }}
         />
       );
     case "pen":
@@ -75,9 +132,8 @@ type TextEditorProps = {
   onCancel?: (id: string) => void;
 };
 
-function textHeight(input: HTMLTextAreaElement, fontSize: number) {
-  input.style.height = "0px";
-  const height = Math.max(Math.ceil(fontSize * 1.25), input.scrollHeight);
+function textHeight(input: HTMLTextAreaElement, frame: CanvasText) {
+  const height = measureCanvasTextHeight({ ...frame, text: input.value });
   input.style.height = `${height}px`;
   return height;
 }
@@ -110,16 +166,16 @@ export function CanvasTextEditor({ frame, onCommit, onCancel }: TextEditorProps)
   }, []);
 
   useLayoutEffect(() => {
-    if (inputRef.current) textHeight(inputRef.current, frame.fontSize);
+    if (inputRef.current) textHeight(inputRef.current, frame);
   });
 
   const commit = useCallback(
     (input: HTMLTextAreaElement) => {
       if (finishedRef.current) return;
       finishedRef.current = true;
-      onCommit?.(frame.id, input.value, textHeight(input, frame.fontSize));
+      onCommit?.(frame.id, input.value, textHeight(input, frame));
     },
-    [frame.id, frame.fontSize, onCommit],
+    [frame, onCommit],
   );
 
   useEffect(
@@ -142,7 +198,7 @@ export function CanvasTextEditor({ frame, onCommit, onCancel }: TextEditorProps)
       value={draft}
       rows={1}
       spellCheck={false}
-      style={{ color: frame.color, fontSize: frame.fontSize }}
+      style={canvasTextStyle(frame)}
       onChange={(event) => setDraft(event.currentTarget.value)}
       onBlur={(event) => commit(event.currentTarget)}
       onKeyDown={(event) => {

@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import type { CanvasDocument, CanvasFrame } from "@/lib/canvas-document";
+import { LayerHoverExpansion } from "@/lib/canvas-layer-hover";
 
 import "./canvas-layers.css";
 
@@ -197,6 +198,7 @@ export const CanvasLayers = memo(function CanvasLayers({
   const treeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<string | null>(null);
   const dragRef = useRef<LayerDrag | null>(null);
+  const [hoverExpansion] = useState(() => new LayerHoverExpansion());
   const suppressClick = useRef(false);
   const [draggingIds, setDraggingIds] = useState<readonly string[]>([]);
   const [drop, setDrop] = useState<LayerDrop | null>(null);
@@ -323,11 +325,35 @@ export const CanvasLayers = memo(function CanvasLayers({
   const stopDrag = useCallback(() => {
     const drag = dragRef.current;
     dragRef.current = null;
+    hoverExpansion.cancel();
     const tree = treeRef.current;
     if (drag && tree?.hasPointerCapture(drag.pointerId)) tree.releasePointerCapture(drag.pointerId);
     setDraggingIds([]);
     setDrop(null);
-  }, []);
+  }, [hoverExpansion]);
+
+  const expandTarget =
+    draggingIds.length &&
+    drop?.placement === "inside" &&
+    drop.id &&
+    expansion.collapsed.has(drop.id)
+      ? drop.id
+      : null;
+  useEffect(() => {
+    hoverExpansion.update(expandTarget, (id) => {
+      setExpansion((previous) => {
+        const collapsed = new Set(previous.collapsed);
+        collapsed.delete(id);
+        return { ...previous, collapsed };
+      });
+    });
+  }, [expandTarget, hoverExpansion]);
+  useEffect(() => () => hoverExpansion.cancel(), [hoverExpansion]);
+  // Expansion changes the row geometry even if the pointer stays still.
+  useEffect(() => {
+    const drag = dragRef.current;
+    if (drag?.moving) setDrop(findDrop(drag.x, drag.y));
+  }, [findDrop]);
 
   useEffect(() => {
     if (!draggingIds.length) return;
@@ -357,10 +383,18 @@ export const CanvasLayers = memo(function CanvasLayers({
     };
     frame = requestAnimationFrame(scroll);
     const cancel = () => stopDrag();
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      stopDrag();
+    };
+    window.addEventListener("keydown", escape, true);
     window.addEventListener("blur", cancel);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", escape, true);
     };
   }, [draggingIds, findDrop, stopDrag, updateScrollWindow]);
 
@@ -453,6 +487,17 @@ export const CanvasLayers = memo(function CanvasLayers({
     event.stopPropagation();
     focusRow(next);
   }
+
+  const dragName =
+    draggingIds.length === 1
+      ? (document.getFrame(draggingIds[0])?.name ?? "Layer")
+      : `${draggingIds.length} layers`;
+  const targetName = drop?.id ? document.getFrame(drop.id)?.name : undefined;
+  const dropDescription = !drop
+    ? "Choose a destination"
+    : !targetName
+      ? "Move to canvas"
+      : `${drop.placement === "inside" ? "Into" : drop.placement === "before" ? "Above" : "Below"} ${targetName}`;
 
   return (
     <aside className="canvas-layers" aria-label="Layers panel" data-canvas-ui="">
@@ -727,6 +772,12 @@ export const CanvasLayers = memo(function CanvasLayers({
             })}
           </div>
         </div>
+      )}
+      {draggingIds.length > 0 && (
+        <output className="canvas-layer-drag-preview" aria-live="polite">
+          <span className="canvas-layer-drag-name">{dragName}</span>
+          <span className="canvas-layer-drag-destination">{dropDescription}</span>
+        </output>
       )}
     </aside>
   );

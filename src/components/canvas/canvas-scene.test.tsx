@@ -53,6 +53,19 @@ function renderFrames(frames: readonly CanvasFrame[], selectedIds: readonly stri
 }
 
 describe("hierarchical canvas rendering", () => {
+  it("applies container opacity once and matches frame fill and clipping corner radius", () => {
+    const markup = renderFrames([
+      { ...parent, opacity: 0.5, fill: "#abcdef", cornerRadius: 24 },
+      child,
+    ]);
+    assert.equal(markup.match(/opacity:0\.5/g)?.length, 1);
+    assert.match(
+      markup,
+      /class="canvas-frame"[^>]*style="background-color:#abcdef;border-radius:24px"/,
+    );
+    assert.match(markup, /class="canvas-node-children"[^>]*style="border-radius:24px"/);
+  });
+
   it("renders a child once, after its parent's background and relative to its parent origin", () => {
     const markup = renderFrames([parent, child]);
     assert.equal(markup.match(/data-frame-id="child"/g)?.length, 1);
@@ -103,6 +116,125 @@ describe("hierarchical canvas rendering", () => {
 });
 
 describe("canvas selection overlays", () => {
+  it("removes a node wholly hidden by a rounded ancestor corner", () => {
+    const document = new CanvasDocument([
+      { ...parent, x: 0, y: 0, width: 100, height: 100, cornerRadius: 50 },
+      { ...child, x: 0, y: 0, width: 5, height: 5 },
+    ]);
+    assert.equal(
+      renderToStaticMarkup(
+        <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
+      ),
+      "",
+    );
+    assert.equal(
+      renderToStaticMarkup(
+        <CanvasOutline document={document} camera={new StaticCamera()} id="child" />,
+      ),
+      "",
+    );
+  });
+
+  it("clips border paint and resize anchors to rounded ancestor geometry at any zoom", () => {
+    const document = new CanvasDocument([
+      { ...parent, x: 0, y: 0, width: 100, height: 100, cornerRadius: 50 },
+      { ...child, x: 0, y: 0, width: 40, height: 40 },
+    ]);
+    const camera = new StaticCamera({
+      viewport: { x: 0, y: 0, zoom: 2 },
+      size: { x: 800, y: 600 },
+    });
+    const markup = renderToStaticMarkup(
+      <CanvasSelectionOutline document={document} camera={camera} ids={["child"]} />,
+    );
+    assert.deepEqual(
+      [...markup.matchAll(/data-handle="([^"]+)"/g)].map((match) => match[1]),
+      ["e", "se", "s"],
+    );
+    assert.match(markup, /clip-path:inset\(0px -120px -120px 0px round 100px\)/);
+    const hover = renderToStaticMarkup(
+      <CanvasOutline document={document} camera={camera} id="child" />,
+    );
+    assert.match(hover, /clip-path:inset\(0px -120px -120px 0px round 100px\)/);
+  });
+
+  it("removes all controls and hover for a fully clipped child, including touching edges", () => {
+    for (const x of [500, 550]) {
+      const document = new CanvasDocument([parent, { ...child, x }]);
+      assert.equal(
+        renderToStaticMarkup(
+          <CanvasSelectionOutline
+            document={document}
+            camera={new StaticCamera()}
+            ids={["child"]}
+          />,
+        ),
+        "",
+      );
+      assert.equal(
+        renderToStaticMarkup(
+          <CanvasOutline document={document} camera={new StaticCamera()} id="child" />,
+        ),
+        "",
+      );
+    }
+  });
+
+  it("only exposes resize anchors inside every clipping ancestor", () => {
+    const document = new CanvasDocument([
+      { ...parent, width: 200, height: 150 },
+      { ...parent, id: "inner", parentId: "parent", x: 120, y: 120 },
+      { ...child, parentId: "inner", x: 250, y: 220, width: 120, height: 100 },
+    ]);
+    const markup = renderToStaticMarkup(
+      <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
+    );
+    assert.deepEqual(
+      [...markup.matchAll(/data-handle="([^"]+)"/g)].map((match) => match[1]),
+      ["nw"],
+    );
+    assert.match(markup, /clip-path:inset\(-1px 70px 70px -1px\)/);
+    assert.ok(!markup.includes("canvas-dimensions"));
+  });
+
+  it("omits fully clipped members from multi-selection geometry and clips shared-frame handles", () => {
+    const document = new CanvasDocument([
+      parent,
+      child,
+      { ...child, id: "outside", x: 600 },
+      { ...child, id: "partial", x: 450, y: 350, height: 100 },
+    ]);
+    const markup = renderToStaticMarkup(
+      <CanvasSelectionOutline
+        document={document}
+        camera={new StaticCamera()}
+        ids={["child", "outside", "partial"]}
+      />,
+    );
+    assert.match(markup, /translate3d\(150px, 180px, 0\);width:420px;height:270px/);
+    assert.match(markup, /Resize 2 objects/);
+    assert.deepEqual(
+      [...markup.matchAll(/data-handle="([^"]+)"/g)].map((match) => match[1]),
+      ["nw", "n", "w"],
+    );
+    assert.ok(!markup.includes("canvas-dimensions"));
+  });
+
+  it("restores all controls when clipping is disabled and hides inherited hidden selections", () => {
+    const document = new CanvasDocument([
+      { ...parent, clipContent: false },
+      { ...child, x: 600 },
+    ]);
+    const render = () =>
+      renderToStaticMarkup(
+        <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
+      );
+    assert.equal(render().match(/data-handle=/g)?.length, 8);
+    assert.match(render(), /canvas-dimensions/);
+    document.update({ ...document.getFrame("parent")!, hidden: true });
+    assert.equal(render(), "");
+  });
+
   it("draws one common bound for a multi-selection with eight handles", () => {
     const document = new CanvasDocument([
       { ...child, parentId: undefined },
