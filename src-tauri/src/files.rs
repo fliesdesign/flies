@@ -1,9 +1,11 @@
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -38,6 +40,18 @@ pub struct FileSummary {
     name: String,
     updated_at: u64,
     node_count: usize,
+    created_at: u64,
+    folder_id: Option<String>,
+    preview: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    id: String,
+    name: String,
+    parent_id: Option<String>,
+    created_at: u64,
 }
 
 #[derive(Serialize)]
@@ -45,10 +59,12 @@ pub struct FileLibrary {
     files: Vec<FileSummary>,
     warnings: Vec<String>,
     directory: String,
+    folders: Vec<Folder>,
 }
 
 pub struct FileStore {
     root: PathBuf,
+    db: Connection,
 }
 pub struct LocalFiles(pub Arc<Mutex<FileStore>>);
 
@@ -133,8 +149,19 @@ fn validate_nodes(nodes: &[Value]) -> Result<()> {
 
 pub fn read_json(path: &Path) -> Result<String> {
     let file = File::open(path).map_err(|error| format!("Could not open file: {error}"))?;
+    let mut reader = BufReader::new(file);
+    let compressed = reader
+        .fill_buf()
+        .map_err(|e| e.to_string())?
+        .starts_with(&[0x1f, 0x8b]);
+    let reader: Box<dyn Read> = if compressed {
+        Box::new(GzDecoder::new(reader))
+    } else {
+        Box::new(reader)
+    };
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1)
+    reader
+        .take(MAX_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Could not read file: {e}"))?;
     if bytes.len() as u64 > MAX_BYTES {
@@ -143,74 +170,175 @@ pub fn read_json(path: &Path) -> Result<String> {
     String::from_utf8(bytes).map_err(|_| "This file is not UTF-8 JSON.".into())
 }
 
+fn db_error(error: rusqlite::Error) -> String {
+    format!("Local library: {error}")
+}
+fn new_id() -> Result<String> {
+    Ok(format!(
+        "{:x}-{:x}-{:x}",
+        now()?,
+        std::process::id(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+fn valid_id(id: &str) -> Result<()> {
+    if id.is_empty() || id.len() > 80 || !id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-') {
+        return Err("Invalid file ID.".into());
+    }
+    Ok(())
+}
+
+// Small geometry previews are indexed separately; embedded image payloads stay in the document.
+fn preview(nodes: &[Value]) -> Vec<Value> {
+    nodes
+        .iter()
+        .filter(|node| node["hidden"] != true)
+        .take(300)
+        .map(|node| {
+            let mut value = serde_json::Map::new();
+            for key in [
+                "id",
+                "parentId",
+                "kind",
+                "x",
+                "y",
+                "width",
+                "height",
+                "fill",
+                "color",
+                "fontSize",
+                "cornerRadius",
+                "opacity",
+                "clipContent",
+            ] {
+                if let Some(field) = node.get(key) {
+                    value.insert(key.into(), field.clone());
+                }
+            }
+            if let Some(text) = node["text"].as_str() {
+                value.insert(
+                    "text".into(),
+                    Value::String(text.chars().take(150).collect()),
+                );
+            }
+            Value::Object(value)
+        })
+        .collect()
+}
+
 impl FileStore {
     pub fn new(root: PathBuf) -> Result<Self> {
         fs::create_dir_all(&root)
             .map_err(|e| format!("Could not create local file library: {e}"))?;
-        Ok(Self { root })
+        let db = Connection::open(root.join("library.sqlite3")).map_err(db_error)?;
+        db.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(db_error)?;
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS folders(id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT REFERENCES folders(id), created_at INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, revision INTEGER NOT NULL, node_count INTEGER NOT NULL, folder_id TEXT REFERENCES folders(id), blob TEXT NOT NULL, preview TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS documents_folder ON documents(folder_id, updated_at);
+            CREATE INDEX IF NOT EXISTS folders_parent ON folders(parent_id);
+            PRAGMA user_version=1;").map_err(db_error)?;
+        let store = Self { root, db };
+        Ok(store)
     }
-    fn path(&self, id: &str) -> Result<PathBuf> {
-        if id.is_empty() || id.len() > 80 || !id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-')
-        {
-            return Err("Invalid file ID.".into());
+    fn safe_path(&self, filename: &str) -> Result<PathBuf> {
+        if filename.contains(['/', '\\']) || filename.starts_with('.') {
+            return Err("Invalid document path.".into());
         }
-        let path = self.root.join(format!("{id}.json"));
+        let path = self.root.join(filename);
         if fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
             return Err("Linked files cannot be used as library files.".into());
         }
         Ok(path)
     }
-    fn write(&self, file: &ProjectFile, new: bool) -> Result<()> {
-        let bytes =
-            serde_json::to_vec_pretty(file).map_err(|e| format!("Could not encode file: {e}"))?;
+    fn path(&self, id: &str) -> Result<PathBuf> {
+        valid_id(id)?;
+        let blob: Option<String> = self
+            .db
+            .query_row("SELECT blob FROM documents WHERE id=?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(db_error)?;
+        self.safe_path(&blob.unwrap_or_else(|| format!("{id}.json")))
+    }
+    fn transaction(&self) -> Result<Transaction<'_>> {
+        Transaction::new_unchecked(&self.db, TransactionBehavior::Immediate).map_err(db_error)
+    }
+    fn validate_file(&self, file: &ProjectFile, id: &str) -> Result<()> {
+        if file.format != "flies" || file.version != 1 || file.id != id {
+            return Err("This file format is not supported.".into());
+        }
+        valid_name(&file.name)?;
+        validate_nodes(&file.nodes)
+    }
+    // Publish a new immutable compressed snapshot before committing its index pointer.
+    // A crash before commit leaves the previous indexed snapshot untouched.
+    fn write(&self, tx: &Transaction<'_>, file: &ProjectFile) -> Result<()> {
+        let bytes = serde_json::to_vec(file).map_err(|e| e.to_string())?;
         if bytes.len() as u64 > MAX_BYTES {
             return Err("Files must be smaller than 100 MB.".into());
         }
-        let path = self.path(&file.id)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(&self.root)
-            .map_err(|e| format!("Could not prepare save: {e}"))?;
-        temporary
-            .write_all(&bytes)
-            .and_then(|_| temporary.as_file().sync_all())
-            .map_err(|e| format!("Could not write file: {e}"))?;
-        if new {
-            temporary.persist_noclobber(&path)
-        } else {
-            temporary.persist(&path)
+        let blob = format!("{}-{}.json.gz", file.id, new_id()?);
+        let mut temporary =
+            tempfile::NamedTempFile::new_in(&self.root).map_err(|e| e.to_string())?;
+        {
+            let mut encoder = GzEncoder::new(temporary.as_file_mut(), Compression::default());
+            encoder.write_all(&bytes).map_err(|e| e.to_string())?;
+            encoder.finish().map_err(|e| e.to_string())?;
         }
-        .map_err(|e| format!("Could not finish save. Previous file was kept: {e}"))?;
+        temporary.as_file().sync_all().map_err(|e| e.to_string())?;
+        temporary
+            .persist_noclobber(self.safe_path(&blob)?)
+            .map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        File::open(&self.root)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO documents(id,name,created_at,updated_at,revision,node_count,blob,preview) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at, revision=excluded.revision,node_count=excluded.node_count,blob=excluded.blob,preview=excluded.preview",
+            params![file.id, file.name, i64::try_from(file.created_at).map_err(|e| e.to_string())?, i64::try_from(file.updated_at).map_err(|e| e.to_string())?, i64::try_from(file.revision).map_err(|e| e.to_string())?, file.nodes.len() as i64, blob, serde_json::to_string(&preview(&file.nodes)).map_err(|e| e.to_string())?]).map_err(db_error)?;
         Ok(())
     }
+    #[cfg(test)]
     pub fn create(&self, name: &str, nodes: Vec<Value>) -> Result<ProjectFile> {
+        self.create_in(name, nodes, None)
+    }
+    pub fn create_in(
+        &self,
+        name: &str,
+        nodes: Vec<Value>,
+        folder: Option<String>,
+    ) -> Result<ProjectFile> {
         let name = valid_name(name)?;
         validate_nodes(&nodes)?;
         let timestamp = now()?;
         let file = ProjectFile {
             format: "flies".into(),
             version: 1,
-            id: format!(
-                "{:x}-{:x}-{:x}",
-                timestamp,
-                std::process::id(),
-                NEXT_ID.fetch_add(1, Ordering::Relaxed)
-            ),
+            id: new_id()?,
             name,
             created_at: timestamp,
             updated_at: timestamp,
             revision: 0,
             nodes,
         };
-        self.write(&file, true)?;
+        let tx = self.transaction()?;
+        self.check_folder(folder.as_deref())?;
+        self.write(&tx, &file)?;
+        tx.execute(
+            "UPDATE documents SET folder_id=?1 WHERE id=?2",
+            params![folder, file.id],
+        )
+        .map_err(db_error)?;
+        tx.commit().map_err(db_error)?;
         Ok(file)
     }
     pub fn open(&self, id: &str) -> Result<ProjectFile> {
         let file: ProjectFile = serde_json::from_str(&read_json(&self.path(id)?)?)
             .map_err(|e| format!("This file contains invalid JSON: {e}"))?;
-        if file.format != "flies" || file.version != 1 || file.id != id {
-            return Err("This file format is not supported.".into());
-        }
-        valid_name(&file.name)?;
-        validate_nodes(&file.nodes)?;
+        self.validate_file(&file, id)?;
         Ok(file)
     }
     pub fn save(
@@ -220,6 +348,8 @@ impl FileStore {
         name: &str,
         nodes: Vec<Value>,
     ) -> Result<ProjectFile> {
+        let tx = self.transaction()?;
+        let old_path = self.path(id)?;
         let mut file = self.open(id)?;
         if file.revision != revision {
             return Err("This file changed in another window. Your edits are still here; reopen the file before saving again.".into());
@@ -232,38 +362,141 @@ impl FileStore {
             .checked_add(1)
             .ok_or("File revision limit reached.")?;
         file.updated_at = now()?.max(file.updated_at.saturating_add(1));
-        self.write(&file, false)?;
+        self.write(&tx, &file)?;
+        tx.commit().map_err(db_error)?;
+        // Old compressed revisions are replaceable; original legacy JSON is retained.
+        if old_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            let _ = fs::remove_file(old_path);
+        }
         Ok(file)
     }
-    pub fn list(&self) -> Result<FileLibrary> {
-        let mut files = Vec::new();
-        let mut warnings = Vec::new();
-        for entry in
-            fs::read_dir(&self.root).map_err(|e| format!("Could not read local files: {e}"))?
-        {
-            let entry = entry.map_err(|e| format!("Could not read local file: {e}"))?;
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            match self.open(id) {
-                Ok(file) => files.push(FileSummary {
-                    id: file.id,
-                    name: file.name,
-                    updated_at: file.updated_at,
-                    node_count: file.nodes.len(),
-                }),
-                Err(error) => {
-                    warnings.push(format!("{}: {error}", entry.file_name().to_string_lossy()))
-                }
+    fn check_folder(&self, id: Option<&str>) -> Result<()> {
+        if let Some(id) = id {
+            valid_id(id)?;
+            let exists: bool = self
+                .db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM folders WHERE id=?1)",
+                    [id],
+                    |r| r.get(0),
+                )
+                .map_err(db_error)?;
+            if !exists {
+                return Err("This folder no longer exists.".into());
             }
         }
-        files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.id.cmp(&b.id)));
+        Ok(())
+    }
+    pub fn create_folder(&self, name: &str, parent_id: Option<String>) -> Result<Folder> {
+        let tx = self.transaction()?;
+        self.check_folder(parent_id.as_deref())?;
+        let folder = Folder {
+            id: new_id()?,
+            name: valid_name(name)?,
+            parent_id,
+            created_at: now()?,
+        };
+        tx.execute(
+            "INSERT INTO folders VALUES(?1,?2,?3,?4)",
+            params![
+                folder.id,
+                folder.name,
+                folder.parent_id,
+                folder.created_at as i64
+            ],
+        )
+        .map_err(db_error)?;
+        tx.commit().map_err(db_error)?;
+        Ok(folder)
+    }
+    pub fn rename_folder(&self, id: &str, name: &str) -> Result<()> {
+        let name = valid_name(name)?;
+        if self
+            .db
+            .execute("UPDATE folders SET name=?1 WHERE id=?2", params![name, id])
+            .map_err(db_error)?
+            == 0
+        {
+            return Err("Folder not found.".into());
+        }
+        Ok(())
+    }
+    pub fn move_item(&self, id: &str, folder: Option<String>, is_folder: bool) -> Result<()> {
+        let tx = self.transaction()?;
+        self.check_folder(folder.as_deref())?;
+        if is_folder {
+            self.check_folder(Some(id))?;
+            let mut ancestor = folder.clone();
+            while let Some(parent) = ancestor {
+                if parent == id {
+                    return Err("A folder cannot be moved into itself or its descendants.".into());
+                }
+                ancestor = tx
+                    .query_row("SELECT parent_id FROM folders WHERE id=?1", [parent], |r| {
+                        r.get(0)
+                    })
+                    .map_err(db_error)?;
+            }
+        }
+        let query = if is_folder {
+            "UPDATE folders SET parent_id=?1 WHERE id=?2"
+        } else {
+            "UPDATE documents SET folder_id=?1 WHERE id=?2"
+        };
+        if tx.execute(query, params![folder, id]).map_err(db_error)? == 0 {
+            return Err("Item not found.".into());
+        }
+        tx.commit().map_err(db_error)?;
+        Ok(())
+    }
+    pub fn list(&self) -> Result<FileLibrary> {
+        let mut query = self.db.prepare("SELECT id,name,created_at,updated_at,node_count,folder_id,preview,blob FROM documents ORDER BY updated_at DESC,id").map_err(db_error)?;
+        let rows = query
+            .query_map([], |r| {
+                Ok((
+                    FileSummary {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        created_at: r.get::<_, i64>(2)? as u64,
+                        updated_at: r.get::<_, i64>(3)? as u64,
+                        node_count: r.get::<_, i64>(4)? as usize,
+                        folder_id: r.get(5)?,
+                        preview: serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default(),
+                    },
+                    r.get::<_, String>(7)?,
+                ))
+            })
+            .map_err(db_error)?;
+        let mut files = Vec::new();
+        let mut warnings = Vec::new();
+        for row in rows {
+            let (file, blob) = row.map_err(db_error)?;
+            if !self.safe_path(&blob)?.exists() {
+                warnings.push(format!("{}: document snapshot is missing.", file.name));
+            }
+            files.push(file);
+        }
+        let mut query = self
+            .db
+            .prepare(
+                "SELECT id,name,parent_id,created_at FROM folders ORDER BY name COLLATE NOCASE,id",
+            )
+            .map_err(db_error)?;
+        let folders = query
+            .query_map([], |r| {
+                Ok(Folder {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    parent_id: r.get(2)?,
+                    created_at: r.get::<_, i64>(3)? as u64,
+                })
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
         Ok(FileLibrary {
             files,
+            folders,
             warnings,
             directory: self.root.to_string_lossy().into_owned(),
         })
@@ -294,8 +527,9 @@ pub async fn create_file(
     state: State<'_, LocalFiles>,
     name: String,
     nodes: Vec<Value>,
+    folder_id: Option<String>,
 ) -> Result<ProjectFile> {
-    with_store(state, move |store| store.create(&name, nodes)).await
+    with_store(state, move |store| store.create_in(&name, nodes, folder_id)).await
 }
 #[tauri::command]
 pub async fn open_file(state: State<'_, LocalFiles>, id: String) -> Result<ProjectFile> {
@@ -317,7 +551,7 @@ pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>
         let Some(file) = app
             .dialog()
             .file()
-            .add_filter("Flies JSON", &["json", "lra"])
+            .add_filter("Flies JSON", &["json", "lra", "gz"])
             .blocking_pick_file()
         else {
             return Ok(None);
@@ -331,6 +565,31 @@ pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>
     })
     .await
     .map_err(|e| format!("File picker failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn create_folder(
+    state: State<'_, LocalFiles>,
+    name: String,
+    parent_id: Option<String>,
+) -> Result<Folder> {
+    with_store(state, move |store| store.create_folder(&name, parent_id)).await
+}
+#[tauri::command]
+pub async fn rename_folder(state: State<'_, LocalFiles>, id: String, name: String) -> Result<()> {
+    with_store(state, move |store| store.rename_folder(&id, &name)).await
+}
+#[tauri::command]
+pub async fn move_library_item(
+    state: State<'_, LocalFiles>,
+    id: String,
+    folder_id: Option<String>,
+    is_folder: bool,
+) -> Result<()> {
+    with_store(state, move |store| {
+        store.move_item(&id, folder_id, is_folder)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -381,13 +640,89 @@ mod tests {
         assert!(store.create("Cycle", vec![cyclic]).is_err());
     }
     #[test]
-    fn corrupt_files_are_reported_without_hiding_healthy_files() {
+    fn missing_snapshots_are_reported_without_hiding_healthy_files() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileStore::new(dir.path().into()).unwrap();
         store.create("Healthy", vec![]).unwrap();
-        fs::write(dir.path().join("bad.json"), "broken").unwrap();
+        let missing = store.create("Missing", vec![]).unwrap();
+        fs::remove_file(store.path(&missing.id).unwrap()).unwrap();
         let list = store.list().unwrap();
-        assert_eq!(list.files.len(), 1);
+        assert_eq!(list.files.len(), 2);
         assert_eq!(list.warnings.len(), 1);
+    }
+    #[test]
+    fn compressed_snapshots_round_trip_and_do_not_import_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("abc.json"), "legacy original").unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        assert!(store.list().unwrap().files.is_empty());
+        let mut large = node();
+        large["text"] = json!("hello ".repeat(10_000));
+        let file = store.create("Compressed", vec![large]).unwrap();
+        let bytes = fs::read(store.path(&file.id).unwrap()).unwrap();
+        assert!(bytes.starts_with(&[0x1f, 0x8b]));
+        assert!(bytes.len() < serde_json::to_vec(&file).unwrap().len() / 10);
+        assert_eq!(store.open(&file.id).unwrap().nodes, file.nodes);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("abc.json")).unwrap(),
+            "legacy original"
+        );
+    }
+    #[test]
+    fn folders_moves_and_names_persist_without_changing_document_revisions() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let parent = store.create_folder("Parent", None).unwrap();
+        let child = store
+            .create_folder("Child", Some(parent.id.clone()))
+            .unwrap();
+        let file = store
+            .create_in("File", vec![node()], Some(child.id.clone()))
+            .unwrap();
+        assert!(store
+            .move_item(&parent.id, Some(child.id.clone()), true)
+            .is_err());
+        assert!(store
+            .move_item(&file.id, Some("bad".into()), false)
+            .is_err());
+        store
+            .move_item(&file.id, Some(parent.id.clone()), false)
+            .unwrap();
+        store.rename_folder(&parent.id, "Renamed").unwrap();
+        store.save(&file.id, 0, "File", vec![]).unwrap();
+        drop(store);
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let library = store.list().unwrap();
+        assert_eq!(
+            library.files[0].folder_id.as_deref(),
+            Some(parent.id.as_str())
+        );
+        assert!(library.folders.iter().any(|f| f.name == "Renamed"));
+        store.move_item(&child.id, None, true).unwrap();
+        assert!(store
+            .list()
+            .unwrap()
+            .folders
+            .iter()
+            .find(|f| f.id == child.id)
+            .unwrap()
+            .parent_id
+            .is_none());
+    }
+    #[test]
+    fn uncommitted_snapshot_never_replaces_the_indexed_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let mut file = store.create("Original", vec![node()]).unwrap();
+        {
+            let tx = store.transaction().unwrap();
+            file.name = "Uncommitted".into();
+            store.write(&tx, &file).unwrap();
+        }
+        assert_eq!(store.open(&file.id).unwrap().name, "Original");
+        let other = FileStore::new(dir.path().into()).unwrap();
+        store.save(&file.id, 0, "Saved", vec![]).unwrap();
+        assert!(other.save(&file.id, 0, "Stale", vec![node()]).is_err());
+        assert_eq!(other.open(&file.id).unwrap().name, "Saved");
     }
 }

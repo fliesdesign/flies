@@ -278,7 +278,7 @@
   color: var(--ring);
 }
 
-.canvas-frame-position[data-selected]::after {
+.canvas-frame-position[data-selected]:not([data-editing])::after {
   content: "";
   position: absolute;
   inset: 0;

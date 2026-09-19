@@ -115,8 +115,8 @@ Layers; their geometry and styling cannot be edited until unlocked. **Unlock all
 | Ctrl/Cmd + C / X / V                | Copy / cut / paste                                                      |
 | Ctrl/Cmd + Shift + V                | Paste in place                                                          |
 | Ctrl/Cmd + D                        | Duplicate the selection                                                 |
-| Ctrl/Cmd + S                        | Download the current project as a portable `.lra` file                  |
-| Ctrl/Cmd + O                        | Open a `.lra` project                                                   |
+| Ctrl/Cmd + S                        | Save the current local file (browser: download `.lra`)                  |
+| Ctrl/Cmd + O                        | Import a JSON or `.lra` project                                         |
 | Ctrl/Cmd + Shift + E                | Export the selected frame or layers as a PNG                            |
 | Delete / Backspace                  | Delete the selection and its descendants                                |
 | Ctrl/Cmd + G / Ctrl/Cmd + Shift + G | Group / ungroup                                                         |
@@ -136,6 +136,19 @@ Images decode locally with a 20 MiB input limit and a maximum stored dimension o
 Small raster originals are preserved; larger images are compressed, and SVGs are rasterized.
 Imported images use embedded data URLs without uploads or remote image requests. Tauri's
 window sets `dragDropEnabled: false` so HTML5 file dropping can reach the frontend on Windows.
+
+The desktop app starts with a local file library. Create a named file, reopen a recent file,
+or use **Open JSON…** to import a copy of a Flies JSON or legacy `.lra` project. Files live in
+Tauri's app-data directory under `files/` (macOS: `~/Library/Application Support/com.lra.dsgn/files`).
+Each JSON contains format/version, ID, name, creation/modification timestamps, revision, and
+canvas nodes including embedded images. Rust commands handle listing, creating, reading, and
+atomic saving; edits autosave after 500 ms. Saves finish before returning to All files or closing
+the window. Failed saves remain in memory for retry and revision conflicts prevent stale overwrites.
+The top loading bar indicates file operations and respects reduced motion.
+
+The browser preview retains its previous localStorage canvas and portable downloads; native
+file storage is only available in the desktop app. **Recover previous canvas** imports the old
+desktop browser-storage canvas without deleting it.
 
 Use the toolbar's **Project menu** to save/open portable `.lra` files or export a selection as
 PNG. Project files include the complete hierarchy, styling, and embedded images. Opening a

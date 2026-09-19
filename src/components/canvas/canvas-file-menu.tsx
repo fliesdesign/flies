@@ -139,6 +139,7 @@ export function CanvasFileMenu({
 
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if (fileRef.current?.parentElement?.closest("[hidden]")) return;
       if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "s" && !event.shiftKey) {
@@ -202,7 +203,7 @@ export function CanvasFileMenu({
             <>
               <div className="px-2 py-2 text-xs text-muted-foreground">
                 <div className="truncate text-foreground">{fileActions.name}</div>
-                <div role="status">{fileActions.status}</div>
+                <output>{fileActions.status}</output>
               </div>
               <DropdownMenuItem onClick={() => void runAction(fileActions.home)}>
                 All files

@@ -115,6 +115,7 @@ const FrameNode = memo(function FrameNode({
       data-node-kind={frame.kind ?? "frame"}
       data-node-locked={locked || undefined}
       data-selected={selected || undefined}
+      data-editing={editingId === id || undefined}
       style={{
         transform: `translate3d(${frame.x - (parent?.x ?? 0)}px, ${frame.y - (parent?.y ?? 0)}px, 0)`,
         width: frame.width,
