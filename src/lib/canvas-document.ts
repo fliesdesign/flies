@@ -3,6 +3,15 @@ import type { FrameRect, Point } from "./canvas-geometry";
 import { canvasLayoutPositions, isCanvasLayout, type CanvasLayout } from "./canvas-layout";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
+export type CanvasShadow = Readonly<{
+  offsetX: number;
+  offsetY: number;
+  blur: number;
+  spread: number;
+  color: string;
+  inset?: boolean;
+}>;
+
 type CanvasNodeBase = Readonly<
   FrameRect & {
     id: string;
@@ -12,6 +21,9 @@ type CanvasNodeBase = Readonly<
     hidden?: boolean;
     opacity?: number;
     cornerRadius?: number;
+    borderWidth?: number;
+    borderColor?: string;
+    shadows?: readonly CanvasShadow[];
   }
 >;
 export type CanvasFrameNode = CanvasNodeBase & {
@@ -35,6 +47,8 @@ export type CanvasText = CanvasNodeBase & {
   readonly lineHeight?: number;
   readonly letterSpacing?: number;
   readonly textAlign?: "left" | "center" | "right";
+  readonly fontStyle?: "normal" | "italic";
+  readonly textDecoration?: "none" | "underline" | "line-through";
 };
 export type CanvasImage = CanvasNodeBase & {
   readonly kind: "image";
@@ -93,6 +107,7 @@ const HISTORY_LIMIT = 100;
 
 // Only arrays copied and deeply frozen here are trusted by the gesture fast path.
 const immutablePointArrays = new WeakSet<readonly Readonly<Point>[]>();
+const immutableShadowArrays = new WeakSet<readonly CanvasShadow[]>();
 const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i;
 const RASTER_DATA_URL = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z\d+/]+={0,2}$/i;
 
@@ -101,6 +116,24 @@ function pointsEqual(first: readonly Readonly<Point>[], second: readonly Readonl
     first === second ||
     (first.length === second.length &&
       first.every((point, i) => point.x === second[i].x && point.y === second[i].y))
+  );
+}
+
+function shadowsEqual(first?: readonly CanvasShadow[], second?: readonly CanvasShadow[]) {
+  return (
+    first === second ||
+    (first !== undefined &&
+      second !== undefined &&
+      first.length === second.length &&
+      first.every(
+        (shadow, i) =>
+          shadow.offsetX === second[i].offsetX &&
+          shadow.offsetY === second[i].offsetY &&
+          shadow.blur === second[i].blur &&
+          shadow.spread === second[i].spread &&
+          shadow.color === second[i].color &&
+          shadow.inset === second[i].inset,
+      ))
   );
 }
 
@@ -113,6 +146,9 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.hidden !== second.hidden ||
     first.opacity !== second.opacity ||
     first.cornerRadius !== second.cornerRadius ||
+    first.borderWidth !== second.borderWidth ||
+    first.borderColor !== second.borderColor ||
+    !shadowsEqual(first.shadows, second.shadows) ||
     first.x !== second.x ||
     first.y !== second.y ||
     first.width !== second.width ||
@@ -134,7 +170,9 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         first.fontWeight === second.fontWeight &&
         first.lineHeight === second.lineHeight &&
         first.letterSpacing === second.letterSpacing &&
-        first.textAlign === second.textAlign
+        first.textAlign === second.textAlign &&
+        first.fontStyle === second.fontStyle &&
+        first.textDecoration === second.textDecoration
       );
     case "image":
       return second.kind === "image" && first.src === second.src;
@@ -193,6 +231,24 @@ function isPoints(value: unknown): value is readonly Readonly<Point>[] {
   );
 }
 
+function isShadows(value: unknown): value is readonly CanvasShadow[] {
+  if (!Array.isArray(value) || value.length > 8) return false;
+  if (immutableShadowArrays.has(value)) return true;
+  return value.every((item: unknown) => {
+    if (typeof item !== "object" || item === null) return false;
+    const shadow = item as Record<string, unknown>;
+    return (
+      isFiniteNumber(shadow.offsetX) &&
+      isFiniteNumber(shadow.offsetY) &&
+      isFiniteNumber(shadow.blur) &&
+      shadow.blur >= 0 &&
+      isFiniteNumber(shadow.spread) &&
+      isColor(shadow.color) &&
+      (shadow.inset === undefined || typeof shadow.inset === "boolean")
+    );
+  });
+}
+
 function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
   if (typeof value !== "object" || value === null) return false;
   const frame = value as Record<string, unknown>;
@@ -206,6 +262,10 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.opacity !== undefined && !isNumberInRange(frame.opacity, 0, 1)) ||
     (frame.cornerRadius !== undefined &&
       (!isFiniteNumber(frame.cornerRadius) || frame.cornerRadius < 0)) ||
+    (frame.borderWidth !== undefined &&
+      (!isFiniteNumber(frame.borderWidth) || frame.borderWidth < 0)) ||
+    (frame.borderColor !== undefined && !isColor(frame.borderColor)) ||
+    (frame.shadows !== undefined && !isShadows(frame.shadows)) ||
     (frame.layout !== undefined && frame.kind !== undefined && frame.kind !== "frame") ||
     !isFiniteNumber(frame.x) ||
     !isFiniteNumber(frame.y) ||
@@ -248,7 +308,14 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
         (frame.textAlign === undefined ||
           frame.textAlign === "left" ||
           frame.textAlign === "center" ||
-          frame.textAlign === "right")
+          frame.textAlign === "right") &&
+        (frame.fontStyle === undefined ||
+          frame.fontStyle === "normal" ||
+          frame.fontStyle === "italic") &&
+        (frame.textDecoration === undefined ||
+          frame.textDecoration === "none" ||
+          frame.textDecoration === "underline" ||
+          frame.textDecoration === "line-through")
       );
     case "image":
       return (
@@ -275,6 +342,24 @@ function immutablePoints(points: readonly Readonly<Point>[]): readonly Readonly<
   return frozen;
 }
 
+function immutableShadows(shadows: readonly CanvasShadow[]): readonly CanvasShadow[] {
+  if (immutableShadowArrays.has(shadows)) return shadows;
+  const frozen = Object.freeze(
+    shadows.map((shadow) =>
+      Object.freeze({
+        offsetX: shadow.offsetX,
+        offsetY: shadow.offsetY,
+        blur: shadow.blur,
+        spread: shadow.spread,
+        color: shadow.color,
+        ...(shadow.inset !== undefined && { inset: shadow.inset }),
+      }),
+    ),
+  );
+  immutableShadowArrays.add(frozen);
+  return frozen;
+}
+
 function immutableFrame(frame: CanvasFrame): CanvasFrame {
   const base = {
     id: frame.id,
@@ -284,6 +369,9 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.hidden !== undefined && { hidden: frame.hidden }),
     ...(frame.opacity !== undefined && { opacity: frame.opacity }),
     ...(frame.cornerRadius !== undefined && { cornerRadius: frame.cornerRadius }),
+    ...(frame.borderWidth !== undefined && { borderWidth: frame.borderWidth }),
+    ...(frame.borderColor !== undefined && { borderColor: frame.borderColor }),
+    ...(frame.shadows !== undefined && { shadows: immutableShadows(frame.shadows) }),
     x: frame.x,
     y: frame.y,
     width: frame.width,
@@ -304,6 +392,8 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...(frame.lineHeight !== undefined && { lineHeight: frame.lineHeight }),
         ...(frame.letterSpacing !== undefined && { letterSpacing: frame.letterSpacing }),
         ...(frame.textAlign !== undefined && { textAlign: frame.textAlign }),
+        ...(frame.fontStyle !== undefined && { fontStyle: frame.fontStyle }),
+        ...(frame.textDecoration !== undefined && { textDecoration: frame.textDecoration }),
       });
     case "image":
       return Object.freeze({ ...base, kind: frame.kind, src: frame.src });

@@ -1,6 +1,8 @@
 .library-home {
   min-height: calc(100dvh - var(--desktop-titlebar-height, 0px));
-  padding: 32px 36px 48px;
+  padding: 32px 28px 48px;
+  max-width: 1040px;
+  margin: 0 auto;
   background: var(--background);
 }
 .library-header {
@@ -8,7 +10,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 48px;
+  margin-bottom: 28px;
   flex-wrap: wrap;
 }
 .library-actions {
@@ -17,7 +19,7 @@
   gap: 8px;
 }
 .library-heading {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 32px;
   letter-spacing: -0.5px;
   font-weight: 500;
@@ -25,8 +27,8 @@
 .library-view-toggle {
   display: flex;
   padding: 2px;
-  border-radius: 8px;
-  background: var(--muted);
+  border-radius: 6px;
+  background: transparent;
 }
 .library-view-toggle button {
   width: 30px;
@@ -40,20 +42,20 @@
 .library-view-toggle button[aria-pressed="true"] {
   color: var(--foreground);
   background: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: none;
 }
 .library-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 22px;
+  gap: 16px;
 }
 .library-grid .library-item {
   min-width: 0;
   max-width: 420px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   overflow: hidden;
-  background: var(--card);
+  background: transparent;
 }
 .library-item {
   position: relative;
@@ -114,26 +116,27 @@
 .library-list-head,
 .library-list .library-item-open {
   display: grid;
-  grid-template-columns: minmax(220px, 2fr) minmax(100px, 1fr) minmax(100px, 1fr);
+  grid-template-columns: minmax(0, 1fr) 150px;
   gap: 24px;
   align-items: center;
-  padding-right: 12px;
+  padding: 0 10px;
 }
 .library-list-head {
   font-size: 12px;
   color: var(--muted-foreground);
-  padding-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 .library-list-head button {
   text-align: left;
   cursor: pointer;
 }
 .library-list .library-item-open {
-  min-height: 88px;
+  min-height: 62px;
   border-radius: 6px;
 }
 .library-list .library-item {
-  margin-bottom: 6px;
+  margin-bottom: 0;
 }
 .library-list .library-item:hover {
   background: var(--card);
@@ -141,7 +144,7 @@
 .library-list .library-item-title {
   grid-column: 1;
   grid-row: 1;
-  padding-left: 112px;
+  padding-left: 80px;
 }
 .library-list .library-item-title small {
   display: none;
@@ -149,8 +152,8 @@
 .library-list .library-preview {
   grid-column: 1;
   grid-row: 1;
-  width: 94px;
-  height: 64px;
+  width: 62px;
+  height: 40px;
   margin-left: 2px;
 }
 .library-date {
@@ -161,7 +164,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   padding: 64px 20px;
   color: var(--muted-foreground);
   font-size: 14px;
@@ -186,15 +189,11 @@
     grid-template-columns: minmax(180px, 1fr) 110px;
     gap: 12px;
   }
-  .library-list-head > :nth-child(3),
-  .library-list .library-date:last-child {
-    display: none;
-  }
   .library-list .library-item-title {
     padding-left: 82px;
   }
   .library-list .library-preview {
-    width: 68px;
-    height: 48px;
+    width: 62px;
+    height: 40px;
   }
 }

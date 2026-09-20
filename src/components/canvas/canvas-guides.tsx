@@ -1,7 +1,7 @@
 import { memo, useSyncExternalStore } from "react";
 
 import type { CanvasCamera } from "@/lib/canvas-camera";
-import type { CanvasGuides } from "@/lib/canvas-guides";
+import type { AlignmentGuide, CanvasGuides } from "@/lib/canvas-guides";
 
 export const CanvasAlignmentGuides = memo(function CanvasAlignmentGuides({
   guides,
@@ -11,8 +11,17 @@ export const CanvasAlignmentGuides = memo(function CanvasAlignmentGuides({
   camera: CanvasCamera;
 }) {
   const lines = useSyncExternalStore(guides.subscribe, guides.getSnapshot);
+  return lines.length ? <VisibleAlignmentGuides lines={lines} camera={camera} /> : null;
+});
+
+function VisibleAlignmentGuides({
+  lines,
+  camera,
+}: {
+  lines: readonly AlignmentGuide[];
+  camera: CanvasCamera;
+}) {
   const { viewport } = useSyncExternalStore(camera.subscribe, camera.getSnapshot);
-  if (!lines.length) return null;
   return (
     <svg className="canvas-guides" aria-hidden="true">
       {lines.map((guide) => {
@@ -47,4 +56,4 @@ export const CanvasAlignmentGuides = memo(function CanvasAlignmentGuides({
       })}
     </svg>
   );
-});
+}

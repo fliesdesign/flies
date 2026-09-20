@@ -17,6 +17,7 @@ bun run format       # oxfmt             (--check to verify only)
 bun run check        # format + lint + typecheck, for CI
 bun run build        # production frontend build + typecheck
 bun test src         # canvas geometry, document, rendering, interaction, and history tests
+bun run test:gpu     # headless WebGPU pixel, interaction, and fallback checks
 ```
 
 ## Canvas
@@ -37,9 +38,22 @@ Shift-click selects a range; Cmd/Ctrl-click toggles a layer.
 The properties panel and its reopen button are hidden when no layer is selected.
 Both panels can be collapsed to give the canvas more space. At narrow widths properties start
 collapsed, and opening one panel closes the other. There is no
-navigation bar, footer, or router devtools. A native
-`<canvas>` provides the plain background; objects and selection controls use HTML/CSS and
-SVG above it, without particles. Editing runs entirely in the frontend, without native IPC.
+navigation bar, footer, or router devtools. Artwork uses an explicit PixiJS WebGPU renderer when
+the browser or desktop webview provides a working adapter. The renderer retains shapes, text,
+images, and pen strokes, updates the camera transform during navigation, and draws only when
+something changes. Labels, selection controls, and the active text editor remain HTML overlays.
+Pointer picking uses the document's spatial index, including rounded frame clipping.
+
+To inspect individual artwork elements in DevTools, enable **Project menu (…) → Inspect HTML**.
+This switches to real HTML/CSS elements while preserving the document, selection, and viewport.
+The preference is remembered locally. Disable it to return to WebGPU when supported.
+
+WebGPU is loaded separately from the editor. Unsupported devices, initialization failures, and
+device loss fall back to the existing HTML/CSS renderer without changing the document. Custom
+`FrameContent` extensions also use that renderer. Text and shadows use cached raster textures;
+PNG export still uses the HTML renderer, so small typography differences are possible. The
+WebGPU tests use Chromium's software adapter to verify drawing and editing; they do not measure
+native GPU performance. Editing runs entirely in the frontend, without native IPC.
 
 | Tool      | Key | Behavior                                                                                |
 | --------- | --- | --------------------------------------------------------------------------------------- |

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { CanvasDocument, type CanvasFrame } from "@/lib/canvas-document";
 import { selectionBounds } from "@/lib/canvas-operations";
 
-import { CanvasNodeContent } from "./canvas-node-content";
+import { CanvasNodeAppearance, CanvasNodeContent } from "./canvas-node-content";
 
 function ExportNode({
   node,
@@ -53,6 +53,7 @@ function ExportNode({
           <ExportNode key={id} node={document.getFrame(id)!} document={document} origin={node} />
         ))}
       </div>
+      <CanvasNodeAppearance frame={node} />
     </div>
   );
 }

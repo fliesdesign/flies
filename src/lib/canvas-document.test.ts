@@ -11,6 +11,7 @@ import {
   type CanvasFrame,
   type CanvasFrameNode,
   type CanvasPen,
+  type CanvasShadow,
   type CanvasText,
 } from "./canvas-document";
 
@@ -216,6 +217,11 @@ describe("canvas node content", () => {
       [text, { ...text, letterSpacing: -0.5 }],
       [text, { ...text, textAlign: "center" as const }],
       [text, { ...text, opacity: 0.35 }],
+      [text, { ...text, fontStyle: "italic" as const }],
+      [text, { ...text, textDecoration: "underline" as const }],
+      [text, { ...text, textDecoration: "line-through" as const }],
+      [text, { ...text, borderWidth: 2 }],
+      [text, { ...text, borderColor: "#4285f4" }],
       [frame("styled"), { ...frame("styled"), cornerRadius: 16 }],
       [frame("styled"), { ...frame("styled"), fill: "#ffcc88" }],
       [
@@ -250,7 +256,18 @@ describe("canvas node content", () => {
 
   it("roundtrips optional appearance and typography without changing legacy defaults", () => {
     const styled: CanvasFrame[] = [
-      { ...frame("styled"), fill: "#fff8", opacity: 0, cornerRadius: 12 },
+      {
+        ...frame("styled"),
+        fill: "#fff8",
+        opacity: 0,
+        cornerRadius: 12,
+        borderWidth: 1.5,
+        borderColor: "#ddd",
+        shadows: [
+          { offsetX: 0, offsetY: 2, blur: 6, spread: -1, color: "#0003" },
+          { offsetX: -1, offsetY: -2, blur: 0, spread: 2, color: "#ffffff80", inset: true },
+        ],
+      },
       {
         ...text,
         fontFamily: "Courier New" as const,
@@ -258,6 +275,8 @@ describe("canvas node content", () => {
         lineHeight: 1.6,
         letterSpacing: 2,
         textAlign: "right" as const,
+        fontStyle: "italic" as const,
+        textDecoration: "underline" as const,
         opacity: 0.8,
       },
       { ...frame("image"), kind: "image", src: "data:image/png;base64,AAAA", cornerRadius: 8 },
@@ -284,6 +303,12 @@ describe("canvas node content", () => {
       { ...text, opacity: NaN },
       { ...text, cornerRadius: -1 },
       { ...text, cornerRadius: Infinity },
+      { ...text, borderWidth: -1 },
+      { ...text, borderWidth: "2" },
+      { ...text, borderWidth: Infinity },
+      { ...text, borderColor: "red" },
+      { ...text, fontStyle: "oblique" },
+      { ...text, textDecoration: "url(https://example.com)" },
       { ...frame("a"), fill: "red" },
       { ...text, fontFamily: "arbitrary-font" },
       { ...text, fontWeight: 300 },
@@ -1050,6 +1075,91 @@ describe("canvas legacy migration", () => {
         loadCanvasFrames({ getItem: () => JSON.stringify(value) }, { migrateLegacy: true }),
         [],
       );
+    }
+  });
+});
+
+describe("canvas border and shadow appearance", () => {
+  const shadow: CanvasShadow = { offsetX: 1, offsetY: 2, blur: 3, spread: -1, color: "#0008" };
+
+  it("isolates caller-owned shadows and reuses only trusted deeply frozen snapshots", () => {
+    const input = [{ ...shadow }];
+    const node = { ...frame("effects"), shadows: Object.freeze(input) };
+    const document = new CanvasDocument([node]);
+    input[0].blur = 999;
+    const original = document.getFrame(node.id)!;
+    assert.deepEqual(original.shadows, [shadow]);
+    assert.ok(Object.isFrozen(original.shadows));
+    assert.ok(original.shadows?.every(Object.isFrozen));
+    document.beginGesture(node.id);
+    for (let x = 1; x < 10; x++) {
+      document.preview({ ...original, x });
+      assert.strictEqual(document.getFrame(node.id)?.shadows, original.shadows);
+    }
+    document.endGesture();
+    document.undo();
+    assert.strictEqual(document.getFrame(node.id)?.shadows, original.shadows);
+    document.redo();
+    assert.strictEqual(document.getFrame(node.id)?.shadows, original.shadows);
+  });
+
+  it("compares every shadow property and list order without adding history for equivalent values", () => {
+    const before = { ...frame("effects"), shadows: [shadow] };
+    const variants: readonly CanvasShadow[][] = [
+      [{ ...shadow, offsetX: 4 }],
+      [{ ...shadow, offsetY: -5 }],
+      [{ ...shadow, blur: 6 }],
+      [{ ...shadow, spread: 7 }],
+      [{ ...shadow, color: "#4285f4" }],
+      [{ ...shadow, inset: true }],
+      [shadow, { ...shadow, offsetX: 8 }],
+      [],
+    ];
+    for (const shadows of variants) {
+      const document = new CanvasDocument([before]);
+      const initialSnapshot = document.getSnapshot();
+      document.update({ ...before, shadows: [{ ...shadow }] });
+      assert.strictEqual(document.getSnapshot(), initialSnapshot);
+      document.update({ ...before, shadows });
+      assert.deepEqual(document.getFrame(before.id)?.shadows, shadows);
+      assert.equal(document.getHistoryStats().undoEntries, 1);
+      document.undo();
+      assert.deepEqual(document.getFrame(before.id), before);
+      document.redo();
+      assert.deepEqual(document.getFrame(before.id)?.shadows, shadows);
+    }
+    const document = new CanvasDocument([
+      { ...before, shadows: [shadow, { ...shadow, inset: true }] },
+    ]);
+    document.update({ ...before, shadows: [{ ...shadow, inset: true }, shadow] });
+    assert.equal(document.getHistoryStats().undoEntries, 1);
+    document.update({ ...frame("effects") });
+    assert.equal(document.getFrame("effects")?.shadows, undefined);
+  });
+
+  it("rejects malformed effects atomically during persistence, updates, and project replacement", () => {
+    const malformed = [
+      null,
+      "0 2px 3px black",
+      {},
+      [null],
+      [{ ...shadow, offsetX: Infinity }],
+      [{ ...shadow, offsetY: "2" }],
+      [{ ...shadow, blur: -1 }],
+      [{ ...shadow, spread: NaN }],
+      [{ ...shadow, color: "red" }],
+      [{ ...shadow, inset: "true" }],
+      Array.from({ length: 9 }, () => shadow),
+    ];
+    for (const shadows of malformed) {
+      const original = frame("effects");
+      const node = { ...original, shadows } as CanvasFrame;
+      const document = new CanvasDocument([original]);
+      document.update(node);
+      assert.equal(document.replaceAll([node]), false);
+      assert.deepEqual(document.getFrames(), [original]);
+      assert.equal(document.getHistoryStats().undoEntries, 0);
+      assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify([node]) }), []);
     }
   });
 });

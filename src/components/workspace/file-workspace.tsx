@@ -17,6 +17,9 @@ import {
   type FileLibrary,
   type LocalFile,
 } from "@/lib/local-files";
+import { withAgentActivity } from "@/lib/mcp/activity";
+import { connectMcp } from "@/lib/mcp/bridge";
+import { editorTool, textResult, stringArg, type McpResult } from "@/lib/mcp/editor";
 
 import { FileLibraryView } from "./file-library";
 import "./file-workspace.css";
@@ -30,7 +33,11 @@ function TopLoader({ active }: { active: boolean }) {
   ) : null;
 }
 
-type FileSession = { flush: () => Promise<void>; rename: (name: string) => Promise<void> };
+type FileSession = {
+  controls: CanvasControls | null;
+  flush: () => Promise<void>;
+  rename: (name: string) => Promise<void>;
+};
 
 function FileEditor({
   file,
@@ -59,6 +66,7 @@ function FileEditor({
   }, [controls, save]);
   useEffect(() => {
     register(file.id, {
+      controls,
       flush,
       rename: async (name) => {
         controls?.prepare();
@@ -278,6 +286,84 @@ export function FileWorkspace() {
       setRenameBusy(false);
     }
   }
+  const mcpState = useRef({ activeId, files });
+  useEffect(() => {
+    mcpState.current = { activeId, files };
+  }, [activeId, files]);
+  useEffect(() => {
+    if (!desktop) return;
+    return connectMcp(async (name, args): Promise<McpResult> => {
+      if (name === "list_files") {
+        const listing = await listFiles();
+        return textResult({
+          files: listing.files.map(({ preview: _preview, ...file }) => file),
+          warnings: listing.warnings,
+        });
+      }
+      if (name === "create_file" || name === "open_file") {
+        const current = mcpState.current.activeId;
+        if (current) await savers.current.get(current)?.flush();
+        const file =
+          name === "create_file"
+            ? await createFile(stringArg(args, "name"))
+            : await openFile(stringArg(args, "fileId"));
+        activateFile(file);
+        // Wait for the editor and autosave subscription before accepting the next mutation.
+        for (let attempt = 0; attempt < 100; attempt++) {
+          if (savers.current.get(file.id)?.controls && mcpState.current.activeId === file.id)
+            return textResult({ fileId: file.id, name: file.name });
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        throw new Error(
+          "File opened, but the editor is still loading. Try get_basic_info shortly.",
+        );
+      }
+      const active = mcpState.current.activeId;
+      const session = active ? savers.current.get(active) : undefined;
+      if (!active || !session?.controls)
+        throw new Error("No active file. Call create_file or open_file first.");
+      const controls = session.controls;
+      return withAgentActivity(controls.document, name, args, async (saving) => {
+        if (name === "get_basic_info") {
+          return textResult({
+            fileId: active,
+            name: mcpState.current.files.find((file) => file.id === active)?.name,
+            nodeCount: controls.document.getIds().length,
+            roots: controls.document.getChildren().map((id) => {
+              const node = controls.document.getFrame(id)!;
+              return {
+                id,
+                name: node.name,
+                kind: node.kind ?? "frame",
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+              };
+            }),
+            viewport: controls.camera.getCurrent(),
+          });
+        }
+        if (name === "save_file") {
+          saving();
+          await session.flush();
+          return textResult({ saved: true, fileId: active });
+        }
+        const result = await editorTool(controls, name, args);
+        if (
+          ["create_artboard", "write_html", "update_node", "delete_nodes", "undo", "redo"].includes(
+            name,
+          ) &&
+          !(name === "write_html" && args.validateOnly === true)
+        ) {
+          saving();
+          await session.flush();
+        }
+        return result;
+      });
+    });
+  }, [desktop, activateFile]);
   return (
     <>
       <Dialog

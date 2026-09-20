@@ -53,6 +53,54 @@ function renderFrames(frames: readonly CanvasFrame[], selectedIds: readonly stri
 }
 
 describe("hierarchical canvas rendering", () => {
+  it("limits artboard chrome to roots while keeping nested containers selectable", () => {
+    const markup = renderFrames(
+      [
+        parent,
+        { ...parent, id: "nested-frame", name: "div", parentId: parent.id },
+        {
+          ...parent,
+          id: "nested-group",
+          name: "div",
+          kind: "group",
+          parentId: "nested-frame",
+        },
+        { ...parent, id: "root-group", name: "Root group", kind: "group", x: 600 },
+      ],
+      ["nested-frame", "nested-group"],
+    );
+    assert.equal(markup.match(/class="canvas-frame-label"/g)?.length, 2);
+    assert.equal(markup.match(/data-root-container="true"/g)?.length, 2);
+    assert.match(markup, /aria-label="Select Parent"/);
+    assert.match(markup, /aria-label="Select Root group"/);
+    assert.ok(!markup.includes('aria-label="Select div"'));
+    for (const id of ["nested-frame", "nested-group"]) {
+      assert.match(markup, new RegExp(`data-frame-id="${id}"[^>]*data-selected="true"`));
+    }
+    assert.equal(markup.match(/aria-label="div, 400 by 300" aria-pressed="true"/g)?.length, 2);
+  });
+
+  it("paints authored effects over children without imposing an extra artboard shadow", () => {
+    const markup = renderFrames([
+      {
+        ...parent,
+        borderWidth: 2,
+        borderColor: "#334455",
+        shadows: [{ offsetX: 0, offsetY: 3, blur: 12, spread: 0, color: "#00000033" }],
+      },
+      child,
+    ]);
+    assert.match(markup, /data-root-container="true" data-authored-shadow="true"/);
+    assert.ok(markup.indexOf('data-frame-id="child"') < markup.indexOf("data-canvas-appearance"));
+    assert.ok(
+      markup.indexOf("data-canvas-appearance") < markup.indexOf('class="canvas-frame-label"'),
+    );
+    assert.match(markup, /border-width:2px/);
+    assert.match(markup, /box-shadow:0px 3px 12px 0px #00000033/);
+    // An authored empty list intentionally suppresses default canvas decoration too.
+    assert.match(renderFrames([{ ...parent, shadows: [] }]), /data-authored-shadow="true"/);
+  });
+
   it("applies container opacity once and matches frame fill and clipping corner radius", () => {
     const markup = renderFrames([
       { ...parent, opacity: 0.5, fill: "#abcdef", cornerRadius: 24 },
@@ -71,13 +119,13 @@ describe("hierarchical canvas rendering", () => {
     assert.equal(markup.match(/data-frame-id="child"/g)?.length, 1);
     assert.ok(markup.indexOf('class="canvas-frame"') < markup.indexOf('data-frame-id="child"'));
     assert.match(markup, /data-clip-content="true"/);
-    assert.match(markup, /translate3d\(50px, 80px, 0\)/);
+    assert.match(markup, /translate\(50px, 80px\)/);
     // A container translation moves the branch without changing its internal layout.
     const moved = renderFrames([
       { ...parent, x: 250, y: 300 },
       { ...child, x: 300, y: 380 },
     ]);
-    assert.match(moved, /translate3d\(50px, 80px, 0\)/);
+    assert.match(moved, /translate\(50px, 80px\)/);
   });
 
   it("keeps groups transparent and unclipped while nested frames clip by default", () => {

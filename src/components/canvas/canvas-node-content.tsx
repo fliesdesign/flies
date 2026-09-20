@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 
+import { canvasAppearanceStyle } from "@/lib/canvas-appearance";
 import type { CanvasFrame, CanvasPen, CanvasText } from "@/lib/canvas-document";
 
 import "./canvas-nodes.css";
@@ -27,6 +28,8 @@ export function canvasTextStyle(frame: CanvasText): CSSProperties {
     fontSize: frame.fontSize,
     fontFamily: TEXT_FONT_FAMILIES[frame.fontFamily ?? "Arial"],
     fontWeight: frame.fontWeight ?? 400,
+    fontStyle: frame.fontStyle ?? "normal",
+    textDecoration: frame.textDecoration ?? "none",
     lineHeight: frame.lineHeight ?? 1.25,
     letterSpacing: frame.letterSpacing ?? 0,
     textAlign: frame.textAlign ?? "left",
@@ -124,6 +127,16 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
     default:
       return null;
   }
+});
+
+/** Place after children so borders and inset shadows sit above their contents. */
+export const CanvasNodeAppearance = memo(function CanvasNodeAppearance({
+  frame,
+}: {
+  frame: CanvasFrame;
+}) {
+  const style = canvasAppearanceStyle(frame);
+  return style ? <span aria-hidden="true" data-canvas-appearance="" style={style} /> : null;
 });
 
 type TextEditorProps = {

@@ -44,6 +44,115 @@ function withScene(
 }
 
 describe("canvas scene visibility", () => {
+  it("reuses overscan during short pans and zooms without walking the scene", () => {
+    withScene([frame("near"), frame("next", 1300)], (scene, document, camera) => {
+      const initial = scene.getSnapshot();
+      const getFrame = document.getFrame;
+      let frameReads = 0;
+      document.getFrame = (id) => {
+        frameReads++;
+        return getFrame(id);
+      };
+      for (let x = 1; x <= 180; x++) {
+        camera.setViewport({ x: -x, y: 0, zoom: 1 });
+        camera.flush();
+      }
+      camera.setViewport({ x: -100, y: 0, zoom: 0.95 });
+      camera.flush();
+      assert.equal(frameReads, 0);
+      assert.equal(scene.getSnapshot(), initial);
+
+      // Refill before the next node reaches the actual screen edge.
+      camera.setViewport({ x: -201, y: 0, zoom: 1 });
+      camera.flush();
+      assert.ok(frameReads > 0);
+      assert.deepEqual(scene.getSnapshot(), ["near", "next"]);
+    });
+  });
+
+  it("refreshes commits and live pinned previews inside a reused camera region", () => {
+    withScene([frame("root"), frame("next", 5000)], (scene, document, camera) => {
+      camera.setViewport({ x: -50, y: 0, zoom: 1 });
+      camera.flush();
+      document.update(frame("next", 300));
+      assert.deepEqual(scene.getSnapshot(), ["root", "next"]);
+      document.update({ ...frame("next", 300), hidden: true });
+      assert.deepEqual(scene.getSnapshot(), ["root"]);
+      document.update(frame("next", 300));
+      scene.setPinned("root");
+      document.beginGesture("root");
+      document.preview(frame("root", 5000));
+      assert.deepEqual(scene.getSnapshot(), ["root", "next"]);
+      document.endGesture();
+      scene.setPinned(null);
+      assert.deepEqual(scene.getSnapshot(), ["next"]);
+
+      camera.setSize({ x: 0, y: 0 });
+      camera.flush();
+      assert.deepEqual(scene.getSnapshot(), []);
+      camera.setSize({ x: 1000, y: 800 });
+      camera.flush();
+      assert.deepEqual(scene.getSnapshot(), ["next"]);
+    });
+  });
+
+  it("releases distant nodes after zooming in from a wide cached view", () => {
+    withScene([frame("near"), frame("far", 5000)], (scene, _document, camera) => {
+      camera.setViewport({ x: 0, y: 0, zoom: 0.1 });
+      camera.flush();
+      assert.deepEqual(scene.getSnapshot(), ["near", "far"]);
+      camera.setViewport({ x: 0, y: 0, zoom: 1 });
+      camera.flush();
+      assert.deepEqual(scene.getSnapshot(), ["near"]);
+    });
+  });
+
+  it("keeps unaffected parents' visible children stable across viewport changes", () => {
+    const first = { ...frame("first"), width: 1000 };
+    const second = { ...frame("second", 600), width: 1000 };
+    withScene(
+      [
+        first,
+        { ...frame("first-child", 100), parentId: "first" },
+        second,
+        { ...frame("second-child", 700), parentId: "second" },
+        { ...frame("late-child", 1300), parentId: "second" },
+      ],
+      (scene, _document, camera) => {
+        const roots = scene.getVisibleChildren();
+        const firstChildren = scene.getVisibleChildren("first");
+        const secondChildren = scene.getVisibleChildren("second");
+        assert.deepEqual(roots, ["first", "second"]);
+        assert.deepEqual(firstChildren, ["first-child"]);
+        assert.deepEqual(secondChildren, ["second-child"]);
+        camera.setViewport({ x: -201, y: 0, zoom: 1 });
+        camera.flush();
+        assert.equal(scene.getVisibleChildren(), roots);
+        assert.equal(scene.getVisibleChildren("first"), firstChildren);
+        assert.notEqual(scene.getVisibleChildren("second"), secondChildren);
+        assert.deepEqual(scene.getVisibleChildren("second"), ["second-child", "late-child"]);
+        assert.equal(scene.getVisibleChildren("missing"), scene.getVisibleChildren("empty"));
+      },
+    );
+  });
+
+  it("updates parent child snapshots after reparenting with unchanged visible order", () => {
+    const child = { ...frame("child", 50), parentId: "root" };
+    withScene([frame("root"), child], (scene, document) => {
+      const visible = scene.getSnapshot();
+      let notifications = 0;
+      scene.subscribe(() => notifications++);
+      document.update({ ...child, parentId: undefined });
+      assert.equal(scene.getSnapshot(), visible);
+      assert.deepEqual(scene.getVisibleChildren(), ["root", "child"]);
+      assert.deepEqual(scene.getVisibleChildren("root"), []);
+      assert.equal(notifications, 1);
+      document.undo();
+      assert.deepEqual(scene.getVisibleChildren(), ["root"]);
+      assert.deepEqual(scene.getVisibleChildren("root"), ["child"]);
+    });
+  });
+
   it("caches the visible array while the camera and frame bounds keep the same membership", () => {
     withScene([frame("near"), frame("far", 5000)], (scene, document, camera) => {
       const visible = scene.getSnapshot();

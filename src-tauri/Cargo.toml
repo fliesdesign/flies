@@ -26,6 +26,10 @@ tauri-plugin-dialog = "2"
 tempfile = "3"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 flate2 = "1.1.10"
+axum = "0.8"
+tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+rmcp = { version = "3.4", features = ["transport-streamable-http-server"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -35,3 +39,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

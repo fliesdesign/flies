@@ -1,4 +1,5 @@
 mod files;
+mod mcp;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -18,10 +19,15 @@ pub fn run() {
             let root = app.path().app_data_dir()?.join("files");
             let store = files::FileStore::new(root).map_err(std::io::Error::other)?;
             app.manage(files::LocalFiles(Arc::new(Mutex::new(store))));
+            if let Err(error) = mcp::start(app.handle()) {
+                eprintln!("Flies MCP could not start: {error}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            mcp::mcp_next_request,
+            mcp::mcp_reply,
             files::list_files,
             files::create_file,
             files::open_file,

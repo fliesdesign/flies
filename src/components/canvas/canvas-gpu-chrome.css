@@ -1,0 +1,41 @@
+.canvas-gpu-chrome {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-gpu-label-position,
+.canvas-gpu-editor-position {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.canvas-gpu-label-position {
+  height: 0;
+}
+
+.canvas-gpu-label-position > .canvas-frame-label {
+  bottom: 7px;
+  max-width: 100%;
+  transform: none;
+}
+
+.canvas-gpu-label-position[data-node-locked] > .canvas-frame-label {
+  pointer-events: none;
+}
+
+.canvas-gpu-label-position[data-selected] > .canvas-frame-label {
+  color: var(--ring);
+}
+
+.canvas-gpu-editor-position {
+  z-index: 1;
+}
+
+.canvas-gpu-editor-clip {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}

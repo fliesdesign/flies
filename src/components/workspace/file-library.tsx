@@ -1,11 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import {
-  FileIcon,
-  LayoutGridIcon,
-  ListIcon,
-  PlusIcon,
-  UploadIcon,
-} from "lucide-react";
+import { FileIcon, LayoutGridIcon, ListIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -110,17 +104,17 @@ export function FileLibraryView({
 }: Props) {
   const [view, setView] = useState<"grid" | "list">(() => {
     try {
-      return localStorage.getItem("flies.library-view") === "list" ? "list" : "grid";
+      return localStorage.getItem("flies.library-view") === "grid" ? "grid" : "list";
     } catch {
-      return "grid";
+      return "list";
     }
   });
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
   const [sort, setSort] = useState<"edited" | "name">("edited");
-  const files = (library?.files ?? [])
-    // Sorting the filtered copy leaves the library index unchanged.
+  const files = [...(library?.files ?? [])]
+    // Sorting a copy leaves the library index unchanged.
     // eslint-disable-next-line unicorn/no-array-sort
     .sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : b.updatedAt - a.updatedAt));
   function chooseView(next: "grid" | "list") {
@@ -158,9 +152,6 @@ export function FileLibraryView({
               <time className="library-date" title={new Date(file.updatedAt).toLocaleString()}>
                 {relative(file.updatedAt)}
               </time>
-              <time className="library-date" title={new Date(file.createdAt).toLocaleString()}>
-                {relative(file.createdAt)}
-              </time>
             </>
           )}
         </button>
@@ -173,18 +164,16 @@ export function FileLibraryView({
         <h1 className="library-heading">Files</h1>
         <div className="library-actions">
           <Button disabled={!desktop || busy} onClick={() => setCreating("Untitled")}>
-            <PlusIcon />
             New file
           </Button>
           <Button
             variant="ghost"
-            size="icon"
             aria-label="Import file"
             title="Import JSON or compressed JSON"
             disabled={!desktop || busy}
             onClick={onImport}
           >
-            <UploadIcon size={16} />
+            Import
           </Button>
           <div className="library-view-toggle" aria-label="File view">
             <button
@@ -221,9 +210,8 @@ export function FileLibraryView({
           {!library && !error && <p className="library-empty">Loading files…</p>}
           {library && !files.length && (
             <div className="library-empty">
-              <FileIcon size={30} strokeWidth={1.2} />
-              <p>Your files will appear here.</p>
-              <span>Create a file or import an existing project.</span>
+              <p>No files yet.</p>
+              <span>Create a file or import one to get started.</span>
             </div>
           )}
           <div className={`library-items library-${view}`}>
@@ -233,7 +221,6 @@ export function FileLibraryView({
                 <button onClick={() => setSort("edited")}>
                   Edited{sort === "edited" ? " ↓" : ""}
                 </button>
-                <span>Created</span>
               </div>
             )}
             {files.map(fileCard)}

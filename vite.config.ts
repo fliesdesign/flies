@@ -22,6 +22,8 @@ export default defineConfig(() => ({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  // Discover the lazy GPU renderer before editing starts, avoiding a cold-cache dev reload.
+  optimizeDeps: { include: ["pixi.js"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

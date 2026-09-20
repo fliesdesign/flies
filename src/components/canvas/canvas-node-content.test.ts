@@ -60,6 +60,8 @@ describe("canvas node content", () => {
       color: "#123456",
       fontFamily: "Georgia",
       fontWeight: 600,
+      fontStyle: "italic",
+      textDecoration: "underline",
       lineHeight: 1.8,
       letterSpacing: 1.5,
       textAlign: "right",
@@ -69,6 +71,8 @@ describe("canvas node content", () => {
     assert.equal(content.match(/style="([^"]*)"/)?.[1], editor.match(/style="([^"]*)"/)?.[1]);
     assert.match(content, /font-family:Georgia/);
     assert.match(content, /font-weight:600/);
+    assert.match(content, /font-style:italic/);
+    assert.match(content, /text-decoration:underline/);
     assert.match(content, /line-height:1.8/);
     assert.match(content, /letter-spacing:1.5px/);
     assert.match(content, /text-align:right/);
@@ -87,6 +91,8 @@ describe("canvas node content", () => {
       fontSize: 20,
       fontFamily: "Arial, Helvetica, sans-serif",
       fontWeight: 400,
+      fontStyle: "normal",
+      textDecoration: "none",
       lineHeight: 1.25,
       letterSpacing: 0,
       textAlign: "left",

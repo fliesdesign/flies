@@ -3,6 +3,7 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ComponentType,
@@ -23,9 +24,12 @@ import {
   roundedClipsContainPoint,
   type CanvasClipBounds,
 } from "@/lib/canvas-outline";
+import { CanvasRenderNodeStore } from "@/lib/canvas-render-node";
 import { CanvasScene } from "@/lib/canvas-scene";
 
-import { CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
+import { CanvasGpuArtwork } from "./canvas-gpu-artwork";
+import { CanvasGpuChrome } from "./canvas-gpu-chrome";
+import { CanvasNodeAppearance, CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const HANDLE_NAMES: Record<ResizeHandle, string> = {
@@ -51,36 +55,71 @@ type SceneProps = {
   onTextCommit?: (id: string, text: string, height: number) => void;
   onTextCancel?: (id: string) => void;
   FrameContent?: FrameContentComponent;
+  inspectHtml?: boolean;
+  onRendererChange?: (renderer: "dom" | "webgpu") => void;
 };
 
 /** A camera tick changes one transform; frame components don't receive the viewport. */
 function CameraWorld({ camera, children }: { camera: CanvasCamera; children: ReactNode }) {
-  const { viewport } = useSyncExternalStore(
-    camera.subscribe,
-    camera.getSnapshot,
-    camera.getSnapshot,
-  );
-  const style = {
-    transform: `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`,
-    "--canvas-inverse-zoom": 1 / viewport.zoom,
-    "--canvas-zoom": viewport.zoom,
-  } as CSSProperties;
+  const world = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = world.current!;
+    const update = () => {
+      const { viewport } = camera.getSnapshot();
+      element.style.transform = `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`;
+    };
+    update();
+    return camera.subscribe(update);
+  }, [camera]);
   return (
-    <div className="canvas-world" style={style}>
+    <div ref={world} className="canvas-world">
       {children}
     </div>
   );
 }
 
-function useChildren(document: CanvasDocument, parentId?: string) {
-  const getSnapshot = useCallback(() => document.getChildren(parentId), [document, parentId]);
-  return useSyncExternalStore(document.subscribe, getSnapshot, getSnapshot);
+/** Zoom-dependent styles belong to editor chrome, never the entire artwork subtree. */
+function ZoomChrome({ camera, children }: { camera: CanvasCamera; children: ReactNode }) {
+  const getZoom = useCallback(() => camera.getSnapshot().viewport.zoom, [camera]);
+  const zoom = useSyncExternalStore(camera.subscribe, getZoom, getZoom);
+  return (
+    <div
+      className="canvas-zoom-chrome"
+      style={{ "--canvas-inverse-zoom": 1 / zoom, "--canvas-zoom": zoom } as CSSProperties}
+    >
+      {children}
+    </div>
+  );
 }
+
+function useVisibleChildren(scene: CanvasScene, parentId?: string) {
+  const getSnapshot = useCallback(() => scene.getVisibleChildren(parentId), [scene, parentId]);
+  return useSyncExternalStore(scene.subscribe, getSnapshot, getSnapshot);
+}
+
+// Extensions keep receiving world coordinates; ordinary artwork renders in parent-local space.
+const CustomFrameContent = memo(function CustomFrameContent({
+  document,
+  id,
+  FrameContent,
+}: {
+  document: CanvasDocument;
+  id: string;
+  FrameContent: FrameContentComponent;
+}) {
+  const frame = useCanvasFrame(document, id);
+  return frame ? (
+    <div className="canvas-frame-content" aria-hidden="true">
+      <FrameContent frame={frame} />
+    </div>
+  ) : null;
+});
 
 type FrameNodeProps = {
   document: CanvasDocument;
+  camera: CanvasCamera;
+  scene: CanvasScene;
   id: string;
-  visibleIds: ReadonlySet<string>;
   selectedIds: ReadonlySet<string>;
   editingId?: string | null;
   parentLocked?: boolean;
@@ -91,8 +130,9 @@ type FrameNodeProps = {
 
 const FrameNode = memo(function FrameNode({
   document,
+  camera,
+  scene,
   id,
-  visibleIds,
   selectedIds,
   editingId,
   parentLocked = false,
@@ -100,12 +140,17 @@ const FrameNode = memo(function FrameNode({
   onTextCancel,
   FrameContent,
 }: FrameNodeProps) {
-  const frame = useCanvasFrame(document, id);
-  const parent = useCanvasFrame(document, frame?.parentId ?? null);
-  const children = useChildren(document, id);
+  const renderNode = useMemo(() => new CanvasRenderNodeStore(document, id), [document, id]);
+  const frame = useSyncExternalStore(
+    renderNode.subscribe,
+    renderNode.getSnapshot,
+    renderNode.getSnapshot,
+  );
+  const children = useVisibleChildren(scene, id);
   if (!frame || frame.hidden) return null;
   const isFrame = frame.kind === undefined || frame.kind === "frame";
   const isGroup = frame.kind === "group";
+  const isRootContainer = (isFrame || isGroup) && !frame.parentId;
   const locked = parentLocked || Boolean(frame.locked);
   const selected = selectedIds.has(id);
   return (
@@ -113,18 +158,22 @@ const FrameNode = memo(function FrameNode({
       className="canvas-frame-position"
       data-frame-id={id}
       data-node-kind={frame.kind ?? "frame"}
+      data-root-container={isRootContainer || undefined}
+      data-authored-shadow={frame.shadows !== undefined || undefined}
       data-node-locked={locked || undefined}
       data-selected={selected || undefined}
       data-editing={editingId === id || undefined}
       style={{
-        transform: `translate3d(${frame.x - (parent?.x ?? 0)}px, ${frame.y - (parent?.y ?? 0)}px, 0)`,
+        transform: `translate(${frame.x}px, ${frame.y}px)`,
         width: frame.width,
         height: frame.height,
         opacity: frame.opacity,
       }}
     >
       {editingId === id && frame.kind === "text" && !locked ? (
-        <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
+        <ZoomChrome camera={camera}>
+          <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
+        </ZoomChrome>
       ) : (
         <button
           type="button"
@@ -140,9 +189,7 @@ const FrameNode = memo(function FrameNode({
         </button>
       )}
       {isFrame && FrameContent && (
-        <div className="canvas-frame-content" aria-hidden="true">
-          <FrameContent frame={frame} />
-        </div>
+        <CustomFrameContent document={document} id={id} FrameContent={FrameContent} />
       )}
       {(isFrame || isGroup) && (
         <div
@@ -150,34 +197,39 @@ const FrameNode = memo(function FrameNode({
           data-clip-content={isFrame && frame.clipContent !== false ? true : undefined}
           style={isFrame ? { borderRadius: frame.cornerRadius } : undefined}
         >
-          {children
-            .filter((childId) => visibleIds.has(childId))
-            .map((childId) => (
-              <FrameNode
-                key={childId}
-                document={document}
-                id={childId}
-                visibleIds={visibleIds}
-                selectedIds={selectedIds}
-                editingId={editingId}
-                parentLocked={locked}
-                onTextCommit={onTextCommit}
-                onTextCancel={onTextCancel}
-                FrameContent={FrameContent}
-              />
-            ))}
+          {children.map((childId) => (
+            <FrameNode
+              key={childId}
+              document={document}
+              camera={camera}
+              scene={scene}
+              id={childId}
+              selectedIds={selectedIds}
+              editingId={editingId}
+              parentLocked={locked}
+              onTextCommit={onTextCommit}
+              onTextCancel={onTextCancel}
+              FrameContent={FrameContent}
+            />
+          ))}
         </div>
       )}
-      {(isFrame || isGroup) && (
-        <button
-          type="button"
-          className="canvas-frame-label"
-          tabIndex={-1}
-          aria-label={`Select ${frame.name}`}
-          disabled={locked}
-        >
-          {frame.name}
-        </button>
+      <CanvasNodeAppearance frame={frame} />
+      {(isRootContainer || (selected && editingId !== id)) && (
+        <ZoomChrome camera={camera}>
+          {selected && editingId !== id && <span className="canvas-node-selection-border" />}
+          {isRootContainer && (
+            <button
+              type="button"
+              className="canvas-frame-label"
+              tabIndex={-1}
+              aria-label={`Select ${frame.name}`}
+              disabled={locked}
+            >
+              {frame.name}
+            </button>
+          )}
+        </ZoomChrome>
       )}
     </div>
   );
@@ -185,44 +237,74 @@ const FrameNode = memo(function FrameNode({
 
 function VisibleFrames({ scene, ...props }: SceneProps & { scene: CanvasScene }) {
   const ids = useSyncExternalStore(scene.subscribe, scene.getSnapshot, scene.getSnapshot);
-  const roots = useChildren(props.document);
-  const visibleIds = useMemo(() => new Set(ids), [ids]);
+  const roots = useVisibleChildren(scene);
   const selectedIds = useMemo(
     () => new Set(props.selectedIds ?? (props.selectedId ? [props.selectedId] : EMPTY_IDS)),
     [props.selectedId, props.selectedIds],
   );
   return (
     <div className="canvas-frames" data-visible-frames={ids.length}>
-      {roots
-        .filter((id) => visibleIds.has(id))
-        .map((id) => (
-          <FrameNode
-            key={id}
-            document={props.document}
-            id={id}
-            visibleIds={visibleIds}
-            selectedIds={selectedIds}
-            editingId={props.editingId}
-            onTextCommit={props.onTextCommit}
-            onTextCancel={props.onTextCancel}
-            FrameContent={props.FrameContent}
-          />
-        ))}
+      {roots.map((id) => (
+        <FrameNode
+          key={id}
+          document={props.document}
+          camera={props.camera}
+          scene={scene}
+          id={id}
+          selectedIds={selectedIds}
+          editingId={props.editingId}
+          onTextCommit={props.onTextCommit}
+          onTextCancel={props.onTextCancel}
+          FrameContent={props.FrameContent}
+        />
+      ))}
     </div>
   );
 }
 
 export const CanvasFrames = memo(function CanvasFrames(props: SceneProps) {
   const [scene] = useState(() => new CanvasScene(props.document, props.camera));
+  const [gpuReady, setGpuReady] = useState(false);
+  const [gpuActive, setGpuActive] = useState(false);
+  // A preference changed in another window must also wait for the active draft to finish.
+  const allowGpu = !props.FrameContent && (!props.inspectHtml || (gpuActive && !!props.editingId));
+  if (gpuReady && !allowGpu) setGpuReady(false);
+  // Adjust before committing children so an asynchronous handoff cannot discard a text draft.
+  if (gpuActive && (!gpuReady || !allowGpu)) setGpuActive(false);
+  else if (!gpuActive && gpuReady && allowGpu && !props.editingId) setGpuActive(true);
+  const useGpu = gpuReady && gpuActive && allowGpu;
+  const onRendererChange = props.onRendererChange;
+  useLayoutEffect(() => onRendererChange?.(useGpu ? "webgpu" : "dom"), [useGpu, onRendererChange]);
   useLayoutEffect(() => scene.connect(), [scene]);
   useLayoutEffect(
     () => scene.setPinned(props.selectedIds ?? props.selectedId ?? null),
     [scene, props.selectedId, props.selectedIds],
   );
   return (
-    <CameraWorld camera={props.camera}>
-      <VisibleFrames {...props} scene={scene} />
-    </CameraWorld>
+    <>
+      {allowGpu && (
+        <CanvasGpuArtwork
+          document={props.document}
+          camera={props.camera}
+          editingId={props.editingId}
+          onReady={setGpuReady}
+        />
+      )}
+      {useGpu ? (
+        <>
+          <CanvasGpuChrome {...props} scene={scene} />
+          {!props.editingId &&
+            (props.selectedIds?.length ?? 0) > 1 &&
+            props.selectedIds?.map((id) => (
+              <CanvasOutline key={id} document={props.document} camera={props.camera} id={id} />
+            ))}
+        </>
+      ) : (
+        <CameraWorld camera={props.camera}>
+          <VisibleFrames {...props} scene={scene} />
+        </CameraWorld>
+      )}
+    </>
   );
 });
 

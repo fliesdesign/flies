@@ -57,3 +57,54 @@ test("export renders full frame subtree with clipping and excludes editor chrome
   assert.ok(output.includes("border-radius:20px"));
   assert.ok(output.includes("background:#abcdef"));
 });
+
+test("export preserves authored borders, rounded edges, multiple shadows, and text emphasis", () => {
+  const document = new CanvasDocument([
+    { id: "artboard", name: "Artboard", x: 0, y: 0, width: 500, height: 400 },
+    {
+      id: "search",
+      name: "Search field",
+      parentId: "artboard",
+      kind: "rectangle",
+      x: 20,
+      y: 30,
+      width: 240,
+      height: 44,
+      fill: "#ffffff",
+      cornerRadius: 22,
+      borderWidth: 1,
+      borderColor: "#dadce0",
+      shadows: [
+        { offsetX: 0, offsetY: 2, blur: 8, spread: 0, color: "#0000001f" },
+        { offsetX: -1, offsetY: 0, blur: 1, spread: -1, color: "#ffffff80", inset: true },
+      ],
+    },
+    {
+      id: "link",
+      name: "Link",
+      parentId: "artboard",
+      kind: "text",
+      x: 20,
+      y: 100,
+      width: 180,
+      height: 24,
+      text: "Google offered in:",
+      fontSize: 14,
+      color: "#1a0dab",
+      fontStyle: "italic",
+      textDecoration: "underline",
+    },
+  ]);
+  const output = renderToStaticMarkup(<CanvasExportScene document={document} ids={["artboard"]} />);
+  assert.ok(
+    output.includes(
+      "box-sizing:border-box;pointer-events:none;border-style:solid;border-width:1px;border-color:#dadce0;border-radius:22px",
+    ),
+  );
+  assert.ok(
+    output.includes("box-shadow:0px 2px 8px 0px #0000001f, inset -1px 0px 1px -1px #ffffff80"),
+  );
+  assert.ok(output.includes("font-style:italic;text-decoration:underline"));
+  assert.equal(output.match(/data-canvas-appearance/g)?.length, 1);
+  assert.ok(!output.includes("canvas-frame-label"));
+});

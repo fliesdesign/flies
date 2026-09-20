@@ -47,7 +47,13 @@ import {
   type Viewport,
 } from "@/lib/canvas-geometry";
 import { AlignmentGuideTargets, CanvasGuides, type AlignmentGuideIndex } from "@/lib/canvas-guides";
+import { CanvasHitTester } from "@/lib/canvas-hit-test";
 import { readCanvasImage } from "@/lib/canvas-image";
+import {
+  getCanvasInspection,
+  setCanvasInspection,
+  subscribeCanvasInspection,
+} from "@/lib/canvas-inspection";
 import { finalizeCanvasMove } from "@/lib/canvas-move";
 import {
   CANVAS_CLIPBOARD_MIME,
@@ -72,6 +78,7 @@ import {
 import { viewportBounds } from "@/lib/canvas-spatial-index";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@/lib/canvas-tools";
 
+import { CanvasAgentActivity } from "./canvas-agent-activity";
 import { CanvasFileMenu, type CanvasFileActions } from "./canvas-file-menu";
 import { CanvasAlignmentGuides } from "./canvas-guides";
 import { CanvasLayers } from "./canvas-layers";
@@ -87,6 +94,7 @@ import { CanvasToolbar } from "./canvas-toolbar";
 import "./design-canvas.css";
 
 export type CanvasControls = {
+  getSelection: () => readonly string[];
   document: CanvasDocument;
   camera: CanvasCamera;
   select: (id: string | null) => void;
@@ -180,6 +188,14 @@ export function DesignCanvas({
   const { ids, canUndo, canRedo } = snapshot;
   const { undo, redo } = document;
   const [camera] = useState(() => new CanvasCamera());
+  const [rendererBackend, setRendererBackend] = useState<"dom" | "webgpu">("dom");
+  const inspectHtml = useSyncExternalStore(
+    subscribeCanvasInspection,
+    getCanvasInspection,
+    () => false,
+  );
+  const hitTester = useMemo(() => new CanvasHitTester(document), [document]);
+  useEffect(() => hitTester.connect(), [hitTester]);
   const [guides] = useState(() => new CanvasGuides());
   const [autoPan] = useState(() => new CanvasAutoPan());
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -559,9 +575,15 @@ export function DesignCanvas({
     endPropertyPreview(false);
   }, [finishInteraction, endPropertyPreview]);
 
+  const mcpSelection = useRef(selectedIds);
+  useEffect(() => {
+    mcpSelection.current = selectedIds;
+  }, [selectedIds]);
+
   useEffect(() => {
     if (surfaceRef.current)
       onReady?.({
+        getSelection: () => mcpSelection.current,
         prepare: prepareFileAction,
         document,
         camera,
@@ -1039,8 +1061,12 @@ export function DesignCanvas({
     focusCanvas();
   }
 
-  function resolveHit(target: Element | null, deep = false): string | undefined {
-    const id = target?.closest<HTMLElement>("[data-frame-id]")?.dataset.frameId;
+  function resolveHit(target: Element | null, deep = false, point?: Point): string | undefined {
+    const id =
+      target?.closest<HTMLElement>("[data-frame-id]")?.dataset.frameId ??
+      (rendererBackend === "webgpu" && point
+        ? hitTester.hit(screenToWorld(point, camera.getCurrent().viewport))
+        : undefined);
     if (!id || isNodeLocked(document, id)) return;
     let result = id;
     let node = document.getFrame(id);
@@ -1063,13 +1089,13 @@ export function DesignCanvas({
     )
       return;
     const target = event.target as HTMLElement;
-    const frameId = resolveHit(target, event.metaKey);
+    const start = localPoint(event.clientX, event.clientY);
+    const frameId = resolveHit(target, event.metaKey, start);
     const frame = frameId ? document.getFrame(frameId) : undefined;
     const handle = target.closest<HTMLElement>("[data-handle]")?.dataset.handle as
       | ResizeHandle
       | undefined;
     const view = camera.getCurrent().viewport;
-    const start = localPoint(event.clientX, event.clientY);
     const worldStart = screenToWorld(start, view);
     const hand = event.button === 1 || spaceRef.current || tool === "pan";
     setHoveredId(null);
@@ -1510,7 +1536,12 @@ export function DesignCanvas({
       event.pointerType !== "mouse"
     )
       return;
-    const id = resolveHit(event.target as HTMLElement, event.metaKey) ?? null;
+    const id =
+      resolveHit(
+        event.target as HTMLElement,
+        event.metaKey,
+        localPoint(event.clientX, event.clientY),
+      ) ?? null;
     setHoveredId(id);
   }
 
@@ -1622,7 +1653,7 @@ export function DesignCanvas({
                 : event.target instanceof Element
                   ? event.target
                   : null;
-            const id = resolveHit(target ?? null);
+            const id = resolveHit(target ?? null, false, point);
             if (id && !selectedIds.includes(id)) selectOne(id);
           }
           setMenuOpen(open);
@@ -1638,6 +1669,7 @@ export function DesignCanvas({
           data-panning={isPanning || undefined}
           data-hand={spaceHeld || tool === "pan" || undefined}
           data-tool={tool}
+          data-renderer={rendererBackend}
           onDoubleClick={(event) => {
             if (tool !== "select" || isEditingTarget(event.target)) return;
             // Pointer capture can retarget the double-click to the canvas surface.
@@ -1645,7 +1677,7 @@ export function DesignCanvas({
               event.clientX,
               event.clientY,
             );
-            const id = hit?.closest<HTMLElement>("[data-frame-id]")?.dataset.frameId;
+            const id = resolveHit(hit, true, localPoint(event.clientX, event.clientY));
             if (!id || isNodeLocked(document, id)) return;
             const node = document.getFrame(id);
             if (node?.kind === "text") {
@@ -1733,6 +1765,8 @@ export function DesignCanvas({
             editingId={editingId}
             onTextCommit={commitText}
             onTextCancel={cancelText}
+            onRendererChange={setRendererBackend}
+            inspectHtml={inspectHtml}
           />
           {draft && <DrawingPreview frame={draft} camera={camera} />}
           <CanvasOutline
@@ -1767,6 +1801,7 @@ export function DesignCanvas({
             />
           )}
           <CanvasAlignmentGuides guides={guides} camera={camera} />
+          <CanvasAgentActivity document={document} camera={camera} />
         </ContextMenuTrigger>
         <ContextMenuContent className="canvas-menu" finalFocus={surfaceRef}>
           <ContextMenuItem onClick={() => createFrame(menuPointRef.current)}>
@@ -1919,6 +1954,8 @@ export function DesignCanvas({
             fileActions={fileActions}
             document={document}
             selectedIds={propertyIds}
+            inspectHtml={inspectHtml}
+            onInspectHtmlChange={setCanvasInspection}
             onPrepare={prepareFileAction}
             onOpen={openProject}
             onNotice={setNotice}

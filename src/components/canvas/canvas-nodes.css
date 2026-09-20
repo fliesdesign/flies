@@ -15,7 +15,7 @@
 }
 
 .canvas-node-body:focus-visible {
-  outline: calc(2px * var(--canvas-inverse-zoom, 1)) solid var(--ring);
+  outline: 2px solid var(--ring);
 }
 
 .canvas-rectangle-content,

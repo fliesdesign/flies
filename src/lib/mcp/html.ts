@@ -1,0 +1,354 @@
+import type { CanvasFrame } from "@/lib/canvas-document";
+
+import { sanitizeHtml } from "./html-sanitize";
+import { effectsStyle, htmlColor, nodeName, textStyle } from "./html-style";
+export { sanitizeHtml } from "./html-sanitize";
+
+function transformedText(value: string, style: CSSStyleDeclaration, rendered = false) {
+  const text =
+    !rendered && ["normal", "nowrap"].includes(style.whiteSpace)
+      ? value.replace(/[\t\r\n ]+/g, " ")
+      : value;
+  if (style.textTransform === "uppercase") return text.toUpperCase();
+  if (style.textTransform === "lowercase") return text.toLowerCase();
+  if (style.textTransform === "capitalize")
+    return text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+  return text;
+}
+
+/** Measure passive HTML into native editable layers, without leaking editor artboard chrome. */
+export async function importHtml(
+  source: string,
+  options: { parentId?: string; x: number; y: number; width: number; height?: number },
+): Promise<CanvasFrame[]> {
+  if (options.width < 40 || options.width > 8192)
+    throw new Error("HTML layout width must be between 40 and 8192px.");
+  if (options.height !== undefined && (options.height < 1 || options.height > 8192))
+    throw new Error("HTML layout height must be between 1 and 8192px.");
+  const fragment = sanitizeHtml(source);
+  const host = document.createElement("div");
+  Object.assign(host.style, {
+    position: "fixed",
+    left: "-100000px",
+    top: "0",
+    width: `${options.width}px`,
+    pointerEvents: "none",
+  });
+  host.setAttribute("aria-hidden", "true");
+  const shadow = host.attachShadow({ mode: "closed" });
+  const reset = document.createElement("style");
+  reset.textContent =
+    ":host{all:initial} *{box-sizing:border-box;margin:0;padding:0;border:0;font:inherit;color:inherit} div,section,article,main,header,footer,nav,aside,p,h1,h2,h3,h4,h5,h6,ul,ol,li{display:block} h1{font-size:32px;font-weight:700} h2{font-size:24px;font-weight:700} h3{font-size:20px;font-weight:700} strong,b{font-weight:700} em,i{font-style:italic} small{font-size:0.85em} code{font-family:'Courier New'} button{background:transparent;text-align:center} input,textarea{background:transparent;appearance:none} img{display:block} a{text-decoration:none}";
+  const layout = document.createElement("div");
+  Object.assign(layout.style, {
+    position: "relative",
+    width: `${options.width}px`,
+    height: options.height === undefined ? undefined : `${options.height}px`,
+    font: "400 16px/1.25 Arial",
+    color: "#000000",
+  });
+  layout.append(fragment);
+  shadow.append(reset, layout);
+  document.body.append(host);
+  try {
+    await document.fonts.ready;
+    await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
+    const origin = layout.getBoundingClientRect();
+    const nodes: CanvasFrame[] = [];
+    let textFragments = 0;
+    const add = (node: CanvasFrame) => {
+      if (nodes.length >= 3000)
+        throw new Error("HTML generated too many layers. Split the design into smaller sections.");
+      nodes.push(node);
+    };
+    const baseFor = (rect: DOMRect, parentId: string | undefined, name: string) => ({
+      id: crypto.randomUUID(),
+      parentId,
+      name,
+      x: options.x + rect.x - origin.x,
+      y: options.y + rect.y - origin.y,
+      width: Math.max(1, rect.width),
+      height: Math.max(1, rect.height),
+    });
+    const measuredText = (textNode: Text, parentId?: string, opacity = 1) => {
+      if (!textNode.textContent?.trim()) return;
+      const style = getComputedStyle(textNode.parentElement!);
+      const type = textStyle(style);
+      const value = textNode.textContent;
+      const range = document.createRange();
+      const lineHeight = type.fontSize * (type.lineHeight ?? 1.25);
+      const emit = (start: number, end: number) => {
+        if (!["pre", "pre-wrap", "break-spaces"].includes(style.whiteSpace)) {
+          while (start < end && /\s/.test(value[start])) start++;
+          while (end > start && /\s/.test(value[end - 1])) end--;
+        }
+        if (start === end) return;
+        range.setStart(textNode, start);
+        range.setEnd(textNode, end);
+        const rect = range.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        if (++textFragments > 2000)
+          throw new Error("Too many text fragments. Import a smaller section.");
+        const text = transformedText(value.slice(start, end), style);
+        add({
+          ...baseFor(rect, parentId, text.slice(0, 80)),
+          ...type,
+          opacity,
+          kind: "text",
+          text,
+          textAlign: "left",
+          y: options.y + rect.y - origin.y - (lineHeight - rect.height) / 2,
+          width: rect.width + 0.5,
+          height: Math.max(1, lineHeight),
+        });
+      };
+      let start = 0;
+      while (start < value.length) {
+        range.setStart(textNode, start);
+        range.setEnd(textNode, value.length);
+        if (range.getClientRects().length <= 1) {
+          emit(start, value.length);
+          break;
+        }
+        let low = start + 1,
+          high = value.length;
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2);
+          range.setEnd(textNode, mid);
+          if (range.getClientRects().length <= 1) low = mid;
+          else high = mid - 1;
+        }
+        emit(start, low);
+        start = low;
+      }
+    };
+    const visit = (element: HTMLElement, parentId?: string, isRoot = false) => {
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden" || element.localName === "br")
+        return;
+      const rect = element.getBoundingClientRect();
+      if (style.display === "contents") {
+        for (const child of Array.from(element.childNodes))
+          if (child instanceof HTMLElement) visit(child, parentId);
+          else if (child instanceof Text) measuredText(child, parentId);
+        return;
+      }
+      if (!rect.width || !rect.height) return;
+      if (rect.width > 8192 || rect.height > 8192)
+        throw new Error("HTML elements must be no larger than 8192px per side.");
+      const name = nodeName(element, style);
+      const base = { ...baseFor(rect, parentId, name), opacity: Number(style.opacity) };
+      const effects = effectsStyle(style, rect.width, rect.height);
+      const fill = htmlColor(style.backgroundColor);
+      const hasFill = !fill.endsWith("00");
+      const hasEffects = Boolean(effects.borderWidth || effects.shadows?.length);
+      const borderWidths = [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ].map(parseFloat);
+      const borderColors = [
+        style.borderTopColor,
+        style.borderRightColor,
+        style.borderBottomColor,
+        style.borderLeftColor,
+      ];
+      const separateBorders = !effects.borderWidth && borderWidths.some((width) => width > 0);
+      const decorated = hasFill || hasEffects || separateBorders;
+      const clipped = [style.overflowX, style.overflowY].some((v) =>
+        ["hidden", "clip"].includes(v),
+      );
+      const children = Array.from(element.children);
+      const hasChildren = children.some((child) => child.localName !== "br");
+      // Keep section slots available for subsequent tool calls, including empty ones.
+      const section =
+        ["section", "article", "main", "header", "footer", "nav", "aside"].includes(
+          element.localName,
+        ) ||
+        (element.localName === "div" && Boolean(element.dataset.name || element.id));
+      const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+      const plainText = input
+        ? element.value || element.getAttribute("placeholder") || ""
+        : element.innerText;
+      const leafText = !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+      const contentRect = new DOMRect(
+        rect.x + parseFloat(style.paddingLeft) + borderWidths[3],
+        rect.y + parseFloat(style.paddingTop) + borderWidths[0],
+        Math.max(
+          1,
+          rect.width -
+            parseFloat(style.paddingLeft) -
+            parseFloat(style.paddingRight) -
+            borderWidths[1] -
+            borderWidths[3],
+        ),
+        Math.max(
+          1,
+          rect.height -
+            parseFloat(style.paddingTop) -
+            parseFloat(style.paddingBottom) -
+            borderWidths[0] -
+            borderWidths[2],
+        ),
+      );
+      if (element instanceof HTMLInputElement || element.localName === "button") {
+        const typography = textStyle(style);
+        const lineHeight = typography.fontSize * (typography.lineHeight ?? 1.25);
+        if (contentRect.height > lineHeight) {
+          contentRect.y += (contentRect.height - lineHeight) / 2;
+          contentRect.height = lineHeight;
+        }
+      }
+      if (
+        leafText &&
+        !section &&
+        !input &&
+        !decorated &&
+        !clipped &&
+        (style.display === "inline" ||
+          style.display.includes("flex") ||
+          style.display.includes("grid"))
+      ) {
+        for (const child of Array.from(element.childNodes))
+          if (child instanceof Text) measuredText(child, parentId, base.opacity);
+        return;
+      }
+      if (
+        leafText &&
+        !section &&
+        !decorated &&
+        !clipped &&
+        !style.display.includes("flex") &&
+        !style.display.includes("grid") &&
+        style.display !== "inline"
+      ) {
+        add({
+          ...baseFor(contentRect, parentId, element.dataset.name ?? plainText.trim().slice(0, 80)),
+          ...textStyle(style),
+          kind: "text",
+          text: transformedText(plainText, style, true),
+          opacity: base.opacity,
+        });
+        return;
+      }
+      if (element instanceof HTMLImageElement && style.objectFit !== "fill")
+        throw new Error("Use object-fit: fill for editable images.");
+      if (element instanceof HTMLImageElement && !decorated && !clipped) {
+        add({ ...base, kind: "image", src: element.src, cornerRadius: effects.cornerRadius });
+        return;
+      }
+      if (
+        !section &&
+        !hasChildren &&
+        !leafText &&
+        !separateBorders &&
+        !(element instanceof HTMLImageElement)
+      ) {
+        if (decorated) {
+          add({ ...base, ...effects, kind: "rectangle", fill });
+        }
+        return;
+      }
+      // Drop purely structural, unnamed single-child divs. Their measured layout still applies.
+      if (
+        !isRoot &&
+        element.localName === "div" &&
+        !decorated &&
+        !clipped &&
+        base.opacity === 1 &&
+        !element.dataset.name &&
+        !element.id &&
+        children.length === 1 &&
+        !Array.from(element.childNodes).some(
+          (node) => node instanceof Text && node.textContent?.trim(),
+        )
+      ) {
+        visit(children[0] as HTMLElement, parentId);
+        return;
+      }
+      if (clipped && (rect.width < 40 || rect.height < 40))
+        throw new Error(`${name}: clipped containers must be at least 40px per side.`);
+      const frame = (section || decorated || clipped) && rect.width >= 40 && rect.height >= 40;
+      add(
+        frame
+          ? { ...base, ...effects, kind: "frame", fill, clipContent: clipped }
+          : { ...base, kind: "group" },
+      );
+      if (!frame && decorated)
+        add({
+          ...base,
+          ...effects,
+          id: crypto.randomUUID(),
+          parentId: base.id,
+          name: "Background",
+          kind: "rectangle",
+          fill,
+          opacity: 1,
+        });
+      if (element instanceof HTMLImageElement)
+        add({
+          ...baseFor(contentRect, base.id, element.alt || "Image"),
+          kind: "image",
+          src: element.src,
+          cornerRadius: Math.max(0, (effects.cornerRadius ?? 0) - Math.max(...borderWidths)),
+          opacity: 1,
+        });
+      else if (
+        leafText &&
+        (input ||
+          (!style.display.includes("flex") &&
+            !style.display.includes("grid") &&
+            style.display !== "inline"))
+      ) {
+        add({
+          ...baseFor(contentRect, base.id, plainText.trim().slice(0, 80)),
+          ...textStyle(style),
+          kind: "text",
+          text: transformedText(plainText, style, true),
+        });
+      } else {
+        // DOM text ranges preserve inline color runs, wrapping, and flex/grid centering.
+        const ordered = Array.from(element.childNodes).map((node, index) => ({
+          node,
+          index,
+          order: node instanceof HTMLElement ? Number(getComputedStyle(node).order) || 0 : 0,
+          z: node instanceof HTMLElement ? Number(getComputedStyle(node).zIndex) || 0 : 0,
+        }));
+        ordered.sort((a, b) => a.z - b.z || a.order - b.order || a.index - b.index);
+        for (const { node } of ordered) {
+          if (node instanceof Text) measuredText(node, base.id);
+          else if (node instanceof HTMLElement) visit(node, base.id);
+        }
+      }
+      addBorders(base.id);
+      function addBorders(id: string) {
+        if (!separateBorders) return;
+        // A one-sided divider remains an editable rectangle, rather than disappearing.
+        borderWidths.forEach((width, side) => {
+          if (!width) return;
+          const horizontal = side === 0 || side === 2;
+          add({
+            ...base,
+            id: crypto.randomUUID(),
+            parentId: id,
+            name: ["Top border", "Right border", "Bottom border", "Left border"][side],
+            kind: "rectangle",
+            x: base.x + (side === 1 ? base.width - width : 0),
+            y: base.y + (side === 2 ? base.height - width : 0),
+            width: horizontal ? base.width : width,
+            height: horizontal ? width : base.height,
+            fill: htmlColor(borderColors[side]),
+            opacity: 1,
+          });
+        });
+      }
+    };
+    for (const child of Array.from(layout.children))
+      visit(child as HTMLElement, options.parentId, true);
+    if (!nodes.length) throw new Error("HTML did not produce visible layers.");
+    return nodes;
+  } finally {
+    host.remove();
+  }
+}

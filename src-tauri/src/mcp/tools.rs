@@ -1,0 +1,46 @@
+use serde_json::{json, Value};
+
+fn tool(name: &str, description: &str, properties: Value, required: &[&str], read: bool) -> Value {
+    json!({"name":name,"description":description,
+        "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
+        "annotations":{"readOnlyHint":read,"openWorldHint":false}})
+}
+
+pub fn catalog() -> Vec<Value> {
+    let string = json!({"type":"string"});
+    let ids = json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1000});
+    vec![
+        tool("get_guide", "Read Flies incremental page-building workflow, supported HTML/CSS and coordinates before editing.", json!({}), &[], true),
+        tool("list_files", "List local files, without loading document contents.", json!({}), &[], true),
+        tool("create_file", "Create and open a local Flies file.", json!({"name":string}), &["name"], false),
+        tool("open_file", "Open an existing local file by id.", json!({"fileId":string}), &["fileId"], false),
+        tool("get_basic_info", "Get the active file, root nodes, node count and viewport. Open a file first.", json!({}), &[], true),
+        tool("get_selection", "Get selected node IDs in the active file.", json!({}), &[], true),
+        tool("get_node_info", "Get a node's saved properties and direct child IDs.", json!({"nodeId":string}), &["nodeId"], true),
+        tool("get_tree", "Get the active file's node tree, optionally rooted at nodeId. Depth defaults to 5 (max 20).", json!({"nodeId":string,"depth":{"type":"integer","minimum":0,"maximum":20}}), &[], true),
+        tool("create_artboard", "Create a page shell or section frame using world coordinates. Returns its node ID for later write_html calls.", json!({"name":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40},"height":{"type":"number","minimum":40},"fill":string}), &["name","width","height"], false),
+        tool("write_html", "Build one small section per call as editable layers. Read get_guide first. parentId appends inside a frame/group; replace:true replaces only its children. targetId replaces one node/subtree with one HTML root, preserving its ID, parent and order; cannot combine with parentId or replace. x/y offset the parent or target origin, or use world coordinates without either. Returns root/container IDs, names and bounds for later calls. validateOnly previews without editing or returning IDs. Use scoped edits, never resend the whole page for a local change.", json!({"html":string,"parentId":string,"targetId":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40,"maximum":8192},"replace":{"type":"boolean"},"height":{"type":"number","minimum":1,"maximum":8192},"validateOnly":{"type":"boolean"}}), &["html"], false),
+        tool("update_node", "Patch a node using native Flies properties. Bounds are world coordinates; moving a frame/group translates all descendants. Changing id/kind is forbidden. A single undo step.", json!({"nodeId":string,"properties":{"type":"object"}}), &["nodeId","properties"], false),
+        tool("delete_nodes", "Delete nodes and their descendants as one undoable operation.", json!({"nodeIds":ids}), &["nodeIds"], false),
+        tool("set_selection", "Select a node (or clear selection when nodeId is omitted).", json!({"nodeId":string}), &[], false),
+        tool("get_screenshot", "Return a PNG image of nodeId and descendants, or all visible root nodes. Includes offscreen content; excludes editor chrome. Max 8192px per side, 32 megapixels.", json!({"nodeId":string}), &[], true),
+        tool("save_file", "Flush the active file to local compressed JSON storage.", json!({}), &[], false),
+        tool("undo", "Undo the active document's last edit, including MCP edits.", json!({}), &[], false),
+        tool("redo", "Redo the active document's last undone edit.", json!({}), &[], false),
+    ]
+}
+
+pub const GUIDE: &str = r#"Flies edits the active desktop file. Start with list_files/open_file or create_file, then get_basic_info. Mutations share the UI's document, undo history and local storage. Inspect returned IDs; never invent them.
+Build pages incrementally across separate tool calls:
+1. Create the page shell with create_artboard. Add small named or semantic section placeholders with write_html, using explicit width/height of at least 40px per side. Empty sections remain editable frames. Use data-name, for example Header, Search, Footer.
+2. Read roots and containers in the response to get each section's actual ID. Populate sections one at a time using parentId. Each call becomes visible and saves independently; no full-page HTML call is needed.
+3. Inspect with get_tree/get_node_info and get_screenshot after each section. Add more sections or adjust existing nodes with update_node. Never resend an entire page for a local edit.
+4. For revisions, parentId plus replace:true replaces only that container's children. targetId replaces exactly one node and its subtree with one imported HTML root, retaining the target's ID, parent and sibling position. Descendant IDs change. targetId cannot combine with parentId or replace. Omit replace to append when using parentId.
+Example (substitute actual returned IDs): create_artboard({name:"Home",width:960,height:600}); write_html({parentId:PAGE_ID,html:"<header data-name='Header' style='width:960px;height:64px'></header><main data-name='Search' style='width:960px;height:480px'></main><footer data-name='Footer' style='width:960px;height:56px'></footer>"}); write_html({parentId:HEADER_ID,html:"<div style='width:100%;height:100%;display:flex;justify-content:flex-end;align-items:center;padding:20px'>Gmail</div>"}); get_screenshot({nodeId:PAGE_ID}); write_html({parentId:SEARCH_ID,html:"<div style='width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:64px'>Google</div>"}); get_screenshot({nodeId:PAGE_ID}). Later, write_html({targetId:HEADER_ID,html:"<header data-name='Header' style='width:100%;height:100%;padding:20px'>Gmail · Images</header>"}) revises just the header.
+Validation/results: validateOnly:true measures and validates without creating nodes, saving or changing history. Response includes applied, nodeIds, roots, containers and layer counts. containers lists all imported frames/groups with id,name,kind,parentId and world x/y/width/height, so nested sections can be targeted later. Dry-run roots/containers omit IDs and parent references; preview nodes do not exist yet.
+Coordinates: native nodes use absolute world x/y, including nested children. write_html x/y offset parentId's origin; targetId offsets the target's previous origin. Without either, x/y are world coordinates. width/height set the HTML containing block, defaulting to the parent's dimensions, or the target's dimensions for targetId. Omit x/y on targetId to keep its origin. This supports percentage dimensions inside each import. Native artboard sizes are at least 40px.
+HTML supports passive semantic tags, inline CSS, block/flex/grid, spacing, solid colors, opacity, uniform corner radius, solid borders (including individual sides), multiple box shadows, inline styled text spans, strong/em, underline/strike, and raster data-URL images. Text-like inputs render their value or placeholder as editable text. Generic sans-serif/system-ui resolve to Arial; serif to Georgia; monospace to Courier New. Explicit fonts: Arial, Helvetica, Georgia, Courier New. Supported weights: 400,500,600,700. Font fallback is resolved before measurement. Use data-name for meaningful layer names. Named/semantic containers of at least 40px per side survive as frames; unnecessary unnamed wrappers collapse and plain text/shape leaves become single layers.
+Layout is a measured native snapshot. CSS context is not retained between calls: new HTML does not inherit an earlier import's font, flex/grid rules or styles, and existing siblings do not reflow automatically after an import. Set styles and dimensions on each section. Move sections with update_node; moving a frame/group translates its descendants. Use native layout properties deliberately when automatic native layout is needed, rather than relying on previous HTML CSS.
+Unsupported: scripts/events, custom elements, stylesheets, external resources, SVG, gradients, transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage corner radii, cropped images, or clipped containers smaller than 40px. For pill controls use border-radius:999px. Failures occur before editing. Limits: 500 HTML elements, 30 nesting levels, 200KB HTML, 3000 generated layers per insertion. Keep each call section-sized.
+Native node kinds: frame,group,rectangle,text,image,pen. update_node supports native properties including borderWidth,borderColor,shadows (array of offsetX,offsetY,blur,spread,color,inset), text fontStyle and textDecoration. Changing id/kind is forbidden.
+No active file produces an actionable error. Requests execute serially. If a request times out after dispatch, inspect before retrying a mutation: it may already have applied. Server lifetime matches the desktop process."#;
