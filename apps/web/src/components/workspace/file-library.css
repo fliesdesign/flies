@@ -1,16 +1,28 @@
-.library-home {
+.library-shell[data-slot="sidebar-wrapper"] {
   min-height: calc(100dvh - var(--desktop-titlebar-height, 0px));
-  padding: 24px 28px 48px;
-  max-width: 720px;
-  margin: 0 auto;
+  height: calc(100dvh - var(--desktop-titlebar-height, 0px));
+  overflow: hidden;
+}
+.library-sidebar {
+  height: 100%;
+  border-right: 1px solid var(--sidebar-border);
+  background: var(--sidebar);
+}
+.library-home {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
   background: var(--background);
+}
+.library-pane {
+  padding: 24px 28px 48px;
 }
 .library-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
   flex-wrap: wrap;
 }
 .library-actions {
@@ -23,56 +35,102 @@
   line-height: 24px;
   font-weight: 500;
 }
-.library-list-head,
-.library-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
-  gap: 16px;
+.library-sort {
+  display: flex;
   align-items: center;
-  width: 100%;
+  gap: 2px;
+  margin: -4px 0 16px;
 }
-.library-list-head {
+.library-sort button {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
   font-size: 12px;
   color: var(--muted-foreground);
-  padding: 0 10px 8px;
-  border-bottom: 1px solid var(--border);
-}
-.library-list-head button {
-  text-align: left;
   cursor: pointer;
 }
-.library-list-head button:last-child,
-.library-row time {
-  text-align: right;
-}
-.library-row {
-  min-height: 44px;
-  padding: 0 10px;
-  text-align: left;
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-}
-.library-row:hover {
+.library-sort button[aria-pressed="true"] {
+  color: var(--foreground);
   background: var(--accent);
 }
-.library-row:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
+.library-sort button:hover {
+  color: var(--foreground);
 }
-.library-row:disabled {
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 22px 16px;
+}
+.library-card-hit,
+.library-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+.library-card {
+  gap: 10px;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+}
+.library-card:disabled {
   opacity: 0.5;
 }
-.library-row strong {
-  font-size: 14px;
-  font-weight: 400;
+.library-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 5%, var(--background));
+}
+.library-preview svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.library-preview-empty {
+  display: grid;
+  place-items: center;
+}
+.library-preview-empty span {
+  display: block;
+  width: 42%;
+  aspect-ratio: 4 / 3;
+  border: 1px dashed color-mix(in srgb, var(--foreground) 18%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+.library-card:hover .library-preview {
+  border-color: color-mix(in srgb, var(--foreground) 22%, var(--border));
+}
+.library-card:focus-visible {
+  outline: none;
+}
+.library-card:focus-visible .library-preview {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.library-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 2px;
+}
+.library-card-meta strong {
+  font-size: 13px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.library-row time {
+.library-card-meta time {
   font-size: 12px;
   color: var(--muted-foreground);
-  flex-shrink: 0;
 }
 .library-empty {
   display: flex;
@@ -87,13 +145,34 @@
 .library-empty span {
   font-size: 12px;
 }
+.library-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 720px;
+  padding: 8px 2px;
+}
+.library-setting-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.library-setting-label {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.library-setting-value {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 650px) {
-  .library-home {
+  .library-pane {
     padding: 20px 16px;
   }
-  .library-list-head,
-  .library-row {
-    grid-template-columns: minmax(0, 1fr) 110px;
-    gap: 12px;
+  .library-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 18px 12px;
   }
 }

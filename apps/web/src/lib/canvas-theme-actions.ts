@@ -17,7 +17,9 @@ export async function updateDocumentTheme(document: CanvasDocument, value: Canva
       node.kind === "text" &&
       (updated.fontFamily !== node.fontFamily ||
         updated.fontSize !== node.fontSize ||
-        updated.letterSpacing !== node.letterSpacing)
+        updated.letterSpacing !== node.letterSpacing ||
+        updated.fontWeight !== node.fontWeight ||
+        updated.lineHeight !== node.lineHeight)
       ? [updated]
       : [];
   });
@@ -39,7 +41,9 @@ export async function prepareTokenUpdates(
       before.kind === "text" &&
       (node.fontFamily !== before.fontFamily ||
         node.fontSize !== before.fontSize ||
-        node.letterSpacing !== before.letterSpacing)
+        node.letterSpacing !== before.letterSpacing ||
+        node.fontWeight !== before.fontWeight ||
+        node.lineHeight !== before.lineHeight)
     );
   });
   await ensureCanvasFonts(changed.filter((node) => node.kind === "text"));

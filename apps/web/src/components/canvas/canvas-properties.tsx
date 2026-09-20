@@ -1,4 +1,9 @@
-import { applyTokenBindings, THEME_PROPERTIES, type ThemeProperty } from "@flies/canvas";
+import {
+  applyTokenBindings,
+  THEME_PROPERTIES,
+  tokenMatchesProperty,
+  type ThemeProperty,
+} from "@flies/canvas";
 import type { CanvasArrangeAction } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
@@ -23,6 +28,7 @@ import { prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 import { CanvasFontPicker } from "./canvas-font-picker";
 import { ColorSwatch, PropertyField, type PropertyPreview } from "./canvas-property-controls";
 import { normalizeCanvasHex } from "./canvas-property-values";
+import { CanvasTokenSelect, type TokenChoiceProps } from "./canvas-token-select";
 import "./canvas-properties.css";
 
 export type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
@@ -163,14 +169,17 @@ function PropertySelect({
   disabled,
   choices,
   onChange,
+  tokens,
+  tokenId,
+  onToken,
 }: {
   label: string;
   value: string | number | undefined;
   disabled?: boolean;
   choices: readonly { value: string | number; label: string }[];
   onChange: (value: string) => void;
-}) {
-  return (
+} & TokenChoiceProps) {
+  const select = (
     <label className="canvas-property-select" data-disabled={disabled || undefined}>
       <select
         aria-label={label}
@@ -192,6 +201,19 @@ function PropertySelect({
       </select>
       <ChevronDownIcon size={13} aria-hidden="true" />
     </label>
+  );
+  if (!tokens?.length || !onToken) return select;
+  return (
+    <div className="canvas-property-select-stack">
+      <CanvasTokenSelect
+        tokens={tokens}
+        tokenId={tokenId}
+        onToken={onToken}
+        label={label}
+        disabled={disabled}
+      />
+      {select}
+    </div>
   );
 }
 
@@ -292,7 +314,14 @@ export const CanvasProperties = memo(function CanvasProperties({
   const theme = useSyncExternalStore(document.subscribe, document.getTheme, document.getTheme);
   const [tokenError, setTokenError] = useState("");
   const tokenChoice = (property: ThemeProperty) => ({
-    tokens: theme.tokens.filter((token) => token.type === THEME_PROPERTIES[property]),
+    tokens: theme.tokens
+      .filter((token) => tokenMatchesProperty(token, property))
+      .slice()
+      .sort(
+        (left, right) =>
+          Number(right.type === THEME_PROPERTIES[property]) -
+          Number(left.type === THEME_PROPERTIES[property]),
+      ),
     tokenId: commonValue(nodes, (node) => node.tokenBindings?.[property]),
     onToken: (id: string | null) => {
       onPreviewEnd(true);
@@ -692,6 +721,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                 />
                 <PropertySelect
                   label="Font weight"
+                  {...tokenChoice("fontWeight")}
                   value={textValue((node) => node.fontWeight ?? 400)}
                   choices={WEIGHT_CHOICES}
                   disabled={anyLocked}
@@ -712,6 +742,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                   />
                   <PropertyField
                     label="Line height"
+                    {...tokenChoice("lineHeight")}
                     prefix="↕"
                     value={textValue((node) => node.lineHeight ?? 1.25)}
                     numeric

@@ -1,0 +1,19 @@
+.update-settings .appearance-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.update-notes {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--foreground);
+  white-space: pre-wrap;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

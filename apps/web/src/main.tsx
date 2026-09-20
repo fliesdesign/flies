@@ -3,8 +3,12 @@ import { isTauri } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import { applyStoredAppearance } from "@/lib/appearance";
+
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
+
+applyStoredAppearance();
 
 // Reserve native window controls only in the macOS desktop webview.
 if (isTauri() && /Mac/.test(navigator.userAgent)) {

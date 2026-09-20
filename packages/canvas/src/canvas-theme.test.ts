@@ -12,9 +12,11 @@ import {
 import { packCanvasProject, unpackCanvasProject } from "./canvas-project";
 import {
   EMPTY_THEME,
+  STARTER_THEME,
   applyTokenBindings,
   normalizeTheme,
   themeCss,
+  tokenMatchesProperty,
   type CanvasTheme,
 } from "./canvas-theme";
 
@@ -24,6 +26,11 @@ const theme: CanvasTheme = {
     { id: "space", name: "Space", type: "spacing", value: 20 },
     { id: "body", name: "Body", type: "fontFamily", value: "Georgia" },
     { id: "large", name: "Large", type: "fontSize", value: 32 },
+    { id: "bold", name: "Bold", type: "fontWeight", value: 700 },
+    { id: "leading", name: "Leading", type: "lineHeight", value: 1.5 },
+    { id: "track", name: "Track", type: "letterSpacing", value: 0.5 },
+    { id: "page", name: "Page", type: "container", value: 1024 },
+    { id: "tablet", name: "Tablet", type: "breakpoint", value: 768 },
   ],
 };
 const rectangle: CanvasFrame = {
@@ -135,12 +142,35 @@ describe("document theme tokens", () => {
       (node) => node.fontSize * 2,
     );
     assert.equal(doc.getFrame("text")!.height, 80);
+    const typed = applyTokenBindings(
+      text,
+      theme,
+      { fontWeight: "bold", lineHeight: "leading", letterSpacing: "track" },
+      true,
+    );
+    const legacy = applyTokenBindings(text, theme, { letterSpacing: "space" }, true);
+    if (typed.kind !== "text" || legacy.kind !== "text") throw new Error("expected text");
+    assert.equal(typed.fontWeight, 700);
+    assert.equal(typed.lineHeight, 1.5);
+    assert.equal(typed.letterSpacing, 0.5);
+    assert.equal(legacy.letterSpacing, 20);
+    assert.equal(
+      tokenMatchesProperty(
+        theme.tokens.find((token) => token.id === "space")!,
+        "letterSpacing",
+      ),
+      true,
+    );
     assert.throws(
       () => applyTokenBindings(text, theme, { fontSize: "brand" }, true),
       /incompatible/,
     );
     assert.throws(
       () => applyTokenBindings(rectangle, theme, { fontFamily: "body" }, true),
+      /cannot/,
+    );
+    assert.throws(
+      () => applyTokenBindings(rectangle, theme, { fontWeight: "bold" }, true),
       /cannot/,
     );
   });
@@ -181,8 +211,31 @@ describe("document theme tokens", () => {
       assert.deepEqual(doc.getTheme(), theme);
     }
     assert.throws(() => normalizeTheme({ tokens: [{ ...theme.tokens[0], id: "Bad ID" }] }));
+    assert.throws(() =>
+      normalizeTheme({ tokens: [{ id: "bad-lead", name: "Bad", type: "lineHeight", value: 5 }] }),
+    );
     assert.match(themeCss(theme), /--brand:#123456;/);
     assert.match(themeCss(theme), /--space:20px;/);
     assert.match(themeCss(theme), /--body:"Georgia";/);
+    assert.match(themeCss(theme), /--bold:700;/);
+    assert.match(themeCss(theme), /--leading:1.5;/);
+    assert.match(themeCss(theme), /--track:0.5px;/);
+    assert.match(themeCss(theme), /--page:1024px;/);
+    assert.match(themeCss(theme), /--tablet:768px;/);
+  });
+
+  it("accepts the starter theme used by the Theme tab", () => {
+    const starter = normalizeTheme(STARTER_THEME);
+    assert.equal(starter.tokens.length, STARTER_THEME.tokens.length);
+    assert.equal(starter.tokens[0]?.id, "color-gray-50");
+    assert.equal(starter.tokens.filter((token) => token.type === "color").length, 22);
+    assert.equal(starter.tokens.filter((token) => token.type === "container").length, 10);
+    assert.equal(starter.tokens.filter((token) => token.type === "breakpoint").length, 5);
+    assert.equal(starter.tokens.filter((token) => token.type === "fontWeight").length, 9);
+    assert.equal(starter.tokens.filter((token) => token.type === "lineHeight").length, 6);
+    assert.equal(starter.tokens.filter((token) => token.type === "letterSpacing").length, 6);
+    assert.equal(starter.tokens.find((token) => token.id === "font-weight-bold")?.name, "bold");
+    assert.equal(starter.tokens.find((token) => token.id === "container-2xl")?.name, "2xl");
+    assert.equal(starter.tokens.find((token) => token.id === "breakpoint-sm")?.name, "sm");
   });
 });

@@ -95,7 +95,8 @@
   font-size: 13px;
   margin: 12px 0;
 }
-.file-save-error {
+.file-save-error,
+.file-update-banner {
   position: fixed;
   z-index: 100;
   bottom: 20px;
@@ -110,6 +111,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.file-update-banner {
+  bottom: 72px;
+  font-style: inherit;
 }
 @media (max-width: 540px) {
   .file-create {

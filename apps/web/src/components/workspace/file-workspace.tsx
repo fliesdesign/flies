@@ -10,18 +10,27 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  archiveFile,
   createFile,
   FileAutosave,
   importFile,
   listFiles,
   openFile,
+  restoreFile,
   type FileLibrary,
   type LocalFile,
 } from "@/lib/local-files";
 import { connectMcp } from "@/lib/mcp/bridge";
 import { editorTool, textResult, stringArg, type McpResult } from "@/lib/mcp/editor";
+import {
+  loadWorkspaceSession,
+  patchWorkspaceSession,
+  restoreableActiveId,
+  restoreableOpenIds,
+} from "@/lib/workspace-session";
 
 import { FileLibraryView } from "./file-library";
+import { DesktopUpdateBanner } from "./update-settings";
 import "./file-workspace.css";
 
 function TopLoader({ active }: { active: boolean }) {
@@ -123,6 +132,7 @@ export function FileWorkspace() {
   const [library, setLibrary] = useState<FileLibrary | null>(null);
   const [files, setFiles] = useState<LocalFile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [ready, setReady] = useState(!desktop);
   const savers = useRef(new Map<string, FileSession>());
   const switching = useRef(false);
   const register = useCallback((id: string, session: FileSession | null) => {
@@ -134,6 +144,11 @@ export function FileWorkspace() {
       current.some((entry) => entry.id === file.id) ? current : [...current, file],
     );
     setActiveId(file.id);
+  }, []);
+  const forgetFile = useCallback((id: string) => {
+    savers.current.delete(id);
+    setFiles((current) => current.filter((file) => file.id !== id));
+    setActiveId((current) => (current === id ? null : current));
   }, []);
   const [browserCanvas, setBrowserCanvas] = useState(false);
   const [error, setError] = useState("");
@@ -148,10 +163,53 @@ export function FileWorkspace() {
     }
   }, [desktop]);
   useEffect(() => {
-    // Synchronize the file list with the Rust filesystem service.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refresh();
-  }, [refresh]);
+    if (!desktop) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const listing = await listFiles();
+        if (cancelled) return;
+        setLibrary(listing);
+        setError("");
+        const session = loadWorkspaceSession();
+        const opened: LocalFile[] = [];
+        for (const id of restoreableOpenIds(
+          session,
+          listing.files.filter((file) => !file.archived).map((file) => file.id),
+        )) {
+          try {
+            // Restore tabs in the saved order so the strip matches the previous session.
+            // eslint-disable-next-line no-await-in-loop
+            opened.push(await openFile(id));
+          } catch {
+            /* listed files can still miss a snapshot */
+          }
+          if (cancelled) return;
+        }
+        setFiles(opened);
+        setActiveId(
+          restoreableActiveId(
+            session,
+            opened.map((file) => file.id),
+          ),
+        );
+      } catch (failure) {
+        if (!cancelled) setError(String(failure));
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [desktop]);
+  useEffect(() => {
+    if (!desktop || !ready) return;
+    patchWorkspaceSession({
+      openIds: files.map((file) => file.id),
+      activeId,
+    });
+  }, [desktop, ready, files, activeId]);
   async function run(action: () => Promise<LocalFile | null>) {
     if (busy) return;
     setBusy(true);
@@ -294,7 +352,7 @@ export function FileWorkspace() {
     mcpState.current = { activeId, files };
   }, [activeId, files]);
   useEffect(() => {
-    if (!desktop) return;
+    if (!desktop || !ready) return;
     return connectMcp(async (name, args): Promise<McpResult> => {
       if (name === "list_files") {
         const listing = await listFiles();
@@ -321,6 +379,17 @@ export function FileWorkspace() {
         throw new Error(
           "File opened, but the editor is still loading. Try get_basic_info shortly.",
         );
+      }
+      if (name === "archive_file") {
+        const fileId = stringArg(args, "fileId");
+        await archiveFile(fileId);
+        forgetFile(fileId);
+        return textResult({ archived: true, fileId });
+      }
+      if (name === "restore_file") {
+        const fileId = stringArg(args, "fileId");
+        await restoreFile(fileId);
+        return textResult({ restored: true, fileId });
       }
       const active = mcpState.current.activeId;
       const session = active ? savers.current.get(active) : undefined;
@@ -375,7 +444,7 @@ export function FileWorkspace() {
         return result;
       });
     });
-  }, [desktop, activateFile]);
+  }, [desktop, ready, activateFile, forgetFile]);
   return (
     <>
       <Dialog
@@ -425,7 +494,7 @@ export function FileWorkspace() {
           </form>
         </DialogContent>
       </Dialog>
-      {desktop && (
+      {desktop && ready && (
         <div className="workspace-tabs" data-tauri-drag-region>
           <div className="workspace-tab-list" aria-label="Open files">
             <button
@@ -493,25 +562,29 @@ export function FileWorkspace() {
           <div className="workspace-tab-drag" data-tauri-drag-region />
         </div>
       )}
-      {files.map((file) => (
-        <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
-          <FileEditor
-            file={file}
-            register={register}
-            onSaved={onSaved}
-            onOpen={activateFile}
-            onHome={() => {
-              void switchTab(null);
-            }}
-          />
-        </div>
-      ))}
+      {ready &&
+        files.map((file) => (
+          <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
+            <FileEditor
+              file={file}
+              register={register}
+              onSaved={onSaved}
+              onOpen={activateFile}
+              onHome={() => {
+                void switchTab(null);
+              }}
+            />
+          </div>
+        ))}
       {activeId !== null && error && (
         <div className="file-save-error" role="alert">
           {error}
         </div>
       )}
-      {activeId === null &&
+      <DesktopUpdateBanner desktop={desktop} />
+      {!ready && <TopLoader active />}
+      {ready &&
+        activeId === null &&
         (browserCanvas ? (
           <DesignCanvas />
         ) : (
@@ -528,6 +601,15 @@ export function FileWorkspace() {
               }}
               onOpen={(id) => void run(() => openFile(id))}
               onImport={() => void run(importFile)}
+              onArchive={async (id) => {
+                await archiveFile(id);
+                forgetFile(id);
+                await refresh();
+              }}
+              onRestore={async (id) => {
+                await restoreFile(id);
+                await refresh();
+              }}
               onRefresh={refresh}
               onBrowser={() => setBrowserCanvas(true)}
             />

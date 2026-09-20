@@ -74,6 +74,7 @@ pub struct FileSummary {
     updated_at: u64,
     node_count: usize,
     preview: Vec<Value>,
+    archived: bool,
 }
 
 #[derive(Serialize)]
@@ -376,6 +377,10 @@ fn preview(nodes: &[Value]) -> Vec<Value> {
                 "fill",
                 "color",
                 "fontSize",
+                "fontWeight",
+                "fontFamily",
+                "textAlign",
+                "fontStyle",
                 "cornerRadius",
                 "opacity",
                 "clipContent",
@@ -421,12 +426,15 @@ impl FileStore {
                revision INTEGER NOT NULL,
                node_count INTEGER NOT NULL,
                blob TEXT NOT NULL,
-               preview TEXT NOT NULL
+               preview TEXT NOT NULL,
+               archived INTEGER NOT NULL DEFAULT 0
              );
              CREATE INDEX IF NOT EXISTS documents_updated ON documents(updated_at);
              PRAGMA user_version=1;",
         )
         .map_err(db_error)?;
+        let _ = db
+            .execute_batch("ALTER TABLE documents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
         let store = Self { root, db };
         Ok(store)
     }
@@ -574,7 +582,7 @@ impl FileStore {
         let mut query = self
             .db
             .prepare(
-                "SELECT id,name,created_at,updated_at,node_count,preview,blob FROM documents ORDER BY updated_at DESC,id",
+                "SELECT id,name,created_at,updated_at,node_count,preview,blob,archived FROM documents ORDER BY updated_at DESC,id",
             )
             .map_err(db_error)?;
         let rows = query
@@ -587,6 +595,7 @@ impl FileStore {
                         updated_at: r.get::<_, i64>(3)? as u64,
                         node_count: r.get::<_, i64>(4)? as usize,
                         preview: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                        archived: r.get::<_, i64>(7)? != 0,
                     },
                     r.get::<_, String>(6)?,
                 ))
@@ -606,6 +615,21 @@ impl FileStore {
             warnings,
             directory: self.root.to_string_lossy().into_owned(),
         })
+    }
+    pub fn set_archived(&self, id: &str, archived: bool) -> Result<()> {
+        valid_id(id)?;
+        let tx = self.transaction()?;
+        let changed = tx
+            .execute(
+                "UPDATE documents SET archived=?1 WHERE id=?2",
+                params![i64::from(u8::from(archived)), id],
+            )
+            .map_err(db_error)?;
+        if changed == 0 {
+            return Err("This file could not be found.".into());
+        }
+        tx.commit().map_err(db_error)?;
+        Ok(())
     }
 }
 
@@ -659,6 +683,14 @@ pub async fn save_file(
         None => store.save(&id, revision, &name, nodes),
     })
     .await
+}
+#[tauri::command]
+pub async fn archive_file(state: State<'_, LocalFiles>, id: String) -> Result<()> {
+    with_store(state, move |store| store.set_archived(&id, true)).await
+}
+#[tauri::command]
+pub async fn restore_file(state: State<'_, LocalFiles>, id: String) -> Result<()> {
+    with_store(state, move |store| store.set_archived(&id, false)).await
 }
 #[tauri::command]
 pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>> {
@@ -813,6 +845,53 @@ mod tests {
         assert_eq!(list.warnings.len(), 1);
     }
     #[test]
+    fn archive_hides_a_file_from_active_use_and_restore_returns_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let keep = store.create("Keep", vec![node()]).unwrap();
+        let gone = store.create("Gone", vec![]).unwrap();
+        let path = store.path(&gone.id).unwrap();
+        store.set_archived(&gone.id, true).unwrap();
+        assert!(path.exists());
+        assert_eq!(store.open(&gone.id).unwrap().name, "Gone");
+        let list = store.list().unwrap();
+        assert_eq!(list.files.len(), 2);
+        assert!(
+            !list
+                .files
+                .iter()
+                .find(|file| file.id == keep.id)
+                .unwrap()
+                .archived
+        );
+        assert!(
+            list.files
+                .iter()
+                .find(|file| file.id == gone.id)
+                .unwrap()
+                .archived
+        );
+        store.set_archived(&gone.id, false).unwrap();
+        assert!(
+            !store
+                .list()
+                .unwrap()
+                .files
+                .iter()
+                .find(|file| file.id == gone.id)
+                .unwrap()
+                .archived
+        );
+        assert_eq!(
+            store.set_archived("0-0-0", true).unwrap_err(),
+            "This file could not be found."
+        );
+        assert_eq!(
+            store.set_archived("../secret", true).unwrap_err(),
+            "Invalid file ID."
+        );
+    }
+    #[test]
     fn compressed_snapshots_round_trip_and_do_not_import_legacy_files() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("abc.json"), "legacy original").unwrap();
@@ -830,6 +909,34 @@ mod tests {
             "legacy original"
         );
     }
+    #[test]
+    fn list_preview_keeps_geometry_and_drops_image_payloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let mut photo = node();
+        photo["id"] = json!("photo");
+        photo["name"] = json!("Photo");
+        photo["kind"] = json!("image");
+        photo["src"] = json!("data:image/png;base64,aaaa");
+        photo["fill"] = json!("#112233");
+        let file = store.create("Poster", vec![node(), photo]).unwrap();
+        let preview = store
+            .list()
+            .unwrap()
+            .files
+            .into_iter()
+            .find(|item| item.id == file.id)
+            .unwrap()
+            .preview;
+        assert_eq!(preview.len(), 2);
+        assert_eq!(preview[0]["id"], "node");
+        assert_eq!(preview[1]["id"], "photo");
+        assert_eq!(preview[1]["kind"], "image");
+        assert_eq!(preview[1]["fill"], "#112233");
+        assert!(preview[1].get("src").is_none());
+        assert!(preview[0].get("name").is_none());
+    }
+
     #[test]
     fn leftover_folders_are_dropped_and_files_stay_listed() {
         let dir = tempfile::tempdir().unwrap();

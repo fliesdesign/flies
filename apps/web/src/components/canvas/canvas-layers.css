@@ -307,8 +307,10 @@
   overflow: hidden;
 }
 .canvas-sidebar-tabs > .canvas-theme-tab {
-  overflow: auto;
+  display: flex;
   min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .canvas-sidebar-design[hidden] {

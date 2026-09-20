@@ -18,13 +18,34 @@ export type LocalFile = {
   nodes: CanvasFrame[];
   theme?: CanvasTheme;
 };
+export type FilePreviewNode = {
+  id: string;
+  parentId?: string;
+  kind?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fill?: string;
+  color?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  fontFamily?: string;
+  textAlign?: string;
+  fontStyle?: string;
+  cornerRadius?: number;
+  opacity?: number;
+  clipContent?: boolean;
+  text?: string;
+};
 export type FileSummary = {
   id: string;
   name: string;
   updatedAt: number;
   createdAt: number;
   nodeCount: number;
-  preview: CanvasFrame[];
+  preview: FilePreviewNode[];
+  archived: boolean;
 };
 export type FileLibrary = {
   files: FileSummary[];
@@ -32,6 +53,8 @@ export type FileLibrary = {
   directory: string;
 };
 export const listFiles = () => invoke<FileLibrary>("list_files");
+export const archiveFile = (id: string) => invoke<void>("archive_file", { id });
+export const restoreFile = (id: string) => invoke<void>("restore_file", { id });
 export const createFile = (
   name: string,
   nodes: CanvasFrame[] = [],

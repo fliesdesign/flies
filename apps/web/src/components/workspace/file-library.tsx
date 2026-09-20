@@ -1,11 +1,46 @@
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import {
+  ArchiveIcon,
+  ClockIcon,
+  FolderIcon,
+  SearchIcon,
+  SettingsIcon,
+  type LucideIcon,
+} from "lucide-react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarInput,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import type { FileLibrary, FileSummary } from "@/lib/local-files";
+import {
+  loadWorkspaceSession,
+  patchWorkspaceSession,
+  type LibrarySection,
+} from "@/lib/workspace-session";
 
+import { AppearanceSettings } from "./appearance-settings";
+import { FilePreview } from "./file-preview";
+import { UpdateSettings } from "./update-settings";
 import "./file-library.css";
 
 type Props = {
@@ -16,9 +51,22 @@ type Props = {
   onCreate: (name: string) => Promise<void>;
   onOpen: (id: string) => void;
   onImport: () => void;
+  onArchive: (id: string) => Promise<void>;
+  onRestore: (id: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onBrowser: () => void;
 };
+
+const SECTIONS: { id: LibrarySection; label: string; icon: LucideIcon }[] = [
+  { id: "recents", label: "Recents", icon: ClockIcon },
+  { id: "files", label: "Files", icon: FolderIcon },
+  { id: "archive", label: "Archive", icon: ArchiveIcon },
+  { id: "settings", label: "Settings", icon: SettingsIcon },
+];
+
+function SectionIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return <Icon aria-hidden="true" strokeWidth={1.7} className="text-muted-foreground" />;
+}
 
 const relative = (time: number) => formatDistanceToNow(time, { addSuffix: true });
 
@@ -30,17 +78,39 @@ export function FileLibraryView({
   onCreate,
   onOpen,
   onImport,
+  onArchive,
+  onRestore,
   onRefresh,
   onBrowser,
 }: Props) {
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
+  const [section, setSection] = useState<LibrarySection>(
+    () => loadWorkspaceSession().librarySection,
+  );
+  const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"edited" | "name">("edited");
-  const files = [...(library?.files ?? [])]
+  const files = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const archived = section === "archive";
+    const matched = (library?.files ?? []).filter(
+      (file) => file.archived === archived && (!needle || file.name.toLowerCase().includes(needle)),
+    );
+    const ordered = [...matched];
     // Sorting a copy leaves the library index unchanged.
     // eslint-disable-next-line unicorn/no-array-sort
-    .sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : b.updatedAt - a.updatedAt));
+    ordered.sort((a, b) =>
+      section === "files" && sort === "name"
+        ? a.name.localeCompare(b.name)
+        : b.updatedAt - a.updatedAt,
+    );
+    return ordered;
+  }, [library, query, section, sort]);
+  const heading = SECTIONS.find((item) => item.id === section)?.label ?? "Recents";
+  const showList = section === "recents" || section === "files" || section === "archive";
+  const showActions = section === "recents" || section === "files";
+  const searching = query.trim().length > 0;
 
   async function submit() {
     if (creating === null || pending) return;
@@ -56,123 +126,249 @@ export function FileLibraryView({
     }
   }
 
-  function fileRow(file: FileSummary) {
+  async function setArchived(file: FileSummary, archived: boolean) {
+    if (pending) return;
+    setPending(true);
+    setFailure("");
+    try {
+      await (archived ? onArchive : onRestore)(file.id);
+    } catch (err) {
+      setFailure(String(err));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function fileCard(file: FileSummary) {
+    const edited = relative(file.updatedAt);
     return (
-      <button className="library-row" key={file.id} disabled={busy} onClick={() => onOpen(file.id)}>
-        <strong>{file.name}</strong>
-        <time
-          dateTime={new Date(file.updatedAt).toISOString()}
-          title={new Date(file.updatedAt).toLocaleString()}
-        >
-          {relative(file.updatedAt)}
-        </time>
-      </button>
+      <ContextMenu key={file.id}>
+        <ContextMenuTrigger className="library-card-hit" render={<div />}>
+          <button
+            type="button"
+            className="library-card"
+            disabled={busy}
+            aria-label={`${file.name}, ${edited}`}
+            onClick={() => onOpen(file.id)}
+          >
+            <FilePreview nodes={file.preview} />
+            <span className="library-card-meta">
+              <strong>{file.name}</strong>
+              <time
+                dateTime={new Date(file.updatedAt).toISOString()}
+                title={new Date(file.updatedAt).toLocaleString()}
+              >
+                {edited}
+              </time>
+            </span>
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-max min-w-0 rounded-md p-0.5">
+          <ContextMenuItem
+            className="min-h-6 px-2 py-0.5 text-xs"
+            onClick={() => void setArchived(file, section !== "archive")}
+          >
+            {section === "archive" ? "Restore" : "Archive"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 
   return (
-    <main className="library-home">
-      <header className="library-header">
-        <h1 className="library-heading">Files</h1>
-        <div className="library-actions">
-          <Button disabled={!desktop || busy} onClick={() => setCreating("Untitled")}>
-            New file
-          </Button>
-          <Button
-            variant="ghost"
-            aria-label="Import file"
-            title="Import a Flies ZIP or JSON project"
-            disabled={!desktop || busy}
-            onClick={onImport}
-          >
-            Import
-          </Button>
-        </div>
-      </header>
-      {(error || failure) && creating === null && (
-        <p className="file-library-error" role="alert">
-          {error || failure} <button onClick={() => void onRefresh()}>Retry</button>
-        </p>
-      )}
-      {!desktop ? (
-        <div className="library-empty">
-          <p>Local files are available in the desktop app.</p>
-          <Button variant="outline" onClick={onBrowser}>
-            Continue in browser
-          </Button>
-        </div>
-      ) : (
-        <>
-          {!library && !error && <p className="library-empty">Loading files…</p>}
-          {library && !files.length && (
-            <div className="library-empty">
-              <p>No files yet.</p>
-              <span>Create a file or import one to get started.</span>
-            </div>
-          )}
-          {files.length > 0 && (
-            <div className="library-list">
-              <div className="library-list-head">
-                <button type="button" onClick={() => setSort("name")}>
-                  Name{sort === "name" ? " ↓" : ""}
-                </button>
-                <button type="button" onClick={() => setSort("edited")}>
-                  Edited{sort === "edited" ? " ↓" : ""}
-                </button>
-              </div>
-              {files.map(fileRow)}
-            </div>
-          )}
-          {library?.warnings.map((warning) => (
-            <p className="file-library-error" key={warning}>
-              {warning}
-            </p>
-          ))}
-        </>
-      )}
-      <Dialog
-        open={creating !== null}
-        onOpenChange={(open) => {
-          if (!open && !pending) setCreating(null);
-        }}
-      >
-        <DialogContent>
-          <DialogTitle>New file</DialogTitle>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
-            <Input
-              aria-label="Name"
-              maxLength={120}
-              value={creating ?? ""}
-              onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => setCreating(event.target.value)}
+    <SidebarProvider
+      className="library-shell"
+      style={{ "--sidebar-width": "14rem" } as CSSProperties}
+    >
+      <Sidebar collapsible="none" className="library-sidebar">
+        <SidebarHeader>
+          <div className="relative">
+            <SearchIcon
+              aria-hidden="true"
+              strokeWidth={1.7}
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
             />
-            {failure && (
-              <p role="alert" className="text-sm text-destructive">
-                {failure}
-              </p>
+            <SidebarInput
+              type="search"
+              value={query}
+              placeholder="Search"
+              aria-label="Search files"
+              autoComplete="off"
+              spellCheck={false}
+              className="pl-8"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup className="pt-0">
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1">
+                {SECTIONS.map((item) => (
+                  <SidebarMenuItem key={item.id}>
+                    <SidebarMenuButton
+                      className="h-9"
+                      isActive={section === item.id}
+                      aria-current={section === item.id ? "page" : undefined}
+                      onClick={() => {
+                        setSection(item.id);
+                        patchWorkspaceSession({ librarySection: item.id });
+                      }}
+                    >
+                      <SectionIcon icon={item.icon} />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
+      <SidebarInset className="library-home">
+        <div className="library-pane">
+          <header className="library-header">
+            <h1 className="library-heading">{heading}</h1>
+            {showActions && (
+              <div className="library-actions">
+                <Button disabled={!desktop || busy} onClick={() => setCreating("Untitled")}>
+                  New file
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label="Import file"
+                  title="Import a Flies ZIP or JSON project"
+                  disabled={!desktop || busy}
+                  onClick={onImport}
+                >
+                  Import
+                </Button>
+              </div>
             )}
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={pending}
-                onClick={() => setCreating(null)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={pending || !creating?.trim()}>
-                {pending ? "Saving…" : "Create"}
-              </Button>
+          </header>
+          {(error || failure) && creating === null && (
+            <p className="file-library-error" role="alert">
+              {error || failure} <button onClick={() => void onRefresh()}>Retry</button>
+            </p>
+          )}
+          {showList &&
+            (!desktop ? (
+              <div className="library-empty">
+                <p>Local files are available in the desktop app.</p>
+                <Button variant="outline" onClick={onBrowser}>
+                  Continue in browser
+                </Button>
+              </div>
+            ) : (
+              <>
+                {!library && !error && <p className="library-empty">Loading files…</p>}
+                {library && !files.length && (
+                  <div className="library-empty">
+                    <p>
+                      {searching
+                        ? "No matching files."
+                        : section === "archive"
+                          ? "Nothing in the archive."
+                          : "No files yet."}
+                    </p>
+                    {!searching && (
+                      <span>
+                        {section === "archive"
+                          ? "Right-click a file and choose Archive."
+                          : "Create a file or import one to get started."}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {files.length > 0 && (
+                  <>
+                    {section === "files" && (
+                      <div className="library-sort">
+                        <button
+                          type="button"
+                          aria-pressed={sort === "name"}
+                          onClick={() => setSort("name")}
+                        >
+                          Name
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={sort === "edited"}
+                          onClick={() => setSort("edited")}
+                        >
+                          Edited
+                        </button>
+                      </div>
+                    )}
+                    <div className="library-grid">{files.map(fileCard)}</div>
+                  </>
+                )}
+                {library?.warnings.map((warning) => (
+                  <p className="file-library-error" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+              </>
+            ))}
+          {section === "settings" && (
+            <div className="library-settings">
+              <AppearanceSettings />
+              <UpdateSettings desktop={desktop} />
+              <div className="library-setting-files">
+                <p className="library-setting-label">Local files</p>
+                <p className="library-setting-value">
+                  {desktop
+                    ? (library?.directory ?? "Loading…")
+                    : "Local files are available in the desktop app."}
+                </p>
+              </div>
             </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </main>
+          )}
+        </div>
+        <Dialog
+          open={creating !== null}
+          onOpenChange={(open) => {
+            if (!open && !pending) setCreating(null);
+          }}
+        >
+          <DialogContent>
+            <DialogTitle>New file</DialogTitle>
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
+            >
+              <Input
+                aria-label="Name"
+                maxLength={120}
+                value={creating ?? ""}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setCreating(event.target.value)}
+              />
+              {failure && (
+                <p role="alert" className="text-sm text-destructive">
+                  {failure}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => setCreating(null)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={pending || !creating?.trim()}>
+                  {pending ? "Saving…" : "Create"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

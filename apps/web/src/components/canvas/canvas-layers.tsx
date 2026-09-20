@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { loadWorkspaceSession, patchWorkspaceSession } from "@/lib/workspace-session";
 
 import { CanvasThemePanel } from "./canvas-theme-panel";
 import "./canvas-layers.css";
@@ -512,7 +513,13 @@ export const CanvasLayers = memo(function CanvasLayers({
 
   return (
     <aside className="canvas-layers" aria-label="Design sidebar" data-canvas-ui="">
-      <Tabs defaultValue="design" className="canvas-sidebar-tabs">
+      <Tabs
+        defaultValue={loadWorkspaceSession().sidebarTab}
+        className="canvas-sidebar-tabs"
+        onValueChange={(value) => {
+          if (value === "design" || value === "theme") patchWorkspaceSession({ sidebarTab: value });
+        }}
+      >
         <header className="canvas-layers-header">
           <TabsList variant="line" aria-label="Sidebar">
             <TabsTrigger value="design">Design</TabsTrigger>

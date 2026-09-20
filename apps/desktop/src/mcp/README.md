@@ -46,9 +46,11 @@ Start with `get_guide`, then `create_file` or `open_file`. Subsequent editor too
 
 ### Theme tokens
 
-The left sidebar has **Design** and **Theme** tabs. Theme supports colors, font families,
-spacing, radii, and font sizes. The property controls offer matching tokens; changing a
-token updates every linked layer, including text measurement and layout. Manual literal
+The left sidebar has **Design** and **Theme** tabs. Theme supports colors, radii, spacing,
+containers, breakpoints, font families, weights, sizes, line heights, and letter spacing.
+The property controls offer matching tokens for native layer properties; changing a
+token updates every linked layer, including text measurement and layout. Container and
+breakpoint tokens are CSS variables for `write_html` and `preview_html`. Manual literal
 edits detach that property. Deleting a token preserves the layer's current value. Theme
 changes support undo/redo, local autosave, browser storage, and portable ZIP projects.
 
@@ -66,10 +68,11 @@ Agents edit the same theme through these tools:
 
 Pass this object to `set_theme`. Tokens merge by ID; `replace:true` replaces the entire
 theme, while `deleteTokenIds` removes selected tokens. Color values use 6- or 8-digit
-hex; numeric tokens use pixels. IDs are stable lowercase names with hyphens. `get_theme`
-returns the tokens, CSS variable names, and layer usage counts.
+hex; font weights are 1–1000; line heights are unitless 0.5–4; other numeric tokens use
+pixels. Letter spacing still accepts older spacing tokens. IDs are stable lowercase names
+with hyphens. `get_theme` returns the tokens, CSS variable names, and layer usage counts.
 
-Use `apply_tokens({"nodeIds":["TEXT_ID"],"bindings":{"fill":"brand","fontFamily":"body-font"}})`
+Use `apply_tokens({"nodeIds":["TEXT_ID"],"bindings":{"fill":"brand","fontFamily":"body-font","fontWeight":"weight-bold"}})`
 to link native layers. Use `null` to detach an individual property. `fill` also handles
 text color and pen stroke. Layout uses `layoutGap` and `layoutPadding` spacing bindings.
 Tokens are available as `var(--brand)`, `var(--body-font)`, and `var(--space-md)` in

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function mount(page: Page) {
   await page.goto("/");
@@ -10,6 +10,13 @@ async function mount(page: Page) {
     fixture.controls.setPanelsOpen(true);
     fixture.controls.select("red");
   });
+}
+
+async function addToken(page: Page, sidebar: Locator, type: string) {
+  await sidebar.getByRole("button", { name: "Add token" }).click();
+  const item = page.getByRole("menuitem", { name: type, exact: true });
+  await expect(item).toBeVisible();
+  await item.evaluate((node) => (node as HTMLElement).click());
 }
 
 test("left Design/Theme tabs expose editable tokens in color, font and spacing pickers", async ({
@@ -29,7 +36,24 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
   await expect(properties.getByRole("tab")).toHaveCount(0);
   await sidebar.getByRole("tab", { name: "Theme", exact: true }).click();
   await expect(sidebar.getByRole("tree", { name: "Layers" })).toBeHidden();
-  await sidebar.getByRole("button", { name: "Add colors token" }).click();
+  await expect(sidebar.getByRole("button", { name: "Use starter theme" })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Add token" }).click();
+  await Promise.all(
+    [
+      "Color",
+      "Radius",
+      "Spacing",
+      "Container",
+      "Breakpoint",
+      "Font family",
+      "Font weight",
+      "Font size",
+      "Line height",
+      "Letter spacing",
+    ].map((type) => expect(page.getByRole("menuitem", { name: type, exact: true })).toBeVisible()),
+  );
+  await page.keyboard.press("Escape");
+  await addToken(page, sidebar, "Color");
   await sidebar.getByLabel("Token name color-1", { exact: true }).fill("Brand");
   await sidebar.getByLabel("Token name color-1", { exact: true }).press("Enter");
   await sidebar.getByLabel("Token value color-1", { exact: true }).fill("#123456");
@@ -55,7 +79,7 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
     )
     .toBe("#654321");
 
-  await sidebar.getByRole("button", { name: "Add font families token" }).click();
+  await addToken(page, sidebar, "Font family");
   await sidebar.getByLabel("Token value font-1", { exact: true }).fill("Georgia");
   await sidebar.getByLabel("Token value font-1", { exact: true }).press("Enter");
   await page.evaluate(() => Reflect.get(window, "themeFixture").controls.select("text"));
@@ -79,7 +103,21 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
     )
     .toBe("Arial");
 
-  await sidebar.getByRole("button", { name: "Add spacing token" }).click();
+  await addToken(page, sidebar, "Font weight");
+  await sidebar.getByLabel("Token value weight-1", { exact: true }).fill("700");
+  await sidebar.getByLabel("Token value weight-1", { exact: true }).press("Enter");
+  await properties
+    .getByRole("combobox", { name: "Font weight token", exact: true })
+    .selectOption("weight-1");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => Reflect.get(window, "themeFixture").controls.document.getFrame("text").fontWeight,
+      ),
+    )
+    .toBe(700);
+
+  await addToken(page, sidebar, "Spacing");
   await page.evaluate(() => {
     const { controls } = Reflect.get(window, "themeFixture");
     const board = controls.document.getFrame("board");

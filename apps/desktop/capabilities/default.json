@@ -8,6 +8,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-destroy",
     "dialog:default",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:default"
   ]
 }

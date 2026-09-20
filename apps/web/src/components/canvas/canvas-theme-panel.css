@@ -1,0 +1,348 @@
+.canvas-theme-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.canvas-theme-toolbar {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.canvas-theme-count {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-theme-search {
+  min-width: 0;
+  height: 24px;
+  flex: 1;
+  padding: 0 6px;
+  border: 1px solid var(--ring);
+  border-radius: 4px;
+  background: var(--editor-field);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.canvas-theme-icon-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: default;
+}
+
+.canvas-theme-icon-button:hover,
+.canvas-theme-icon-button[aria-pressed="true"],
+.canvas-theme-icon-button[data-popup-open] {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.canvas-theme-icon-button:focus-visible {
+  outline: 1px solid var(--muted-foreground);
+  outline-offset: -2px;
+}
+
+.canvas-theme-icon-button:disabled {
+  opacity: 0.4;
+}
+
+.canvas-theme-blank {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px 48px;
+  text-align: center;
+}
+
+.canvas-theme-blank-icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 14px;
+  color: #6a6a6a;
+}
+
+.canvas-theme-blank h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.canvas-theme-blank p {
+  margin: 8px 0 16px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.canvas-theme-blank-primary,
+.canvas-theme-blank-secondary {
+  display: inline-flex;
+  min-width: 148px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: default;
+}
+
+.canvas-theme-blank-primary {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.canvas-theme-blank-primary:hover,
+.canvas-theme-blank-primary[data-popup-open] {
+  background: var(--primary-hover);
+}
+
+.canvas-theme-blank-secondary {
+  margin-top: 8px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.canvas-theme-blank-secondary:hover {
+  background: var(--accent);
+}
+
+.canvas-theme-blank-primary:focus-visible,
+.canvas-theme-blank-secondary:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.canvas-theme-blank-primary:disabled,
+.canvas-theme-blank-secondary:disabled {
+  opacity: 0.5;
+}
+
+.canvas-theme-list {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--input) transparent;
+}
+
+.canvas-theme-section-header {
+  display: flex;
+  width: 100%;
+  height: 26px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: default;
+}
+
+.canvas-theme-section-header:hover {
+  color: var(--foreground);
+}
+
+.canvas-theme-section-header svg {
+  flex: none;
+  transition: transform 150ms ease;
+}
+
+.canvas-theme-section-header svg.is-expanded {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-theme-section-header svg {
+    transition: none;
+  }
+}
+
+.canvas-theme-token {
+  display: flex;
+  position: relative;
+  height: 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 28px 0 14px;
+  outline: none;
+  cursor: default;
+}
+
+.canvas-theme-token:hover {
+  background: var(--muted);
+}
+
+.canvas-theme-token[aria-selected="true"] {
+  background: var(--editor-selection);
+}
+
+.canvas-theme-type-slot {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+}
+
+.canvas-theme-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #ffffff22;
+  border-radius: 2px;
+}
+
+.canvas-theme-token-name,
+.canvas-theme-token-value {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-theme-token-name {
+  flex: 1;
+}
+
+.canvas-theme-token-value {
+  flex: none;
+  max-width: 104px;
+  color: var(--muted-foreground);
+  font-family: var(--editor-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+input.canvas-theme-token-name,
+input.canvas-theme-token-value {
+  height: 22px;
+  padding: 0 4px;
+  overflow: visible;
+  border: 1px solid var(--ring);
+  border-radius: 3px;
+  background: var(--editor-field);
+  color: var(--foreground);
+  text-overflow: clip;
+  outline: none;
+}
+
+input.canvas-theme-token-value {
+  width: 104px;
+  max-width: 104px;
+  appearance: textfield;
+}
+
+input.canvas-theme-token-value::-webkit-outer-spin-button,
+input.canvas-theme-token-value::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.canvas-theme-token-delete {
+  display: inline-flex;
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  cursor: default;
+}
+
+.canvas-theme-token:hover .canvas-theme-token-delete,
+.canvas-theme-token[aria-selected="true"] .canvas-theme-token-delete,
+.canvas-theme-token-delete:focus-visible {
+  opacity: 1;
+}
+
+.canvas-theme-token-delete:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.canvas-theme-empty,
+.canvas-theme-error {
+  margin: 8px 12px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.canvas-theme-empty {
+  color: var(--muted-foreground);
+}
+
+.canvas-theme-error {
+  color: var(--destructive);
+}
+
+.canvas-theme-create-menu {
+  width: max-content;
+  min-width: 176px;
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.canvas-theme-create-menu [role="menuitem"] {
+  min-height: 28px;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}

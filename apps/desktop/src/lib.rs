@@ -19,6 +19,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             let data_dir = app.path().app_data_dir()?;
             files::migrate_legacy_app_data(&data_dir);
             let store =
@@ -39,6 +45,8 @@ pub fn run() {
             files::create_file,
             files::open_file,
             files::save_file,
+            files::archive_file,
+            files::restore_file,
             files::choose_project_json,
             snapshot::read_snapshot_image
         ])

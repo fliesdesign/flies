@@ -43,7 +43,7 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 24);
+    assert_eq!(tools.len(), 26);
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
 }
@@ -202,7 +202,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 24);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 26);
 }
 
 #[tokio::test]
@@ -339,7 +339,18 @@ fn theme_tools_expose_typed_tokens_and_nullable_bindings() {
     assert_eq!(token["required"], json!(["id", "name", "type", "value"]));
     assert_eq!(
         token["properties"]["type"]["enum"],
-        json!(["color", "fontFamily", "spacing", "radius", "fontSize"])
+        json!([
+            "color",
+            "radius",
+            "spacing",
+            "container",
+            "breakpoint",
+            "fontFamily",
+            "fontWeight",
+            "fontSize",
+            "lineHeight",
+            "letterSpacing"
+        ])
     );
     let apply = catalog
         .iter()
@@ -350,10 +361,13 @@ fn theme_tools_expose_typed_tokens_and_nullable_bindings() {
     for property in [
         "fill",
         "fontFamily",
+        "fontWeight",
+        "fontSize",
+        "lineHeight",
+        "letterSpacing",
         "layoutGap",
         "layoutPadding",
         "cornerRadius",
-        "fontSize",
     ] {
         assert_eq!(
             bindings["properties"][property]["type"],

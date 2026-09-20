@@ -18,7 +18,7 @@ export function mountActivity() {
     position: "fixed",
     inset: "0",
     zIndex: "9999",
-    background: "#181818",
+    background: "#0c0c0c",
   });
   document.body.append(host);
   const root = createRoot(host);
