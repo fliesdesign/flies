@@ -150,8 +150,8 @@ Layers; their geometry and styling cannot be edited until unlocked. **Unlock all
 | Ctrl/Cmd + C / X / V                | Copy / cut / paste                                                      |
 | Ctrl/Cmd + Shift + V                | Paste in place                                                          |
 | Ctrl/Cmd + D                        | Duplicate the selection                                                 |
-| Ctrl/Cmd + S                        | Save the current local file (browser: download `.lra`)                  |
-| Ctrl/Cmd + O                        | Import a JSON or `.lra` project                                         |
+| Ctrl/Cmd + S                        | Save the current local file (browser: download a ZIP)                   |
+| Ctrl/Cmd + O                        | Import a ZIP, JSON, or legacy `.lra` project                            |
 | Ctrl/Cmd + Shift + E                | Export the selected frame or layers as a PNG                            |
 | Delete / Backspace                  | Delete the selection and its descendants                                |
 | Ctrl/Cmd + G / Ctrl/Cmd + Shift + G | Group / ungroup                                                         |
@@ -173,7 +173,7 @@ Imported images use embedded data URLs without uploads or remote image requests.
 window sets `dragDropEnabled: false` so HTML5 file dropping can reach the frontend on Windows.
 
 The desktop app starts with a local file library. Create a named file, reopen a recent file,
-or use **Open JSON…** to import a copy of a Flies JSON or legacy `.lra` project. Files live in
+or use **Open JSON…** to import a copy of a Flies ZIP/JSON or legacy `.lra` project. Files live in
 Tauri's app-data directory under `files/` (macOS: `~/Library/Application Support/com.lra.dsgn/files`).
 Each JSON contains format/version, ID, name, creation/modification timestamps, revision, and
 canvas nodes including embedded images. Rust commands handle listing, creating, reading, and
@@ -185,9 +185,10 @@ The browser preview retains its previous localStorage canvas and portable downlo
 file storage is only available in the desktop app. **Recover previous canvas** imports the old
 desktop browser-storage canvas without deleting it.
 
-Use the toolbar's **Project menu** to save/open portable `.lra` files or export a selection as
-PNG. Project files include the complete hierarchy, styling, and embedded images. Opening a
-project replaces the current canvas as one undoable action; an invalid file leaves it intact.
+Use the toolbar's **Project menu** to save/open a portable ZIP (`document.json` plus images)
+or export a selection as PNG. Project files include the complete hierarchy, styling, and
+embedded images. Opening a project replaces the current canvas as one undoable action; an
+invalid file leaves it intact.
 PNG exports use the selected subtree(s) at 1× size, including visible content, opacity, and
 frame clipping, without editor controls.
 

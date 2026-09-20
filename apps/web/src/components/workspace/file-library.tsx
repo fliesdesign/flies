@@ -81,7 +81,7 @@ export function FileLibraryView({
           <Button
             variant="ghost"
             aria-label="Import file"
-            title="Import JSON or compressed JSON"
+            title="Import a Flies ZIP or JSON project"
             disabled={!desktop || busy}
             onClick={onImport}
           >

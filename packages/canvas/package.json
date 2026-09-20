@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "fflate": "^0.8.3",
     "pixi.js": "^8.21.0",
     "react": "^19.1.0"
   },

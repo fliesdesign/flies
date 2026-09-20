@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,7 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
-    io::{BufRead, BufReader, Read, Write},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -15,6 +16,7 @@ use std::{
 };
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
+use zip::ZipArchive;
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -138,25 +140,110 @@ fn validate_nodes(nodes: &[Value]) -> Result<()> {
 
 pub fn read_json(path: &Path) -> Result<String> {
     let file = File::open(path).map_err(|error| format!("Could not open file: {error}"))?;
-    let mut reader = BufReader::new(file);
-    let compressed = reader
-        .fill_buf()
-        .map_err(|e| e.to_string())?
-        .starts_with(&[0x1f, 0x8b]);
-    let reader: Box<dyn Read> = if compressed {
-        Box::new(GzDecoder::new(reader))
-    } else {
-        Box::new(reader)
-    };
     let mut bytes = Vec::new();
-    reader
-        .take(MAX_BYTES + 1)
+    file.take(MAX_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("Could not read file: {e}"))?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("Files must be smaller than 100 MB.".into());
     }
-    String::from_utf8(bytes).map_err(|_| "This file is not UTF-8 JSON.".into())
+    decode_project_bytes(&bytes)
+}
+
+fn decode_project_bytes(bytes: &[u8]) -> Result<String> {
+    if bytes.starts_with(b"PK") {
+        return unpack_zip(bytes);
+    }
+    let decoded = if bytes.starts_with(&[0x1f, 0x8b]) {
+        let mut out = Vec::new();
+        GzDecoder::new(bytes)
+            .take(MAX_BYTES + 1)
+            .read_to_end(&mut out)
+            .map_err(|e| format!("Could not read file: {e}"))?;
+        if out.len() as u64 > MAX_BYTES {
+            return Err("Files must be smaller than 100 MB.".into());
+        }
+        out
+    } else {
+        bytes.to_vec()
+    };
+    String::from_utf8(decoded).map_err(|_| "This file is not UTF-8 JSON.".into())
+}
+
+fn unpack_zip(bytes: &[u8]) -> Result<String> {
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|_| "This ZIP is not a Flies project.".to_string())?;
+    if archive.len() > 10_000 {
+        return Err("This ZIP contains too many files.".into());
+    }
+    let mut document = None;
+    let mut images = HashMap::new();
+    let mut total = 0u64;
+    for index in 0..archive.len() {
+        let file = archive
+            .by_index(index)
+            .map_err(|error| format!("Could not read this ZIP: {error}"))?;
+        if file.is_dir() {
+            continue;
+        }
+        let name = file.name().replace('\\', "/");
+        if name.contains("..") || name.starts_with('/') || name.contains(':') {
+            return Err("This ZIP contains an invalid path.".into());
+        }
+        let mut buf = Vec::new();
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("Could not read this ZIP: {e}"))?;
+        total = total.saturating_add(buf.len() as u64);
+        if buf.len() as u64 > MAX_BYTES || total > MAX_BYTES {
+            return Err("Files must be smaller than 100 MB.".into());
+        }
+        if name == "document.json" || name == "flies.json" {
+            document = Some(buf);
+        } else if let Some(rest) = name.strip_prefix("images/") {
+            if rest.is_empty()
+                || rest.contains('/')
+                || !rest
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_')
+            {
+                return Err("This ZIP contains an invalid image name.".into());
+            }
+            images.insert(name, buf);
+        }
+    }
+    let document = document.ok_or("This ZIP is missing document.json.")?;
+    let mut value: Value = serde_json::from_slice(&document)
+        .map_err(|_| "This ZIP is not a valid Flies project.".to_string())?;
+    let Some(nodes) = value.get_mut("nodes").and_then(Value::as_array_mut) else {
+        return Err("This ZIP is missing project layers.".into());
+    };
+    for node in nodes {
+        if node.get("kind").and_then(Value::as_str) != Some("image") {
+            continue;
+        }
+        let src = node
+            .get("src")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .replace('\\', "/");
+        if src.starts_with("data:") {
+            continue;
+        }
+        let bytes = images
+            .get(&src)
+            .ok_or_else(|| "This ZIP is missing an image.".to_string())?;
+        let mime = match src.rsplit('.').next().unwrap_or_default() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "avif" => "image/avif",
+            _ => return Err("This ZIP contains an unsupported image.".into()),
+        };
+        node["src"] = Value::String(format!("data:{mime};base64,{}", STANDARD.encode(bytes)));
+    }
+    serde_json::to_string(&value).map_err(|e| e.to_string())
 }
 
 fn db_error(error: rusqlite::Error) -> String {
@@ -449,7 +536,7 @@ pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>
         let Some(file) = app
             .dialog()
             .file()
-            .add_filter("Flies JSON", &["json", "lra", "gz"])
+            .add_filter("Flies project", &["zip", "json", "lra", "gz"])
             .blocking_pick_file()
         else {
             return Ok(None);
@@ -580,5 +667,40 @@ mod tests {
         store.save(&file.id, 0, "Saved", vec![]).unwrap();
         assert!(other.save(&file.id, 0, "Stale", vec![node()]).is_err());
         assert_eq!(other.open(&file.id).unwrap().name, "Saved");
+    }
+    #[test]
+    fn zip_project_inlines_images_and_returns_json() {
+        use zip::write::SimpleFileOptions;
+        use zip::{CompressionMethod, ZipWriter};
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = ZipWriter::new(&mut buf);
+            zip.start_file(
+                "document.json",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+            )
+            .unwrap();
+            zip.write_all(
+                br#"{"format":"flies","version":1,"name":"Zipped","nodes":[{"id":"img","name":"Image","kind":"image","x":0,"y":0,"width":1,"height":1,"src":"images/img.png"}]}"#,
+            )
+            .unwrap();
+            zip.start_file(
+                "images/img.png",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+            zip.write_all(&[0x89, 0x50, 0x4E, 0x47]).unwrap();
+            zip.finish().unwrap();
+        }
+        let json = unpack_zip(&buf.into_inner()).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["name"], "Zipped");
+        assert_eq!(
+            value["nodes"][0]["src"],
+            format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode([0x89, 0x50, 0x4E, 0x47])
+            )
+        );
     }
 }

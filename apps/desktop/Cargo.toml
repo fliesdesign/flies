@@ -32,6 +32,7 @@ uuid = { version = "1", features = ["v4"] }
 rmcp = { version = "3.4", features = ["transport-streamable-http-server"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 base64 = "0.23"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

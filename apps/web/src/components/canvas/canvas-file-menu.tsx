@@ -2,9 +2,9 @@ import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import {
   downloadCanvasFile,
   MAX_PROJECT_BYTES,
-  parseCanvasProject,
+  packCanvasProject,
   projectFilename,
-  serializeCanvasProject,
+  unpackCanvasProject,
 } from "@flies/canvas";
 import { MoreHorizontalIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -92,12 +92,10 @@ export function CanvasFileMenu({
     }
     if (busyRef.current) return;
     prepare();
-    downloadCanvasFile(
-      new Blob([serializeCanvasProject(name, document.getCommittedFrames())], {
-        type: "application/json",
-      }),
-      projectFilename(name),
-    );
+    const packed = packCanvasProject(name, document.getCommittedFrames());
+    const copy = new ArrayBuffer(packed.byteLength);
+    new Uint8Array(copy).set(packed);
+    downloadCanvasFile(new Blob([copy], { type: "application/zip" }), projectFilename(name));
     onNotice("Project downloaded.");
   }, [document, name, onNotice, prepare, fileActions, runAction]);
 
@@ -172,7 +170,7 @@ export function CanvasFileMenu({
     try {
       if (file.size > MAX_PROJECT_BYTES)
         throw new Error("This project is larger than 100 MB. Open a smaller project.");
-      const project = parseCanvasProject(await file.text());
+      const project = unpackCanvasProject(new Uint8Array(await file.arrayBuffer()));
       if (!mounted.current) return;
       // A large file can finish reading after a new field or text draft has started.
       prepare();
@@ -242,7 +240,7 @@ export function CanvasFileMenu({
         ref={fileRef}
         hidden
         type="file"
-        accept=".lra,.json,application/json"
+        accept=".zip,.json,.lra,.gz,application/zip,application/json,application/gzip"
         aria-label="Open canvas project"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
