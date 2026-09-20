@@ -164,12 +164,19 @@ export function FileWorkspace({
     else savers.current.delete(id);
   }, []);
 
-  const activateFile = useCallback((file: DesignFile) => {
-    setFiles((current) =>
-      current.some((entry) => entry.id === file.id) ? current : [...current, file],
-    );
-    setActiveId(file.id);
-  }, []);
+  const activateFile = useCallback(
+    (file: DesignFile) => {
+      setFiles((current) =>
+        desktop
+          ? current.some((entry) => entry.id === file.id)
+            ? current
+            : [...current, file]
+          : [file],
+      );
+      setActiveId(file.id);
+    },
+    [desktop],
+  );
 
   const ensureFile = useCallback((file: DesignFile) => {
     setFiles((current) =>
@@ -207,10 +214,12 @@ export function FileWorkspace({
         const session = loadWorkspaceSession();
         const opened: DesignFile[] = [];
 
-        for (const id of restoreableOpenIds(
+        const restoreIds = restoreableOpenIds(
           session,
           listing.files.filter((file) => !file.archived).map((file) => file.id),
-        )) {
+        ).filter((id) => desktop || id === session.activeId);
+
+        for (const id of restoreIds) {
           try {
             // Restore tabs in the saved order so the strip matches the previous session.
             // eslint-disable-next-line no-await-in-loop
@@ -239,7 +248,7 @@ export function FileWorkspace({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [desktop]);
   useEffect(() => {
     if (!ready) return;
     patchWorkspaceSession({
@@ -272,6 +281,7 @@ export function FileWorkspace({
         const saveId = closeId ?? activeId;
         if (saveId) await savers.current.get(saveId)?.flush();
         if (closeId) setFiles((current) => current.filter((file) => file.id !== closeId));
+        if (!desktop && id === null) setFiles([]);
         setActiveId(id);
         setError("");
         if (id === null) void refresh();
@@ -281,7 +291,7 @@ export function FileWorkspace({
         switching.current = false;
       }
     },
-    [activeId, refresh],
+    [activeId, desktop, refresh],
   );
 
   useEffect(() => {
@@ -597,7 +607,7 @@ export function FileWorkspace({
           </form>
         </DialogContent>
       </Dialog>
-      {ready && (
+      {desktop && ready && (
         <div className="workspace-tabs" data-tauri-drag-region>
           <div className="workspace-tab-list" aria-label="Open files">
             <button
@@ -614,8 +624,7 @@ export function FileWorkspace({
               <div
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  if (desktop) void showTabMenu(file, index);
-                  else beginRename(file);
+                  void showTabMenu(file, index);
                 }}
                 className="workspace-tab-group"
                 data-active={activeId === file.id || undefined}

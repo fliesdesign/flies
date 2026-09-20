@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { ArrowUpRightIcon, MousePointer2Icon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -8,6 +9,7 @@ import { FileWorkspace } from "./file-workspace";
 import "./auth-gate.css";
 
 export function AuthGate() {
+  const desktop = isTauri();
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
@@ -53,7 +55,11 @@ export function AuthGate() {
           <MousePointer2Icon className="auth-cursor" />
         </div>
         <h1>A space for your ideas.</h1>
-        <p>Sign in to open your workspace and keep your designs together.</p>
+        <p>
+          {desktop
+            ? "Sign in securely in your browser, then return to the desktop app."
+            : "Sign in to open your workspace and keep your designs together."}
+        </p>
         <Button
           size="lg"
           disabled={signingIn}
@@ -66,7 +72,11 @@ export function AuthGate() {
               .finally(() => setSigningIn(false));
           }}
         >
-          {signingIn ? "Continue in your browser…" : "Sign in to Flies"}
+          {signingIn
+            ? "Continue in your browser…"
+            : desktop
+              ? "Sign in with browser"
+              : "Sign in to Flies"}
           <ArrowUpRightIcon aria-hidden="true" />
         </Button>
         {error && (
