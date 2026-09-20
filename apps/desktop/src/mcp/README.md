@@ -25,18 +25,18 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 
 ## Tools
 
-| Tool                                         | Purpose                                         |
-| -------------------------------------------- | ----------------------------------------------- |
-| `get_guide`                                  | Usage and supported HTML/CSS                    |
-| `list_files`, `create_file`, `open_file`     | Discover or open local documents                |
-| `get_basic_info`                             | Active document, root nodes and camera          |
-| `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                    |
-| `create_artboard`                            | Create an editable frame                        |
-| `write_html`                                 | Convert inline-styled HTML into editable layers |
-| `update_node`, `delete_nodes`                | Modify existing nodes                           |
-| `set_selection`                              | Select a node or clear selection                |
-| `get_screenshot`                             | PNG of a node subtree or the whole document     |
-| `undo`, `redo`, `save_file`                  | Document history and persistence                |
+| Tool                                         | Purpose                                                     |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| `get_guide`                                  | Usage and supported HTML/CSS                                |
+| `list_files`, `create_file`, `open_file`     | Discover or open local documents                            |
+| `get_basic_info`                             | Active document, root nodes and camera                      |
+| `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                                |
+| `create_artboard`                            | Create an editable frame                                    |
+| `write_html`                                 | Convert Tailwind or inline-styled HTML into editable layers |
+| `update_node`, `delete_nodes`                | Modify existing nodes                                       |
+| `set_selection`                              | Select a node or clear selection                            |
+| `get_screenshot`                             | PNG of a node subtree or the whole document                 |
+| `undo`, `redo`, `save_file`                  | Document history and persistence                            |
 
 Start with `get_guide`, then `create_file` or `open_file`. Subsequent editor tools target the active file. Mutation responses wait for the existing autosave queue to flush to compressed JSON. They use the same CanvasDocument transactions and undo history as manual edits. All documents remain local.
 
@@ -87,6 +87,35 @@ Screenshots render all descendants, including offscreen nodes, with the same ren
 ### HTML scope
 
 The webview measures block, flex and grid layouts and converts them to editable native nodes. Plain text and shapes become single layers; unnecessary unnamed single-child wrappers collapse. Named and semantic containers at least 40px per side remain frames that later calls can target. Semantic tags, text, `data-name`, and accessible labels provide useful layer names. Only root containers show canvas labels and default artboard shadows, including in existing documents.
+
+### Tailwind CSS
+
+`write_html` automatically compiles Tailwind CSS v4 classes using the bundled compiler and
+standard theme. It works offline with no CDN, configuration, installation or extra tool call.
+Inline CSS can be mixed with utilities using normal CSS precedence.
+
+```json
+{
+  "parentId": "RETURNED_SECTION_ID",
+  "width": 800,
+  "html": "<section data-name='Cards' class='grid grid-cols-1 gap-6 bg-slate-100 p-6 sm:grid-cols-2'><article class='rounded-xl border border-slate-200 bg-white p-6 shadow-md'><h2 class='text-2xl font-bold text-blue-600'>Hello</h2><p class='mt-3 text-sm leading-6 text-slate-600'>Editable Tailwind content</p></article></section>"
+}
+```
+
+Flex/grid layout, spacing, theme colors, typography, borders, shadows, arbitrary values
+(`w-[420px]`) and responsive utilities become regular editable canvas properties.
+Responsive breakpoints use the import `width`, not the editor window. Viewport height is
+`height` or 900px when omitted, and `rem` is 16px. Tailwind Preflight applies to fragments
+containing classes, isolated from editor styles. No CSS or class state leaks between calls.
+Use `font-normal`, `font-medium`, `font-semibold`, `font-bold` and `font-sans`/`serif`/`mono`
+to match the canvas's supported typography. `rounded-full` works for pills.
+
+The output is a static snapshot: hover/focus states are not activated, unknown custom
+classes have no styling, and application-specific themes/plugins are not loaded.
+The native appearance limits below still apply; gradients, transforms, filters, masks,
+animations, blend modes and generated pseudo-element content are rejected rather than
+silently lost. Classes cannot load external resources. `validateOnly`, incremental edits,
+replacement, saving and undo work exactly as with inline CSS.
 
 Supported styles include solid backgrounds, opacity, solid borders (including individual sides), multiple box shadows, uniform corner radii, inline colored text, bold/italic, underline/strike, and explicit line breaks. Text-like inputs become editable value/placeholder text. Generic/system fonts resolve to supported fonts before measurement. Raster images must use data URLs. Native appearance fields survive save/reopen, undo/redo, and PNG export.
 

@@ -37,6 +37,9 @@ export default defineConfig(() => ({
   ]),
 
   resolve: {
+    // Browser test harnesses live outside apps/web; resolve shared dependencies
+    // from the app so they use the same canvas store and React instance.
+    dedupe: ["@flies/canvas", "react", "react-dom"],
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },

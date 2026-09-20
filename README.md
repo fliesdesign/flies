@@ -10,6 +10,14 @@ This is a Bun workspace:
 - `apps/web` — Vite+ React app (browser and the desktop webview)
 - `apps/desktop` — Tauri v2 native shell
 
+Right-click a selection and choose **Copy as → Tailwind, CSS, React Tailwind, or React CSS**
+to copy its visible layers as HTML or a React component. Exports preserve the current
+canvas geometry; CSS uses inline styles, while Tailwind uses utility classes.
+
+MCP agents can use Tailwind CSS v4 classes directly in `write_html`. Utilities compile
+locally into editable layers with no setup or CDN. See the [MCP guide](apps/desktop/src/mcp/README.md#tailwind-css)
+for examples and supported styles.
+
 ## Commands
 
 ```bash

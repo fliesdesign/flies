@@ -1,7 +1,7 @@
 import type { CanvasFrame } from "@flies/canvas";
 
 import { sanitizeHtml } from "./html-sanitize";
-import { effectsStyle, htmlColor, nodeName, textStyle } from "./html-style";
+import { effectsStyle, htmlColor, nodeName, resolveFontFamily, textStyle } from "./html-style";
 export { sanitizeHtml } from "./html-sanitize";
 
 function transformedText(value: string, style: CSSStyleDeclaration, rendered = false) {
@@ -25,7 +25,11 @@ export async function importHtml(
     throw new Error("HTML layout width must be between 40 and 8192px.");
   if (options.height !== undefined && (options.height < 1 || options.height > 8192))
     throw new Error("HTML layout height must be between 1 and 8192px.");
-  return importHtmlFragment(sanitizeHtml(source), options);
+  const fragment = sanitizeHtml(source);
+  const stylesheet = fragment.querySelector("[class]")
+    ? await (await import("./tailwind")).compileTailwind(fragment)
+    : undefined;
+  return importHtmlFragment(fragment, { ...options, stylesheet });
 }
 
 /** Internal measurement entry point for already sanitized, passive capture fragments. */
@@ -37,10 +41,36 @@ export async function importHtmlFragment(
     y: number;
     width: number;
     height?: number;
+    stylesheet?: string;
     prepare?: (layout: HTMLElement) => Promise<void>;
     onUnsupportedClip?: (message: string) => void;
   },
 ): Promise<CanvasFrame[]> {
+  // A separate viewport makes responsive utilities deterministic and keeps theme,
+  // preflight, @property declarations and arbitrary selectors out of the editor.
+  const viewport = options.stylesheet ? document.createElement("iframe") : undefined;
+  if (viewport) {
+    viewport.setAttribute("sandbox", "allow-same-origin");
+    viewport.setAttribute("aria-hidden", "true");
+    viewport.tabIndex = -1;
+    Object.assign(viewport.style, {
+      position: "fixed",
+      left: "-100000px",
+      top: "0",
+      border: "0",
+      width: `${options.width}px`,
+      height: `${options.height ?? 900}px`,
+      pointerEvents: "none",
+    });
+    document.body.append(viewport);
+  }
+  const measurementDocument = viewport?.contentDocument ?? document;
+  if (viewport) {
+    const policy = document.createElement("meta");
+    policy.httpEquiv = "Content-Security-Policy";
+    policy.content = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+    measurementDocument.head.append(policy);
+  }
   const host = document.createElement("div");
   Object.assign(host.style, {
     position: "fixed",
@@ -50,7 +80,7 @@ export async function importHtmlFragment(
     pointerEvents: "none",
   });
   host.setAttribute("aria-hidden", "true");
-  const shadow = host.attachShadow({ mode: "closed" });
+  const shadow = viewport ? host : host.attachShadow({ mode: "closed" });
   const reset = document.createElement("style");
   reset.textContent =
     ":host{all:initial} *{box-sizing:border-box;margin:0;padding:0;border:0;font:inherit;color:inherit} div,section,article,main,header,footer,nav,aside,p,h1,h2,h3,h4,h5,h6,ul,ol,li{display:block} h1{font-size:32px;font-weight:700} h2{font-size:24px;font-weight:700} h3{font-size:20px;font-weight:700} strong,b{font-weight:700} em,i{font-style:italic} small{font-size:0.85em} code{font-family:'Courier New'} button{background:transparent;text-align:center} input,textarea{background:transparent;appearance:none} img{display:block} a{text-decoration:none}";
@@ -59,17 +89,56 @@ export async function importHtmlFragment(
     position: "relative",
     width: `${options.width}px`,
     height: options.height === undefined ? undefined : `${options.height}px`,
-    font: "400 16px/1.25 Arial",
+    font: options.stylesheet ? "400 16px/1.5 Arial" : "400 16px/1.25 Arial",
     color: "#000000",
   });
+  if (options.stylesheet) {
+    reset.textContent =
+      options.stylesheet + "\nhtml{font-size:16px;color-scheme:light} body{margin:0}";
+    // Theme variables target :root, so the compiled sheet belongs in the iframe head.
+    measurementDocument.head.append(reset);
+  }
   layout.append(fragment);
-  shadow.append(reset, layout);
-  document.body.append(host);
+  if (!viewport) shadow.append(reset);
+  shadow.append(layout);
+  measurementDocument.body.append(host);
   try {
+    if (options.stylesheet) {
+      for (const element of Array.from(layout.querySelectorAll<HTMLElement>("*"))) {
+        const style = getComputedStyle(element);
+        if (
+          style.backgroundImage !== "none" ||
+          style.transform !== "none" ||
+          style.translate !== "none" ||
+          style.rotate !== "none" ||
+          style.scale !== "none" ||
+          style.filter !== "none" ||
+          style.backdropFilter !== "none" ||
+          style.clipPath !== "none" ||
+          style.maskImage !== "none" ||
+          style.animationName !== "none" ||
+          style.mixBlendMode !== "normal"
+        )
+          throw new Error(
+            "Tailwind gradients, transforms, filters, masks, animations and blend modes are not supported by editable canvas layers yet.",
+          );
+        if (!["static", "relative", "absolute"].includes(style.position))
+          throw new Error("Use static, relative or absolute positioning.");
+        for (const pseudo of ["::before", "::after"]) {
+          const content = getComputedStyle(element, pseudo).content;
+          if (content !== "none" && content !== "normal")
+            throw new Error(
+              "Tailwind generated pseudo-element content is not supported by editable layers.",
+            );
+        }
+        // Measure with the same fonts that the editable canvas will render.
+        element.style.setProperty("font-family", resolveFontFamily(style.fontFamily), "important");
+      }
+    }
     if (options.prepare) {
       await options.prepare(layout);
     } else {
-      await document.fonts.ready;
+      await measurementDocument.fonts.ready;
       await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
     }
     const origin = layout.getBoundingClientRect();
@@ -375,5 +444,6 @@ export async function importHtmlFragment(
     return nodes;
   } finally {
     host.remove();
+    viewport?.remove();
   }
 }

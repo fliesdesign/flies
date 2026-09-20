@@ -47,7 +47,7 @@ export function sanitizeHtml(source: string): DocumentFragment {
         ].includes(attribute.name)
       )
         throw new Error(
-          `Unsupported HTML attribute: ${attribute.name}. Use inline styles and data-name.`,
+          `Unsupported HTML attribute: ${attribute.name}. Use Tailwind classes, inline styles and data-name.`,
         );
       if (attribute.name === "src" && (node.localName !== "img" || !RASTER.test(attribute.value)))
         throw new Error("Images must use raster data URLs.");

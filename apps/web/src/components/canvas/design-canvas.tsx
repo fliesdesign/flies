@@ -74,6 +74,11 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  CANVAS_CODE_FORMATS,
+  exportCanvasCode,
+  type CanvasCodeFormat,
+} from "@/lib/canvas-code-export";
 import { importPaperSnapshot, isPaperSnapshot } from "@/lib/paper-snapshot";
 
 import { CanvasAgentActivity } from "./canvas-agent-activity";
@@ -930,6 +935,17 @@ export function DesignCanvas({
       if (cut) deleteFrame();
     } catch {
       setNotice("Use Ctrl/Cmd + C or X to copy or cut from this browser.");
+    }
+    focusCanvas();
+  }
+
+  async function copyAs(format: CanvasCodeFormat) {
+    try {
+      const code = exportCanvasCode(document.getFrames(), selectedIds, format);
+      await navigator.clipboard.writeText(code);
+      setNotice(`Copied as ${format}.`);
+    } catch (error) {
+      setNotice(`Could not copy code. ${error instanceof Error ? error.message : String(error)}`);
     }
     focusCanvas();
   }
@@ -1879,6 +1895,16 @@ export function DesignCanvas({
           <ContextMenuItem disabled={!selectedIds.length} onClick={() => void copyFromMenu()}>
             Copy<ContextMenuShortcut>⌘ C</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger disabled={!selectedIds.length}>Copy as</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="canvas-menu">
+              {CANVAS_CODE_FORMATS.map((format) => (
+                <ContextMenuItem key={format} onClick={() => void copyAs(format)}>
+                  {format}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
           <ContextMenuItem disabled={!selectedIds.length} onClick={() => void copyFromMenu(true)}>
             Cut<ContextMenuShortcut>⌘ X</ContextMenuShortcut>
           </ContextMenuItem>
