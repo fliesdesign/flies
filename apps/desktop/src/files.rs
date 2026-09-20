@@ -19,8 +19,36 @@ use tauri_plugin_dialog::DialogExt;
 use zip::ZipArchive;
 
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
+const LEGACY_APP_IDENTIFIER: &str = "com.lra.dsgn";
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 type Result<T> = std::result::Result<T, String>;
+
+/// Move library and MCP data from the previous bundle identifier when present.
+pub fn migrate_legacy_app_data(new_dir: &Path) {
+    let Some(parent) = new_dir.parent() else {
+        return;
+    };
+    let old_dir = parent.join(LEGACY_APP_IDENTIFIER);
+    if !old_dir.is_dir() || old_dir == new_dir {
+        return;
+    }
+    if let Err(error) = fs::create_dir_all(new_dir) {
+        eprintln!("Could not prepare Flies app data: {error}");
+        return;
+    }
+    for folder in ["files", "mcp"] {
+        let from = old_dir.join(folder);
+        let to = new_dir.join(folder);
+        if from.is_dir() && !to.exists() {
+            if let Err(error) = fs::rename(&from, &to) {
+                eprintln!(
+                    "Could not move legacy {folder} from {}: {error}",
+                    from.display()
+                );
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -638,7 +666,7 @@ pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>
         let Some(file) = app
             .dialog()
             .file()
-            .add_filter("Flies project", &["zip", "json", "lra", "gz"])
+            .add_filter("Flies project", &["zip", "json", "flies", "lra", "gz"])
             .blocking_pick_file()
         else {
             return Ok(None);
@@ -903,5 +931,25 @@ mod tests {
         let nodes = unpacked["nodes"].as_array().unwrap().clone();
         let saved = store.create("Vector ZIP", nodes.clone()).unwrap();
         assert_eq!(store.open(&saved.id).unwrap().nodes, nodes);
+    }
+
+    #[test]
+    fn migrates_library_and_mcp_from_the_previous_bundle_identifier() {
+        let parent = tempfile::tempdir().unwrap();
+        let old = parent.path().join("com.lra.dsgn");
+        fs::create_dir_all(old.join("files")).unwrap();
+        fs::create_dir_all(old.join("mcp")).unwrap();
+        fs::write(old.join("files/library.sqlite3"), b"db").unwrap();
+        fs::write(old.join("mcp/client.json"), b"{}").unwrap();
+        let next = parent.path().join("com.flies.app");
+        migrate_legacy_app_data(&next);
+        assert_eq!(fs::read(next.join("files/library.sqlite3")).unwrap(), b"db");
+        assert_eq!(fs::read(next.join("mcp/client.json")).unwrap(), b"{}");
+        assert!(!old.join("files").exists());
+        assert!(!old.join("mcp").exists());
+        fs::create_dir_all(old.join("files")).unwrap();
+        fs::write(old.join("files/other"), b"skip").unwrap();
+        migrate_legacy_app_data(&next);
+        assert!(!next.join("files/other").exists());
     }
 }

@@ -189,7 +189,8 @@ window sets `dragDropEnabled: false` so HTML5 file dropping can reach the fronte
 
 The desktop app starts with a local file library. Create a named file, reopen a recent file,
 or use **Open JSON…** to import a copy of a Flies ZIP/JSON or legacy `.lra` project. Files live in
-Tauri's app-data directory under `files/` (macOS: `~/Library/Application Support/com.lra.dsgn/files`).
+Tauri's app-data directory under `files/` (macOS: `~/Library/Application Support/com.flies.app/files`).
+Existing libraries under `com.lra.dsgn` are moved there on first launch.
 Each JSON contains format/version, ID, name, creation/modification timestamps, revision, and
 canvas nodes including embedded images. Rust commands handle listing, creating, reading, and
 atomic saving; edits autosave after 500 ms. Saves finish before returning to All files or closing
@@ -207,8 +208,8 @@ invalid file leaves it intact.
 PNG exports use the selected subtree(s) at 1× size, including visible content, opacity, and
 frame clipping, without editor controls.
 
-Objects are also saved in browser `localStorage` under `lra-dsgn.canvas.v1`, using a version 2
-`{ version: 2, nodes }` document. Older flat arrays still load, with frame membership inferred
+Objects are also saved in browser `localStorage` under `flies.canvas.v1`, using a version 2
+`{ version: 2, nodes }` document. Documents stored under the previous `lra-dsgn.canvas.v1` key still load. Older flat arrays still load, with frame membership inferred
 from containment during migration. Clipboard imports use their explicit hierarchy instead.
 Up to 100 undo edits remain in memory per session. A failed
 save displays a notice, and editing continues in memory; image-heavy documents can exceed

@@ -119,7 +119,8 @@ type Hierarchy = {
 };
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
-export const CANVAS_STORAGE_KEY = "lra-dsgn.canvas.v1";
+export const CANVAS_STORAGE_KEY = "flies.canvas.v1";
+export const LEGACY_CANVAS_STORAGE_KEY = "lra-dsgn.canvas.v1";
 const HISTORY_LIMIT = 100;
 
 // Only arrays copied and deeply frozen here are trusted by the gesture fast path.
@@ -1274,13 +1275,17 @@ function migrateLegacyParents(nodes: readonly CanvasFrame[]): CanvasFrame[] {
   });
 }
 
+function readStoredCanvas(storage: Pick<Storage, "getItem">): string | null {
+  return storage.getItem(CANVAS_STORAGE_KEY) ?? storage.getItem(LEGACY_CANVAS_STORAGE_KEY);
+}
+
 /** Clipboard validation opts out of migration; the document hook explicitly opts in. */
 export function loadCanvasFrames(
   storage?: Pick<Storage, "getItem">,
   { migrateLegacy = false }: { migrateLegacy?: boolean } = {},
 ): CanvasFrame[] {
   try {
-    const saved = (storage ?? window.localStorage).getItem(CANVAS_STORAGE_KEY);
+    const saved = readStoredCanvas(storage ?? window.localStorage);
     if (!saved) return [];
     const value: unknown = JSON.parse(saved);
     const legacy = Array.isArray(value);
@@ -1328,9 +1333,7 @@ export function saveCanvasFrames(
 
 export function loadCanvasTheme(storage?: Pick<Storage, "getItem">): CanvasTheme {
   try {
-    const value = JSON.parse(
-      (storage ?? window.localStorage).getItem(CANVAS_STORAGE_KEY) ?? "null",
-    );
+    const value = JSON.parse(readStoredCanvas(storage ?? window.localStorage) ?? "null");
     return value?.theme ? normalizeTheme(value.theme) : EMPTY_THEME;
   } catch {
     return EMPTY_THEME;

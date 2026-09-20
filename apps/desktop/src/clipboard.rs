@@ -96,7 +96,12 @@ mod macos {
             .any(|part| part.eq_ignore_ascii_case(b"<x-paper-html"));
         let is_canvas = serde_json::from_str::<serde_json::Value>(&plain)
             .ok()
-            .is_some_and(|value| value.get("type").and_then(|v| v.as_str()) == Some("lra-canvas"));
+            .is_some_and(|value| {
+                matches!(
+                    value.get("type").and_then(|v| v.as_str()),
+                    Some("flies-canvas" | "lra-canvas")
+                )
+            });
         let image_base64 = if !is_snapshot && !is_canvas {
             image(board)?
         } else {

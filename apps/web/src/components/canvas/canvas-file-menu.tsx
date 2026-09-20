@@ -241,7 +241,7 @@ export function CanvasFileMenu({
         ref={fileRef}
         hidden
         type="file"
-        accept=".zip,.json,.lra,.gz,application/zip,application/json,application/gzip"
+        accept=".zip,.json,.flies,.lra,.gz,application/zip,application/json,application/gzip"
         aria-label="Open canvas project"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];

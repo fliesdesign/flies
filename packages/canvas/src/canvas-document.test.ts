@@ -6,6 +6,7 @@ import { describe, it } from "vite-plus/test";
 
 import {
   CANVAS_STORAGE_KEY,
+  LEGACY_CANVAS_STORAGE_KEY,
   CanvasDocument,
   loadCanvasFrames,
   saveCanvasFrames,
@@ -527,6 +528,13 @@ describe("canvas persistence", () => {
     });
     assert.deepEqual(loaded, [frame("a", -40), frame("b")]);
     assert.ok(Object.isFrozen(loaded[0]));
+  });
+
+  it("loads documents stored under the previous lra-dsgn key", () => {
+    const loaded = loadCanvasFrames({
+      getItem: (key) => (key === LEGACY_CANVAS_STORAGE_KEY ? JSON.stringify([frame("a")]) : null),
+    });
+    assert.deepEqual(loaded, [frame("a")]);
   });
 
   it("rejects corrupt documents, duplicate ids, invalid bounds, and unavailable storage", () => {

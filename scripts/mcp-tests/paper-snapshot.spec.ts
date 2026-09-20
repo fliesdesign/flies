@@ -251,9 +251,9 @@ test("internal node clipboard data takes priority over Paper HTML", async ({ pag
   await page.evaluate((html) => {
     const data = new DataTransfer();
     data.setData(
-      "application/x-lra-canvas+json",
+      "application/x-flies-canvas+json",
       JSON.stringify({
-        type: "lra-canvas",
+        type: "flies-canvas",
         version: 1,
         nodes: [{ id: "original", name: "Internal frame", x: 10, y: 20, width: 100, height: 90 }],
       }),

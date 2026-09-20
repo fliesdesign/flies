@@ -3,7 +3,7 @@
   "productName": "Flies",
   "mainBinaryName": "Flies",
   "version": "0.1.0",
-  "identifier": "com.lra.dsgn",
+  "identifier": "com.flies.app",
   "build": {
     "beforeDevCommand": "vp -C ../web dev",
     "devUrl": "http://localhost:1420",

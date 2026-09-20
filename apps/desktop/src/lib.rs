@@ -19,8 +19,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let root = app.path().app_data_dir()?.join("files");
-            let store = files::FileStore::new(root).map_err(std::io::Error::other)?;
+            let data_dir = app.path().app_data_dir()?;
+            files::migrate_legacy_app_data(&data_dir);
+            let store =
+                files::FileStore::new(data_dir.join("files")).map_err(std::io::Error::other)?;
             app.manage(files::LocalFiles(Arc::new(Mutex::new(store))));
             if let Err(error) = mcp::start(app.handle()) {
                 eprintln!("Flies MCP could not start: {error}");

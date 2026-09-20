@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-import { CANVAS_CLIPBOARD_MIME } from "./canvas-operations";
+import { CANVAS_CLIPBOARD_MIME, LEGACY_CANVAS_CLIPBOARD_MIME } from "./canvas-operations";
 
 export type CanvasClipboard = {
   internal: string;
@@ -39,8 +39,9 @@ export async function readCanvasClipboard(): Promise<CanvasClipboard> {
               ? item.getType(type).then((blob) => blob.text())
               : Promise.resolve("");
           const imageType = item.types.find((type) => type.startsWith("image/"));
-          const [internal, html, text, image] = await Promise.all([
+          const [internal, legacyInternal, html, text, image] = await Promise.all([
             textFor(CANVAS_CLIPBOARD_MIME),
+            textFor(LEGACY_CANVAS_CLIPBOARD_MIME),
             textFor("text/html"),
             textFor("text/plain"),
             imageType
@@ -49,7 +50,7 @@ export async function readCanvasClipboard(): Promise<CanvasClipboard> {
                   .then((blob) => new File([blob], "Clipboard image", { type: imageType }))
               : Promise.resolve(null),
           ]);
-          return { internal, html, text, image };
+          return { internal: internal || legacyInternal, html, text, image };
         }),
       );
       return {

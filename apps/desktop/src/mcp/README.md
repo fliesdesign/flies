@@ -6,7 +6,7 @@ Flies starts an embedded Rust MCP server alongside its desktop process. It uses 
 
 Launch the rebuilt desktop app once. Flies writes an MCP client configuration containing its URL to the app data directory:
 
-- macOS: `~/Library/Application Support/com.lra.dsgn/mcp/client.json`
+- macOS: `~/Library/Application Support/com.flies.app/mcp/client.json`
 - Other systems: `<Tauri app data directory>/mcp/client.json`
 
 Use the `flies` entry in a client that supports Streamable HTTP. No authentication or authorization headers are required:

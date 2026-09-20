@@ -1,7 +1,14 @@
 import { loadCanvasFrames, type CanvasFrame } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
 
-export const CANVAS_CLIPBOARD_MIME = "application/x-lra-canvas+json";
+export const CANVAS_CLIPBOARD_MIME = "application/x-flies-canvas+json";
+export const LEGACY_CANVAS_CLIPBOARD_MIME = "application/x-lra-canvas+json";
+const CANVAS_CLIPBOARD_TYPE = "flies-canvas";
+const LEGACY_CANVAS_CLIPBOARD_TYPE = "lra-canvas";
+
+export function readCanvasClipboardMime(getData: (type: string) => string): string {
+  return getData(CANVAS_CLIPBOARD_MIME) || getData(LEGACY_CANVAS_CLIPBOARD_MIME);
+}
 
 export type CanvasOperationPlan = {
   upsert: CanvasFrame[];
@@ -323,7 +330,7 @@ export function encodeCanvasClipboard(
   if (!selected.length) return null;
   const included = new Set(selected.map((node) => node.id));
   return JSON.stringify({
-    type: "lra-canvas",
+    type: CANVAS_CLIPBOARD_TYPE,
     version: 1,
     nodes: selected.map((node) =>
       withParent(node, node.parentId && included.has(node.parentId) ? node.parentId : undefined),
@@ -339,7 +346,7 @@ export function decodeCanvasClipboard(text: string): CanvasFrame[] | null {
       !value ||
       typeof value !== "object" ||
       !("type" in value) ||
-      value.type !== "lra-canvas" ||
+      (value.type !== CANVAS_CLIPBOARD_TYPE && value.type !== LEGACY_CANVAS_CLIPBOARD_TYPE) ||
       !("version" in value) ||
       value.version !== 1 ||
       !("nodes" in value) ||

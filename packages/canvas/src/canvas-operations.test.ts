@@ -13,6 +13,7 @@ import {
   marqueeSelection,
   moveSelection,
   pasteCanvasClipboard,
+  readCanvasClipboardMime,
   reparentSelection,
   resizeSelection,
   selectionBounds,
@@ -37,8 +38,8 @@ const scene = [
   rectangle("outside", { x: 500, y: 20 }),
 ];
 
-function clipboardPayload(nodes: unknown) {
-  return JSON.stringify({ type: "lra-canvas", version: 1, nodes });
+function clipboardPayload(nodes: unknown, clipboardType = "flies-canvas") {
+  return JSON.stringify({ type: clipboardType, version: 1, nodes });
 }
 
 describe("canvas selection geometry", () => {
@@ -372,11 +373,27 @@ describe("canvas clipboard", () => {
     assert.deepEqual(decodeCanvasClipboard(encodeCanvasClipboard(nodes, ["frame"])!), nodes);
   });
 
+  it("still decodes legacy lra-canvas clipboard payloads", () => {
+    assert.deepEqual(decodeCanvasClipboard(clipboardPayload([scene[4]], "lra-canvas")), [scene[4]]);
+  });
+
+  it("reads the current clipboard MIME and the previous lra MIME", () => {
+    assert.equal(
+      readCanvasClipboardMime((type) => (type.includes("flies") ? "new" : "")),
+      "new",
+    );
+    assert.equal(
+      readCanvasClipboardMime((type) => (type.includes("lra") ? "old" : "")),
+      "old",
+    );
+  });
+
   it("rejects malformed, foreign, obsolete, duplicate, and cyclic payloads", () => {
     for (const text of [
       "text",
       "{}",
       "[]",
+      JSON.stringify({ type: "flies-canvas", version: 2, nodes: scene }),
       JSON.stringify({ type: "lra-canvas", version: 2, nodes: scene }),
     ]) {
       assert.equal(decodeCanvasClipboard(text), null);

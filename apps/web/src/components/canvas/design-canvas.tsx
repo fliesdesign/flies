@@ -29,6 +29,7 @@ import { finalizeCanvasMove } from "@flies/canvas";
 import {
   CANVAS_CLIPBOARD_MIME,
   encodeCanvasClipboard,
+  readCanvasClipboardMime,
   decodeCanvasClipboard,
   pasteCanvasClipboard,
   selectionBounds,
@@ -1702,7 +1703,7 @@ export function DesignCanvas({
           return;
         }
         const data: CanvasClipboard = {
-          internal: event.clipboardData.getData(CANVAS_CLIPBOARD_MIME),
+          internal: readCanvasClipboardMime((type) => event.clipboardData.getData(type)),
           html: event.clipboardData.getData("text/html"),
           text: event.clipboardData.getData("text/plain"),
           images: Array.from(event.clipboardData.files).filter((file) =>
