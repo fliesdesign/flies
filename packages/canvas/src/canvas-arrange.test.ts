@@ -16,6 +16,7 @@ const nodes: CanvasFrame[] = [
 
 function apply(action: CanvasArrangeAction, ids = ["a", "b", "c"]) {
   const updates = new Map(arrangeSelection(nodes, ids, action).map((node) => [node.id, node]));
+
   return nodes.map((node) => updates.get(node.id) ?? node);
 }
 

@@ -241,6 +241,7 @@ function isColor(value: unknown): value is string {
 function isPoints(value: unknown): value is readonly Readonly<Point>[] {
   if (!Array.isArray(value) || value.length === 0) return false;
   if (immutablePointArrays.has(value)) return true;
+
   return value.every(
     (point: unknown) =>
       typeof point === "object" &&
@@ -255,9 +256,11 @@ function isPoints(value: unknown): value is readonly Readonly<Point>[] {
 function isShadows(value: unknown): value is readonly CanvasShadow[] {
   if (!Array.isArray(value) || value.length > 8) return false;
   if (immutableShadowArrays.has(value)) return true;
+
   return value.every((item: unknown) => {
     if (typeof item !== "object" || item === null) return false;
     const shadow = item as Record<string, unknown>;
+
     return (
       isFiniteNumber(shadow.offsetX) &&
       isFiniteNumber(shadow.offsetY) &&
@@ -363,11 +366,13 @@ function immutablePoints(points: readonly Readonly<Point>[]): readonly Readonly<
   if (immutablePointArrays.has(points)) return points;
   const frozen = Object.freeze(points.map((point) => Object.freeze({ x: point.x, y: point.y })));
   immutablePointArrays.add(frozen);
+
   return frozen;
 }
 
 function immutableShadows(shadows: readonly CanvasShadow[]): readonly CanvasShadow[] {
   if (immutableShadowArrays.has(shadows)) return shadows;
+
   const frozen = Object.freeze(
     shadows.map((shadow) =>
       Object.freeze({
@@ -380,7 +385,9 @@ function immutableShadows(shadows: readonly CanvasShadow[]): readonly CanvasShad
       }),
     ),
   );
+
   immutableShadowArrays.add(frozen);
+
   return frozen;
 }
 
@@ -404,6 +411,7 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     width: frame.width,
     height: frame.height,
   };
+
   switch (frame.kind) {
     case "rectangle":
       return Object.freeze({ ...base, kind: frame.kind, fill: frame.fill });
@@ -463,11 +471,14 @@ function hierarchyFor(
   order: readonly string[],
 ): Hierarchy | undefined {
   const children = new Map<string | undefined, string[]>();
+
   for (const id of order) {
     const frame = frames.get(id);
     if (!frame) return undefined;
+
     if (frame.parentId !== undefined) {
       const parent = frames.get(frame.parentId);
+
       if (
         !parent ||
         parent.id === id ||
@@ -476,22 +487,28 @@ function hierarchyFor(
         return undefined;
       }
     }
+
     const siblings = children.get(frame.parentId);
     if (siblings) siblings.push(id);
     else children.set(frame.parentId, [id]);
   }
+
   const ids: string[] = [];
   const stack = [...(children.get(undefined) ?? [])].reverse();
+
   while (stack.length > 0) {
     const id = stack.pop()!;
     ids.push(id);
     const descendants = children.get(id);
+
     if (descendants) {
       for (let i = descendants.length - 1; i >= 0; i--) stack.push(descendants[i]);
     }
   }
+
   // A cycle cannot be reached from a root; orphaned/cyclic input has fewer visited nodes.
   if (ids.length !== frames.size) return undefined;
+
   return {
     ids: Object.freeze(ids),
     children: new Map([...children].map(([parent, siblings]) => [parent, Object.freeze(siblings)])),
@@ -519,22 +536,28 @@ export class CanvasDocument {
 
   constructor(initial: readonly CanvasFrame[] = [], theme: CanvasTheme = EMPTY_THEME) {
     this.theme = normalizeTheme(theme);
+
     for (const original of initial) {
       const frame = this.theme.tokens.length ? applyTokenBindings(original, this.theme) : original;
+
       if (!isFrame(frame) || this.frames.has(frame.id)) {
         throw new Error("Canvas frames must have valid bounds and unique ids.");
       }
+
       this.frames.set(frame.id, immutableFrame(frame));
     }
+
     const hierarchy = hierarchyFor(this.frames, [...this.frames.keys()]);
     if (!hierarchy) throw new Error("Canvas parents must form a valid frame/group hierarchy.");
     this.ids = hierarchy.ids;
     this.children = hierarchy.children;
     this.order = new Map(this.ids.map((id, index) => [id, index]));
     this.snapshot = Object.freeze({ ids: this.ids, revision: 0, canUndo: false, canRedo: false });
+
     const layouts = [...this.frames.values()].filter(
       (node) => (!node.kind || node.kind === "frame") && node.layout,
     );
+
     if (layouts.length) {
       const operation = this.prepare(
         layouts.map((node) => ({
@@ -543,6 +566,7 @@ export class CanvasDocument {
           after: this.frames.get(node.id),
         })),
       );
+
       if (!operation) throw new Error("Canvas layout must produce finite, valid bounds.");
       this.apply(operation, false);
     }
@@ -553,8 +577,10 @@ export class CanvasDocument {
     const theme = normalizeTheme(value);
     if (JSON.stringify(theme) === JSON.stringify(this.theme)) return false;
     this.endGesture();
+
     const updated = this.getFrames().map((node) => {
       const result = applyTokenBindings(node, theme);
+
       return result.kind === "text" &&
         node.kind === "text" &&
         measureText &&
@@ -564,32 +590,40 @@ export class CanvasDocument {
         ? Object.assign({}, result, { height: measureText(result) })
         : result;
     });
+
     // Validate every resolved value before changing the document or its history.
     const validated = new CanvasDocument(updated, theme);
+
     const patches = validated.getFrames().flatMap((node) => {
       const before = this.frames.get(node.id)!;
+
       return framesEqual(before, node)
         ? []
         : [{ id: node.id, before, after: immutableFrame(node) }];
     });
+
     const operation = patches.length ? this.prepare(patches) : { patches };
     if (!operation) throw new Error("Theme changes would produce invalid layout.");
     operation.beforeTheme = this.theme;
     operation.afterTheme = theme;
     this.apply(operation, false);
     this.record(operation);
+
     return true;
   };
 
   getFrame = (id: string) => this.frames.get(id);
   isHidden = (id: string): boolean => {
     let node = this.frames.get(id);
+
     while (node) {
       if (node.hidden) return true;
       node = node.parentId ? this.frames.get(node.parentId) : undefined;
     }
+
     return false;
   };
+
   getIds = () => this.ids;
   getSnapshot = () => this.snapshot;
   getChildren = (parentId?: string): readonly string[] => this.children.get(parentId) ?? EMPTY_IDS;
@@ -599,13 +633,16 @@ export class CanvasDocument {
   /** Selected descendants are represented by their selected ancestor exactly once. */
   getRootIds = (ids: readonly string[]): string[] => {
     const selected = new Set(ids.filter((id) => this.frames.has(id)));
+
     return [...selected]
       .filter((id) => {
         let parentId = this.frames.get(id)?.parentId;
+
         while (parentId !== undefined) {
           if (selected.has(parentId)) return false;
           parentId = this.frames.get(parentId)?.parentId;
         }
+
         return true;
       })
       .sort((first, second) => this.order.get(first)! - this.order.get(second)!);
@@ -615,12 +652,14 @@ export class CanvasDocument {
   getDescendantIds = (ids: readonly string[]): string[] => {
     const result: string[] = [];
     const stack = this.getRootIds(ids).reverse();
+
     while (stack.length > 0) {
       const id = stack.pop()!;
       result.push(id);
       const children = this.getChildren(id);
       for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
     }
+
     return result;
   };
 
@@ -649,6 +688,7 @@ export class CanvasDocument {
 
   subscribe = (listener: Listener) => {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -656,11 +696,14 @@ export class CanvasDocument {
 
   subscribeFrame = (id: string, listener: Listener) => {
     let listeners = this.frameListeners.get(id);
+
     if (!listeners) {
       listeners = new Set();
       this.frameListeners.set(id, listeners);
     }
+
     listeners.add(listener);
+
     return () => {
       listeners.delete(listener);
       if (listeners.size === 0) this.frameListeners.delete(id);
@@ -670,6 +713,7 @@ export class CanvasDocument {
   /** Committed ids only; selected nodes remain mounted during a preview. */
   subscribeChanges = (listener: ChangeListener) => {
     this.changeListeners.add(listener);
+
     return () => {
       this.changeListeners.delete(listener);
     };
@@ -685,25 +729,30 @@ export class CanvasDocument {
   /** Open a complete project atomically, retaining one undo back to the previous document. */
   replaceAll = (frames: readonly CanvasFrame[], theme: CanvasTheme = EMPTY_THEME): boolean => {
     let replacement: CanvasDocument;
+
     try {
       replacement = new CanvasDocument(frames, theme);
     } catch {
       return false;
     }
+
     this.endGesture();
     const patches: FramePatch[] = [];
+
     for (const id of new Set([...this.ids, ...replacement.getIds()])) {
       const before = this.frames.get(id);
       const after = replacement.getFrame(id);
       if (before && after ? !framesEqual(before, after) : before !== after)
         patches.push({ id, before, after });
     }
+
     if (
       !patches.length &&
       sameIds(this.ids, replacement.getIds()) &&
       JSON.stringify(this.theme) === JSON.stringify(replacement.getTheme())
     )
       return false;
+
     const operation: DocumentOperation = {
       patches,
       beforeIds: this.ids,
@@ -711,8 +760,10 @@ export class CanvasDocument {
       beforeTheme: this.theme,
       afterTheme: replacement.getTheme(),
     };
+
     this.apply(operation, false);
     this.record(operation);
+
     return true;
   };
 
@@ -720,11 +771,13 @@ export class CanvasDocument {
   transact = ({ add = [], update = [], remove = [] }: CanvasTransaction): boolean => {
     const seen = new Set<string>();
     const patches: FramePatch[] = [];
+
     for (const frame of add) {
       if (seen.has(frame.id) || this.frames.has(frame.id) || !isFrame(frame)) return false;
       seen.add(frame.id);
       patches.push({ id: frame.id, before: undefined, after: immutableFrame(frame) });
     }
+
     for (const raw of update) {
       const existing = this.frames.get(raw.id);
       const frame = existing ? detachChangedTokens(existing, raw) : raw;
@@ -734,22 +787,28 @@ export class CanvasDocument {
       if (!framesEqual(before, frame))
         patches.push({ id: frame.id, before, after: immutableFrame(frame) });
     }
+
     for (const id of remove) {
       if (seen.has(id)) return false;
       seen.add(id);
       const before = this.frames.get(id);
       if (before) patches.push({ id, before, after: undefined });
     }
+
     if (patches.length === 0) return false;
     const operation = this.prepare(patches);
     if (!operation || operation.patches.length === 0) return false;
+
     if (this.gesture) {
       this.endGesture();
+
       // Committing a gesture can update ancestor group bounds; use that committed baseline.
       return this.transact({ add, update, remove });
     }
+
     this.apply(operation, false);
     this.record(operation);
+
     return true;
   };
 
@@ -762,10 +821,13 @@ export class CanvasDocument {
     )
       return;
     this.endGesture();
+
     const frames = ids.flatMap((key) => {
       const frame = this.frames.get(key);
+
       return frame ? [[key, frame] as const] : [];
     });
+
     this.gesture = frames.length > 0 ? new Map(frames) : undefined;
   };
 
@@ -776,6 +838,7 @@ export class CanvasDocument {
     if (!this.gesture) return false;
     const seen = new Set<string>();
     const updates: CanvasFrame[] = [];
+
     for (const raw of frames) {
       const existing = this.frames.get(raw.id);
       const frame = existing ? detachChangedTokens(existing, raw) : raw;
@@ -791,29 +854,37 @@ export class CanvasDocument {
       seen.add(frame.id);
       if (!framesEqual(before, frame)) updates.push(immutableFrame(frame));
     }
+
     const patches = updates.map((frame) => ({
       id: frame.id,
       before: this.frames.get(frame.id),
       after: frame,
     }));
+
     const hasLayout = patches.some((patch) => {
       for (const initial of [patch.before, patch.after]) {
         let node = initial;
+
         while (node) {
           if ((!node.kind || node.kind === "frame") && node.layout) return true;
           node = node.parentId ? this.frames.get(node.parentId) : undefined;
         }
       }
+
       return false;
     });
+
     const operation = hasLayout ? this.prepare(patches) : { patches };
     if (!operation) return false;
+
     for (const patch of operation.patches) {
       if (!patch.after) continue;
       if (!this.gesture.has(patch.id) && patch.before) this.gesture.set(patch.id, patch.before);
       this.frames.set(patch.id, patch.after);
     }
+
     for (const patch of operation.patches) this.notifyFrame(patch.id);
+
     return operation.patches.length > 0;
   };
 
@@ -821,31 +892,40 @@ export class CanvasDocument {
   endGesture = (cancel = false, updates: readonly CanvasFrame[] = []): boolean => {
     const before = this.gesture;
     if (!before) return false;
+
     if (cancel) {
       this.gesture = undefined;
       const changed: string[] = [];
+
       for (const [id, frame] of before) {
         if (!framesEqual(frame, this.frames.get(id)!)) {
           this.frames.set(id, frame);
           changed.push(id);
         }
       }
+
       for (const id of changed) this.notifyFrame(id);
+
       return changed.length > 0;
     }
+
     const final = new Map<string, CanvasFrame>();
+
     for (const frame of updates) {
       const current = this.frames.get(frame.id);
       if (final.has(frame.id) || !current || !isFrame(frame, current)) return false;
       final.set(frame.id, immutableFrame(frame));
     }
+
     const originals = new Map(before);
     for (const id of final.keys()) if (!originals.has(id)) originals.set(id, this.frames.get(id)!);
     const patches: FramePatch[] = [];
+
     for (const [id, original] of originals) {
       const after = final.get(id) ?? this.frames.get(id)!;
       if (!framesEqual(original, after)) patches.push({ id, before: original, after });
     }
+
     const operation = this.prepare(patches);
     if (!operation) return false;
     this.gesture = undefined;
@@ -853,12 +933,14 @@ export class CanvasDocument {
     // those nodes even when the resulting operation has no history patch for them.
     const changedIds = new Set(operation.patches.map((patch) => patch.id));
     const restored: string[] = [];
+
     for (const [id, original] of before) {
       if (!changedIds.has(id) && !framesEqual(original, this.frames.get(id)!)) {
         this.frames.set(id, original);
         restored.push(id);
       }
     }
+
     // Only final commit updates need node notifications; previews already notified their subscribers.
     this.apply(
       operation,
@@ -867,6 +949,7 @@ export class CanvasDocument {
         operation.patches
           .filter((patch) => {
             const current = this.frames.get(patch.id);
+
             return !current || !patch.after || !framesEqual(current, patch.after);
           })
           .map((patch) => patch.id),
@@ -875,6 +958,7 @@ export class CanvasDocument {
     for (const id of restored) this.notifyFrame(id);
     if (operation.patches.length === 0) return false;
     this.record(operation);
+
     return true;
   };
 
@@ -887,9 +971,11 @@ export class CanvasDocument {
     if (selected.size === 0) return false;
     const childLists = new Map(this.children);
     let changed = false;
+
     for (const [parent, children] of this.children) {
       if (!children.some((id) => selected.has(id))) continue;
       let next = [...children];
+
       if (direction === "front" || direction === "back") {
         const moving = next.filter((id) => selected.has(id));
         const stationary = next.filter((id) => !selected.has(id));
@@ -907,24 +993,29 @@ export class CanvasDocument {
           }
         }
       }
+
       if (!sameIds(children, next)) {
         changed = true;
         childLists.set(parent, next);
       }
     }
+
     if (!changed) return false;
     const order: string[] = [];
     const stack = [...(childLists.get(undefined) ?? [])].reverse();
+
     while (stack.length > 0) {
       const id = stack.pop()!;
       order.push(id);
       const children = childLists.get(id) ?? [];
       for (let index = children.length - 1; index >= 0; index--) stack.push(children[index]);
     }
+
     const operation = this.prepare([], order, selected);
     if (!operation) return false;
     this.apply(operation, false);
     this.record(operation);
+
     return true;
   };
 
@@ -946,38 +1037,49 @@ export class CanvasDocument {
     )
       return false;
     const parentId = placement === "inside" ? targetId! : target?.parentId;
+
     const isLocked = (id: string | undefined) => {
       let node = id ? this.frames.get(id) : undefined;
+
       while (node) {
         if (node.locked) return true;
         node = node.parentId ? this.frames.get(node.parentId) : undefined;
       }
+
       return false;
     };
+
     if (roots.some(isLocked) || isLocked(parentId)) return false;
+
     const patches = roots.map((id) => {
       const before = this.frames.get(id)!;
+
       return { id, before, after: immutableFrame({ ...before, parentId }) };
     });
+
     const prepared = this.prepare(patches);
     if (!prepared) return false;
     const next = new Map(this.frames);
+
     for (const patch of prepared.patches) {
       if (patch.after) next.set(patch.id, patch.after);
       else next.delete(patch.id);
     }
+
     const hierarchy = hierarchyFor(next, prepared.afterIds ?? this.ids);
     if (!hierarchy) return false;
     const moving = new Set(roots);
     const siblings = this.getChildren(parentId).filter((id) => !moving.has(id));
     // Keep a disappearing empty group as an insertion anchor until after the splice.
     const anchor = targetId ? siblings.indexOf(targetId) : -1;
+
     const index =
       placement === "inside"
         ? siblings.length
         : targetId
           ? anchor + Number(placement === "before")
           : 0;
+
     if (targetId && placement !== "inside" && anchor < 0) return false;
     siblings.splice(index, 0, ...roots);
     const children = new Map(hierarchy.children);
@@ -987,17 +1089,20 @@ export class CanvasDocument {
     );
     const order: string[] = [];
     const stack = [...(children.get(undefined) ?? [])].reverse();
+
     while (stack.length) {
       const id = stack.pop()!;
       order.push(id);
       const descendants = children.get(id) ?? [];
       for (let i = descendants.length - 1; i >= 0; i--) stack.push(descendants[i]);
     }
+
     if (!prepared.patches.length && sameIds(order, this.ids)) return false;
     const operation = this.prepare(prepared.patches, order, roots);
     if (!operation) return false;
     this.apply(operation, false);
     this.record(operation);
+
     return true;
   };
 
@@ -1025,6 +1130,7 @@ export class CanvasDocument {
     dirtyIds: Iterable<string> = [],
   ): DocumentOperation | undefined {
     const patches = new Map(input.map((patch) => [patch.id, patch]));
+
     let structural =
       requestedOrder !== undefined ||
       input.some(
@@ -1034,28 +1140,35 @@ export class CanvasDocument {
           patch.before.parentId !== patch.after.parentId ||
           patch.before.kind !== patch.after.kind,
       );
+
     const read = (id: string) => (patches.has(id) ? patches.get(id)!.after : this.frames.get(id));
+
     const createHierarchy = () => {
       const next = new Map(this.frames);
+
       for (const patch of patches.values()) {
         if (patch.after) next.set(patch.id, patch.after);
         else next.delete(patch.id);
       }
+
       const order = [
         ...(requestedOrder ?? this.ids).filter((id) => next.has(id)),
         ...[...patches.values()]
           .filter((patch) => !patch.before && patch.after && !requestedOrder?.includes(patch.id))
           .map((patch) => patch.id),
       ];
+
       // A newly created wrapper occupies its highest wrapped sibling's old position.
       // Grouping/frame-selection must not silently bring the objects above other layers.
       const wrapped = new Map<string, CanvasFrame[]>();
+
       for (const member of patches.values()) {
         if (!member.before || member.after?.parentId === undefined) continue;
         const members = wrapped.get(member.after.parentId);
         if (members) members.push(member.before);
         else wrapped.set(member.after.parentId, [member.before]);
       }
+
       for (const addition of patches.values()) {
         if (requestedOrder) break;
         const container = addition.after;
@@ -1066,21 +1179,27 @@ export class CanvasDocument {
         )
           continue;
         let anchor = -1;
+
         for (const member of wrapped.get(container.id) ?? []) {
           let previous: CanvasFrame | undefined = member;
+
           while (previous && previous.parentId !== container.parentId) {
             previous =
               previous.parentId === undefined ? undefined : this.frames.get(previous.parentId);
           }
+
           if (previous) anchor = Math.max(anchor, this.order.get(previous.id)!);
         }
+
         if (anchor < 0) continue;
         order.splice(order.indexOf(container.id), 1);
         const position = order.findIndex((id) => (this.order.get(id) ?? -1) > anchor);
         order.splice(position === -1 ? order.length : position, 0, container.id);
       }
+
       return hierarchyFor(next, order);
     };
+
     let hierarchy = structural ? createHierarchy() : undefined;
     if (structural && !hierarchy) return undefined;
     const children = hierarchy?.children ?? this.children;
@@ -1088,6 +1207,7 @@ export class CanvasDocument {
     // Derive containers bottom-up: groups measure their contents before a parent layout
     // positions them. Moving a layout child translates its whole subtree exactly once.
     const containers = new Set<string>();
+
     const collectContainers = (
       node: CanvasFrame | undefined,
       lookup: (id: string) => CanvasFrame | undefined,
@@ -1098,29 +1218,40 @@ export class CanvasDocument {
         node = node.parentId === undefined ? undefined : lookup(node.parentId);
       }
     };
+
     for (const patch of input) {
       collectContainers(patch.before, (id) => this.frames.get(id));
       collectContainers(patch.after, read);
     }
+
     for (const id of dirtyIds) collectContainers(read(id), read);
+
     const depth = (id: string) => {
       let result = 0;
       let node = read(id);
+
       while (node?.parentId !== undefined) {
         result++;
         node = read(node.parentId);
       }
+
       return result;
     };
+
     let removedGroup = false;
+
     for (const id of [...containers].sort((first, second) => depth(second) - depth(first))) {
       const group = read(id);
       if (!group) continue;
+
       const members = (children.get(id) ?? []).flatMap((child) => {
         const node = read(child);
+
         return node ? [node] : [];
       });
+
       const before = patches.has(id) ? patches.get(id)!.before : this.frames.get(id);
+
       if (!group.kind || group.kind === "frame") {
         for (const [childId, position] of canvasLayoutPositions(group, members)) {
           const child = read(childId)!;
@@ -1128,13 +1259,16 @@ export class CanvasDocument {
           const dy = position.y - child.y;
           if (dx === 0 && dy === 0) continue;
           const stack = [childId];
+
           while (stack.length) {
             const memberId = stack.pop()!;
             const member = read(memberId);
             if (!member) continue;
+
             const original = patches.has(memberId)
               ? patches.get(memberId)!.before
               : this.frames.get(memberId);
+
             patches.set(memberId, {
               id: memberId,
               before: original,
@@ -1143,46 +1277,57 @@ export class CanvasDocument {
             for (const descendant of children.get(memberId) ?? []) stack.push(descendant);
           }
         }
+
         continue;
       }
+
       if (group.kind !== "group") continue;
+
       if (members.length === 0) {
         if (this.getChildren(id).length > 0) {
           patches.set(id, { id, before, after: undefined });
           removedGroup = true;
         }
+
         continue;
       }
+
       let x = Infinity;
       let y = Infinity;
       let right = -Infinity;
       let bottom = -Infinity;
+
       for (const node of members) {
         x = Math.min(x, node.x);
         y = Math.min(y, node.y);
         right = Math.max(right, node.x + node.width);
         bottom = Math.max(bottom, node.y + node.height);
       }
+
       const width = right - x;
       const height = bottom - y;
       const after = immutableFrame({ ...group, x, y, width, height });
       if (!framesEqual(group, after)) patches.set(id, { id, before, after });
     }
+
     if (removedGroup) {
       structural = true;
       hierarchy = createHierarchy();
       if (!hierarchy) return undefined;
     }
+
     // Finite inputs can overflow during layout arithmetic. Validate derived geometry
     // before a preview, import or commit can publish it or serialize Infinity as null.
     for (const patch of patches.values()) {
       if (patch.after && !isFrame(patch.after, patch.before)) return undefined;
     }
+
     const effective = [...patches.values()].filter((patch) =>
       patch.before && patch.after
         ? !framesEqual(patch.before, patch.after)
         : patch.before !== patch.after,
     );
+
     return structural
       ? {
           patches: effective,
@@ -1195,18 +1340,22 @@ export class CanvasDocument {
   private apply(operation: DocumentOperation, reverse: boolean, notifyIds?: ReadonlySet<string>) {
     const theme = reverse ? operation.beforeTheme : operation.afterTheme;
     if (theme) this.theme = theme;
+
     for (const patch of operation.patches) {
       const next = reverse ? patch.before : patch.after;
       if (next) this.frames.set(patch.id, next);
       else this.frames.delete(patch.id);
     }
+
     const ids = reverse ? operation.beforeIds : operation.afterIds;
+
     if (ids) {
       this.ids = ids;
       const hierarchy = hierarchyFor(this.frames, ids)!;
       this.children = hierarchy.children;
       this.order = new Map(ids.map((id, index) => [id, index]));
     }
+
     for (const patch of operation.patches)
       if (!notifyIds || notifyIds.has(patch.id)) this.notifyFrame(patch.id);
   }
@@ -1242,10 +1391,12 @@ function migrateLegacyParents(nodes: readonly CanvasFrame[]): CanvasFrame[] {
   const byId = new Map(frames.map((node) => [node.id, node]));
   const order = new Map(nodes.map((node, index) => [node.id, index]));
   const index = new CanvasSpatialIndex(frames);
+
   return nodes.map((node) => {
     const center = { x: node.x + node.width / 2, y: node.y + node.height / 2, width: 0, height: 0 };
     const isContainer = node.kind === undefined || node.kind === "frame";
     let parent: CanvasFrame | undefined;
+
     for (const id of index.query(center)) {
       if (id === node.id) continue;
       const candidate = byId.get(id)!;
@@ -1255,11 +1406,13 @@ function migrateLegacyParents(nodes: readonly CanvasFrame[]): CanvasFrame[] {
           candidate.y <= node.y &&
           candidate.x + candidate.width >= node.x + node.width &&
           candidate.y + candidate.height >= node.y + node.height;
+
         const strictlyLarger =
           candidate.x < node.x ||
           candidate.y < node.y ||
           candidate.x + candidate.width > node.x + node.width ||
           candidate.y + candidate.height > node.y + node.height;
+
         if (!contains || !strictlyLarger) continue;
         const area = candidate.width * candidate.height;
         const previousArea = parent ? parent.width * parent.height : Infinity;
@@ -1271,6 +1424,7 @@ function migrateLegacyParents(nodes: readonly CanvasFrame[]): CanvasFrame[] {
           parent = candidate;
       } else if (!parent || order.get(id)! > order.get(parent.id)!) parent = candidate;
     }
+
     return parent ? immutableFrame({ ...node, parentId: parent.id }) : node;
   });
 }
@@ -1289,6 +1443,7 @@ export function loadCanvasFrames(
     if (!saved) return [];
     const value: unknown = JSON.parse(saved);
     const legacy = Array.isArray(value);
+
     const nodes: unknown = legacy
       ? value
       : value !== null &&
@@ -1298,14 +1453,17 @@ export function loadCanvasFrames(
           "nodes" in value
         ? value.nodes
         : undefined;
+
     if (!Array.isArray(nodes)) return [];
     const ids = new Set<string>();
     const frames: CanvasFrame[] = [];
+
     for (const item of nodes) {
       if (!isFrame(item) || ids.has(item.id)) return [];
       ids.add(item.id);
       frames.push(immutableFrame(item));
     }
+
     return new CanvasDocument(
       legacy && migrateLegacy ? migrateLegacyParents(frames) : frames,
     ).getFrames();
@@ -1324,6 +1482,7 @@ export function saveCanvasFrames(
       CANVAS_STORAGE_KEY,
       JSON.stringify({ version: 2, nodes: frames, theme }),
     );
+
     return true;
   } catch {
     // Storage can be unavailable or full without making the canvas unusable.
@@ -1334,6 +1493,7 @@ export function saveCanvasFrames(
 export function loadCanvasTheme(storage?: Pick<Storage, "getItem">): CanvasTheme {
   try {
     const value = JSON.parse(readStoredCanvas(storage ?? window.localStorage) ?? "null");
+
     return value?.theme ? normalizeTheme(value.theme) : EMPTY_THEME;
   } catch {
     return EMPTY_THEME;

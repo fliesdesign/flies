@@ -24,6 +24,7 @@ describe("workspace session", () => {
       librarySection: "settings",
       sidebarTab: "theme",
     });
+
     assert.deepEqual(session.openIds, ["aa", "bb"]);
     assert.equal(session.activeId, null);
     assert.equal(session.librarySection, "settings");
@@ -35,10 +36,12 @@ describe("workspace session", () => {
 
   it("caps restored tabs and round-trips through storage", () => {
     const ids = Array.from({ length: MAX_OPEN_TABS + 4 }, (_, index) => index.toString(16));
+
     const session = normalizeWorkspaceSession({
       openIds: ids,
       activeId: ids[0],
     });
+
     assert.equal(session.openIds.length, MAX_OPEN_TABS);
     assert.equal(session.activeId, ids[0]);
     const store = new Map<string, string>();
@@ -51,6 +54,7 @@ describe("workspace session", () => {
         removeItem: (key: string) => store.delete(key),
       },
     });
+
     try {
       assert.deepEqual(loadWorkspaceSession(), DEFAULT_WORKSPACE_SESSION);
       saveWorkspaceSession({

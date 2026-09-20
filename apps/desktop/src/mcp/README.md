@@ -4,7 +4,7 @@ Flies starts an embedded Rust MCP server alongside its desktop process. It uses 
 
 ## Connect a client
 
-Launch the rebuilt desktop app once. Flies writes an MCP client configuration containing its URL to the app data directory:
+Start the API and sign in to the rebuilt desktop app. Flies writes an MCP client configuration containing its URL to the app data directory:
 
 - macOS: `~/Library/Application Support/com.flies.app/mcp/client.json`
 - Other systems: `<Tauri app data directory>/mcp/client.json`
@@ -42,7 +42,7 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 | `get_screenshot`                             | PNG of a node subtree or the whole document                 |
 | `undo`, `redo`, `save_file`                  | Document history and persistence                            |
 
-Start with `get_guide`, then `create_file` or `open_file`. Subsequent editor tools target the active file. Mutation responses wait for the existing autosave queue to flush to compressed JSON. They use the same CanvasDocument transactions and undo history as manual edits. All documents remain local.
+Start with `get_guide`, then `create_file` or `open_file`. Each MCP session remembers that file. Later editor tools target it, or take `fileId` so several agents can edit different files at once without stealing the visible tab. Mutation responses wait for the existing autosave queue to flush to compressed JSON. They use the same CanvasDocument transactions and undo history as manual edits. All documents remain local.
 
 ### Theme tokens
 
@@ -52,7 +52,7 @@ The property controls offer matching tokens for native layer properties; changin
 token updates every linked layer, including text measurement and layout. Container and
 breakpoint tokens are CSS variables for `write_html` and `preview_html`. Manual literal
 edits detach that property. Deleting a token preserves the layer's current value. Theme
-changes support undo/redo, local autosave, browser storage, and portable ZIP projects.
+changes support undo/redo, workspace autosave through the API, and portable ZIP projects.
 
 Agents edit the same theme through these tools:
 
@@ -196,7 +196,7 @@ Normal `write_html` results include `applied`, `nodeIds`, `roots`, `containers` 
 
 The SDK owns protocol negotiation, discovery, request validation and HTTP transport. `mod.rs` forwards tool requests to the main webview through Tauri IPC. `src/lib/mcp/` implements the live editor tools and HTML conversion. Only the main desktop window can use the bridge.
 
-Editor tools execute in FIFO order; up to 16 overlapping requests wait automatically. Pairing writes and screenshots no longer produces busy retries. Await a mutation response when its screenshot must follow it across concurrent clients. Queued calls time out after 45 seconds without being dispatched and are safe to retry. Idle polling waits rather than busy-looping. Unanswered requests time out after 45 seconds. A dispatched edit may already have applied when its request times out: inspect the document before retrying. No active file, invalid input, or failed saves return tool errors.
+Tools that target different files run in parallel. Calls that share a `fileId` (or a session's last opened file) stay FIFO. Up to 16 overlapping requests wait automatically. Pairing a write with a screenshot of the same file no longer produces busy retries; await the mutation when that screenshot must follow it. Opening a file for an agent adds a tab without changing the user's visible document. Queued calls time out after 45 seconds without being dispatched and are safe to retry. Idle polling waits rather than busy-looping. Unanswered requests time out after 45 seconds. A dispatched edit may already have applied when its request times out: inspect the document before retrying. No open file, invalid input, or failed saves return tool errors.
 
 ## Verification
 

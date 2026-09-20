@@ -40,6 +40,7 @@ const STARTER_GRAY = [
   ["900", "#171717"],
   ["950", "#0a0a0a"],
 ] as const;
+
 const STARTER_BLUE = [
   ["50", "#eff6ff"],
   ["100", "#dbeafe"],
@@ -53,6 +54,7 @@ const STARTER_BLUE = [
   ["900", "#1e3a8a"],
   ["950", "#172554"],
 ] as const;
+
 const STARTER_CONTAINERS = [
   ["sm", 384],
   ["md", 448],
@@ -65,6 +67,7 @@ const STARTER_CONTAINERS = [
   ["6xl", 1152],
   ["7xl", 1280],
 ] as const;
+
 const STARTER_BREAKPOINTS = [
   ["sm", 640],
   ["md", 768],
@@ -72,6 +75,7 @@ const STARTER_BREAKPOINTS = [
   ["xl", 1280],
   ["2xl", 1536],
 ] as const;
+
 const STARTER_WEIGHTS = [
   ["thin", 100],
   ["extralight", 200],
@@ -83,6 +87,7 @@ const STARTER_WEIGHTS = [
   ["extrabold", 800],
   ["black", 900],
 ] as const;
+
 const STARTER_LINE_HEIGHTS = [
   ["none", 1],
   ["tight", 1.25],
@@ -91,6 +96,7 @@ const STARTER_LINE_HEIGHTS = [
   ["relaxed", 1.625],
   ["loose", 2],
 ] as const;
+
 const STARTER_TRACKING = [
   ["tighter", -1],
   ["tight", -0.4],
@@ -163,6 +169,7 @@ export const THEME_PROPERTIES = {
 } as const;
 export type ThemeProperty = keyof typeof THEME_PROPERTIES;
 export type TokenBindings = Readonly<Partial<Record<ThemeProperty, string>>>;
+
 const TEXT_THEME_PROPERTIES = new Set<ThemeProperty>([
   "fontFamily",
   "fontWeight",
@@ -185,6 +192,7 @@ function isValidTokenValue(type: ThemeTokenType, value: unknown): boolean {
   if (type === "lineHeight") return value >= 0.5 && value <= 4;
   if (type === "letterSpacing") return value >= -10 && value <= 100;
   if (type === "fontSize") return value >= 1 && value <= 10000;
+
   return value >= 0 && value <= 10000;
 }
 
@@ -200,6 +208,7 @@ export function tokenCssValue(token: ThemeToken): string {
   if (token.type === "fontFamily") return JSON.stringify(token.value);
   if (token.type === "color") return String(token.value);
   if (token.type === "fontWeight" || token.type === "lineHeight") return String(token.value);
+
   return `${token.value}px`;
 }
 
@@ -221,6 +230,7 @@ export function normalizeTheme(value: unknown): CanvasTheme {
   )
     throw new Error("Theme must contain an array of at most 500 tokens.");
   const ids = new Set<string>();
+
   const tokens = value.tokens.map((token: unknown): ThemeToken => {
     if (!token || typeof token !== "object") throw new Error("Invalid theme token.");
     const entry = token as ThemeToken;
@@ -239,6 +249,7 @@ export function normalizeTheme(value: unknown): CanvasTheme {
       throw new Error(
         `Invalid value for ${entry.name}. Use hex colors, a font family, a weight (1–1000), a line height (0.5–4), letter spacing (−10–100px), or a non-negative pixel value.`,
       );
+
     return Object.freeze({
       id: entry.id,
       name: entry.name.trim(),
@@ -246,6 +257,7 @@ export function normalizeTheme(value: unknown): CanvasTheme {
       value: entry.value,
     });
   });
+
   return Object.freeze({ tokens: Object.freeze(tokens) });
 }
 
@@ -262,6 +274,7 @@ export function isTokenBindings(value: unknown): value is TokenBindings {
     )
   );
 }
+
 export function tokenPropertyValue(node: CanvasFrame, property: ThemeProperty): unknown {
   if (property === "fill")
     return node.kind === "text"
@@ -275,8 +288,10 @@ export function tokenPropertyValue(node: CanvasFrame, property: ThemeProperty): 
     return !node.kind || node.kind === "frame"
       ? node.layout?.[property === "layoutGap" ? "gap" : "padding"]
       : undefined;
+
   return Reflect.get(node, property);
 }
+
 function assignToken(
   node: CanvasFrame,
   property: ThemeProperty,
@@ -308,6 +323,7 @@ function assignToken(
   } else return { ...node, [property]: value } as CanvasFrame;
   throw new Error(`${property} tokens cannot be used on ${node.kind ?? "frame"} nodes.`);
 }
+
 export function applyTokenBindings(
   node: CanvasFrame,
   theme: CanvasTheme,
@@ -317,22 +333,28 @@ export function applyTokenBindings(
   if (!bindings) return node;
   let updated = node;
   const kept: Partial<Record<ThemeProperty, string>> = {};
+
   for (const [property, id] of Object.entries(bindings) as [ThemeProperty, string][]) {
     const token = theme.tokens.find((entry) => entry.id === id);
+
     if (!token || !tokenMatchesProperty(token, property)) {
       if (strict) throw new Error(`Token ${id} is missing or incompatible with ${property}.`);
       continue;
     }
+
     const canonical = canonicalThemeProperty(node, property);
     updated = assignToken(updated, canonical, token.value);
     kept[canonical] = id;
   }
+
   return { ...updated, tokenBindings: Object.keys(kept).length ? kept : undefined };
 }
+
 /** Literal edits detach their binding; changing a theme uses a separate atomic operation. */
 export function detachChangedTokens(before: CanvasFrame, after: CanvasFrame): CanvasFrame {
   if (!after.tokenBindings) return after;
   const bindings = { ...after.tokenBindings };
+
   for (const property of Object.keys(bindings) as ThemeProperty[]) {
     if (
       bindings[property] === before.tokenBindings?.[property] &&
@@ -340,8 +362,10 @@ export function detachChangedTokens(before: CanvasFrame, after: CanvasFrame): Ca
     )
       delete bindings[property];
   }
+
   return { ...after, tokenBindings: Object.keys(bindings).length ? bindings : undefined };
 }
+
 export function themeCss(theme: CanvasTheme): string {
   return `:root{${theme.tokens.map((token) => `--${token.id}:${tokenCssValue(token)};`).join("")}}`;
 }

@@ -16,6 +16,7 @@ describe("mixed benchmark fixtures", () => {
       assert.equal(document.getIds().length, count);
       assert.equal(new Set(nodes.map((node) => node.id)).size, count);
       for (const node of nodes) if (node.parentId) assert.ok(document.getFrame(node.parentId));
+
       if (count) {
         assert.equal(nodes[0].x, 0);
         assert.equal(nodes[0].y, 0);
@@ -46,10 +47,12 @@ describe("mixed benchmark fixtures", () => {
     document.beginGesture(subtree.map((node) => node.id));
     document.previewMany(moveSelection(subtree, [root.id], { x: 30, y: 20 }));
     document.endGesture();
+
     for (const before of subtree) {
       assert.equal(document.getFrame(before.id)!.x, before.x + 30);
       assert.equal(document.getFrame(before.id)!.y, before.y + 20);
     }
+
     document.undo();
     assert.deepEqual(document.getFrames(), original);
   });

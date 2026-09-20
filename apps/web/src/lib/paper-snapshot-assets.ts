@@ -18,6 +18,7 @@ export async function loadSnapshotImage(source: string): Promise<string> {
 
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 5000);
+
   try {
     const response = await fetch(url.href, {
       signal: controller.signal,
@@ -25,6 +26,7 @@ export async function loadSnapshotImage(source: string): Promise<string> {
       referrerPolicy: "no-referrer",
       redirect: "error",
     });
+
     const type = response.headers.get("content-type")?.split(";")[0].trim() ?? "";
     if (!response.ok || !RASTER_TYPE.test(type) || !response.body)
       throw new Error("The snapshot image could not be downloaded.");
@@ -33,6 +35,7 @@ export async function loadSnapshotImage(source: string): Promise<string> {
     const reader = response.body.getReader();
     const chunks: Uint8Array<ArrayBuffer>[] = [];
     let size = 0;
+
     try {
       while (true) {
         // Read incrementally so a missing or inaccurate Content-Length cannot bypass the limit.
@@ -47,7 +50,9 @@ export async function loadSnapshotImage(source: string): Promise<string> {
       controller.abort();
       reader.releaseLock();
     }
+
     const image = await readCanvasImage(new File(chunks, "Snapshot image", { type }));
+
     return image.src;
   } finally {
     controller.abort();

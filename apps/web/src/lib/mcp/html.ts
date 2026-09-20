@@ -11,10 +11,12 @@ function transformedText(value: string, style: CSSStyleDeclaration, rendered = f
     !rendered && ["normal", "nowrap"].includes(style.whiteSpace)
       ? value.replace(/[\t\r\n ]+/g, " ")
       : value;
+
   if (style.textTransform === "uppercase") return text.toUpperCase();
   if (style.textTransform === "lowercase") return text.toLowerCase();
   if (style.textTransform === "capitalize")
     return text.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+
   return text;
 }
 
@@ -36,9 +38,11 @@ export async function importHtml(
     throw new Error("HTML layout height must be between 1 and 8192px.");
   const css = options.css ? validateSharedCss(options.css) : "";
   const fragment = sanitizeHtml(source, Boolean(css));
+
   const tailwind = fragment.querySelector("[class]")
     ? await (await import("./tailwind")).compileTailwind(fragment)
     : undefined;
+
   return importHtmlFragment(fragment, {
     ...options,
     stylesheet: [tailwind, css].filter(Boolean).join("\n"),
@@ -64,6 +68,7 @@ export async function importHtmlFragment(
   // A separate viewport makes responsive utilities deterministic and keeps theme,
   // preflight, @property declarations and arbitrary selectors out of the editor.
   const viewport = options.stylesheet ? document.createElement("iframe") : undefined;
+
   if (viewport) {
     viewport.setAttribute("sandbox", "allow-same-origin");
     viewport.setAttribute("aria-hidden", "true");
@@ -79,7 +84,9 @@ export async function importHtmlFragment(
     });
     document.body.append(viewport);
   }
+
   const measurementDocument = viewport?.contentDocument ?? document;
+
   if (viewport) {
     const policy = document.createElement("meta");
     policy.httpEquiv = "Content-Security-Policy";
@@ -87,6 +94,7 @@ export async function importHtmlFragment(
       "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src https://fonts.gstatic.com data:";
     measurementDocument.head.append(policy);
   }
+
   const host = document.createElement("div");
   Object.assign(host.style, {
     position: "fixed",
@@ -112,6 +120,7 @@ export async function importHtmlFragment(
         : "400 16px/1.25 Arial",
     color: options.sharedStyles ? "inherit" : "#000000",
   });
+
   if (options.stylesheet) {
     reset.textContent =
       "html{font:400 16px/1.5 Arial;color:#000;color-scheme:light} body{margin:0}\n" +
@@ -119,10 +128,12 @@ export async function importHtmlFragment(
     // Theme variables target :root, so the compiled sheet belongs in the iframe head.
     measurementDocument.head.append(reset);
   }
+
   layout.append(fragment);
   if (!viewport) shadow.append(reset);
   shadow.append(layout);
   measurementDocument.body.append(host);
+
   try {
     if (options.stylesheet) {
       for (const element of Array.from(layout.querySelectorAll<HTMLElement>("*"))) {
@@ -145,6 +156,7 @@ export async function importHtmlFragment(
           );
         if (!["static", "relative", "absolute"].includes(style.position))
           throw new Error("Use static, relative or absolute positioning.");
+
         for (const pseudo of ["::before", "::after"]) {
           const content = getComputedStyle(element, pseudo).content;
           if (content !== "none" && content !== "normal")
@@ -152,26 +164,33 @@ export async function importHtmlFragment(
               "Tailwind generated pseudo-element content is not supported by editable layers.",
             );
         }
+
         // Measure with the same fonts that the editable canvas will render.
         element.style.setProperty("font-family", resolveFontFamily(style.fontFamily), "important");
       }
     }
+
     for (const image of layout.querySelectorAll("img")) {
       if (!SVG_DATA_URL.test(image.src)) continue;
+
       const bytes = Uint8Array.from(atob(image.src.split(",")[1]), (character) =>
         character.charCodeAt(0),
       );
+
       const svg = new DOMParser().parseFromString(
         new TextDecoder().decode(bytes),
         "image/svg+xml",
       ).documentElement;
+
       if (svg.localName !== "svg") throw new Error("Invalid SVG image.");
       (svg as unknown as SVGSVGElement).style.color = getComputedStyle(image).color;
       image.src = svgDataUrl(svg as unknown as SVGSVGElement);
     }
+
     await ensureCanvasFonts(
       Array.from(layout.querySelectorAll<HTMLElement>("*")).map((element) => {
         const style = getComputedStyle(element);
+
         return {
           fontFamily: resolveFontFamily(style.fontFamily),
           fontWeight: Number(style.fontWeight),
@@ -181,20 +200,24 @@ export async function importHtmlFragment(
       }),
       measurementDocument,
     );
+
     if (options.prepare) {
       await options.prepare(layout);
     } else {
       await measurementDocument.fonts.ready;
       await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
     }
+
     const origin = layout.getBoundingClientRect();
     const nodes: CanvasFrame[] = [];
     let textFragments = 0;
+
     const add = (node: CanvasFrame) => {
       if (nodes.length >= 3000)
         throw new Error("HTML generated too many layers. Split the design into smaller sections.");
       nodes.push(node);
     };
+
     const baseFor = (rect: DOMRect, parentId: string | undefined, name: string) => ({
       id: crypto.randomUUID(),
       parentId,
@@ -204,6 +227,7 @@ export async function importHtmlFragment(
       width: Math.max(1, rect.width),
       height: Math.max(1, rect.height),
     });
+
     const measuredText = (textNode: Text, parentId?: string, opacity = 1) => {
       if (!textNode.textContent?.trim()) return;
       const style = getComputedStyle(textNode.parentElement!);
@@ -211,11 +235,13 @@ export async function importHtmlFragment(
       const value = textNode.textContent;
       const range = document.createRange();
       const lineHeight = type.fontSize * (type.lineHeight ?? 1.25);
+
       const emit = (start: number, end: number) => {
         if (!["pre", "pre-wrap", "break-spaces"].includes(style.whiteSpace)) {
           while (start < end && /\s/.test(value[start])) start++;
           while (end > start && /\s/.test(value[end - 1])) end--;
         }
+
         if (start === end) return;
         range.setStart(textNode, start);
         range.setEnd(textNode, end);
@@ -236,37 +262,47 @@ export async function importHtmlFragment(
           height: Math.max(1, lineHeight),
         });
       };
+
       let start = 0;
+
       while (start < value.length) {
         range.setStart(textNode, start);
         range.setEnd(textNode, value.length);
+
         if (range.getClientRects().length <= 1) {
           emit(start, value.length);
           break;
         }
+
         let low = start + 1,
           high = value.length;
+
         while (low < high) {
           const mid = Math.ceil((low + high) / 2);
           range.setEnd(textNode, mid);
           if (range.getClientRects().length <= 1) low = mid;
           else high = mid - 1;
         }
+
         emit(start, low);
         start = low;
       }
     };
+
     const visit = (element: HTMLElement, parentId?: string, isRoot = false) => {
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden" || element.localName === "br")
         return;
       const rect = element.getBoundingClientRect();
+
       if (style.display === "contents") {
         for (const child of Array.from(element.childNodes))
           if (child instanceof HTMLElement) visit(child, parentId);
           else if (child instanceof Text) measuredText(child, parentId);
+
         return;
       }
+
       if (!rect.width || !rect.height) return;
       if (rect.width > 8192 || rect.height > 8192)
         throw new Error("HTML elements must be no larger than 8192px per side.");
@@ -276,21 +312,25 @@ export async function importHtmlFragment(
       const fill = htmlColor(style.backgroundColor);
       const hasFill = !fill.endsWith("00");
       const hasEffects = Boolean(effects.borderWidth || effects.shadows?.length);
+
       const borderWidths = [
         style.borderTopWidth,
         style.borderRightWidth,
         style.borderBottomWidth,
         style.borderLeftWidth,
       ].map(parseFloat);
+
       const borderColors = [
         style.borderTopColor,
         style.borderRightColor,
         style.borderBottomColor,
         style.borderLeftColor,
       ];
+
       const separateBorders = !effects.borderWidth && borderWidths.some((width) => width > 0);
       const decorated = hasFill || hasEffects || separateBorders;
       let clipped = [style.overflowX, style.overflowY].some((v) => ["hidden", "clip"].includes(v));
+
       if (clipped && (rect.width < 40 || rect.height < 40) && options.onUnsupportedClip) {
         clipped = false;
         if (
@@ -299,19 +339,25 @@ export async function importHtmlFragment(
         )
           options.onUnsupportedClip("Clipping in containers smaller than 40px was omitted.");
       }
+
       const children = Array.from(element.children);
       const hasChildren = children.some((child) => child.localName !== "br");
+
       // Keep section slots available for subsequent tool calls, including empty ones.
       const section =
         ["section", "article", "main", "header", "footer", "nav", "aside"].includes(
           element.localName,
         ) ||
         (element.localName === "div" && Boolean(element.dataset.name || element.id));
+
       const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+
       const plainText = input
         ? element.value || element.getAttribute("placeholder") || ""
         : element.innerText;
+
       const leafText = !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+
       const contentRect = new DOMRect(
         rect.x + parseFloat(style.paddingLeft) + borderWidths[3],
         rect.y + parseFloat(style.paddingTop) + borderWidths[0],
@@ -332,14 +378,17 @@ export async function importHtmlFragment(
             borderWidths[2],
         ),
       );
+
       if (element instanceof HTMLInputElement || element.localName === "button") {
         const typography = textStyle(style);
         const lineHeight = typography.fontSize * (typography.lineHeight ?? 1.25);
+
         if (contentRect.height > lineHeight) {
           contentRect.y += (contentRect.height - lineHeight) / 2;
           contentRect.height = lineHeight;
         }
       }
+
       if (
         leafText &&
         !section &&
@@ -352,8 +401,10 @@ export async function importHtmlFragment(
       ) {
         for (const child of Array.from(element.childNodes))
           if (child instanceof Text) measuredText(child, parentId, base.opacity);
+
         return;
       }
+
       if (
         leafText &&
         !section &&
@@ -370,10 +421,13 @@ export async function importHtmlFragment(
           text: transformedText(plainText, style, true),
           opacity: base.opacity,
         });
+
         return;
       }
+
       if (element instanceof HTMLImageElement && style.objectFit !== "fill")
         throw new Error("Use object-fit: fill for editable images.");
+
       if (element instanceof HTMLImageElement && !decorated && !clipped) {
         add({
           ...base,
@@ -381,8 +435,10 @@ export async function importHtmlFragment(
           src: element.src,
           cornerRadius: effects.cornerRadius,
         });
+
         return;
       }
+
       if (
         !section &&
         !hasChildren &&
@@ -393,8 +449,10 @@ export async function importHtmlFragment(
         if (decorated) {
           add({ ...base, ...effects, kind: "rectangle", fill });
         }
+
         return;
       }
+
       // Drop purely structural, unnamed single-child divs. Their measured layout still applies.
       if (
         !isRoot &&
@@ -410,8 +468,10 @@ export async function importHtmlFragment(
         )
       ) {
         visit(children[0] as HTMLElement, parentId);
+
         return;
       }
+
       if (clipped && (rect.width < 40 || rect.height < 40))
         throw new Error(`${name}: clipped containers must be at least 40px per side.`);
       const frame = (section || decorated || clipped) && rect.width >= 40 && rect.height >= 40;
@@ -431,6 +491,7 @@ export async function importHtmlFragment(
           fill,
           opacity: 1,
         });
+
       if (element instanceof HTMLImageElement)
         add({
           ...baseFor(
@@ -466,13 +527,17 @@ export async function importHtmlFragment(
           order: node instanceof HTMLElement ? Number(getComputedStyle(node).order) || 0 : 0,
           z: node instanceof HTMLElement ? Number(getComputedStyle(node).zIndex) || 0 : 0,
         }));
+
         ordered.sort((a, b) => a.z - b.z || a.order - b.order || a.index - b.index);
+
         for (const { node } of ordered) {
           if (node instanceof Text) measuredText(node, base.id);
           else if (node instanceof HTMLElement) visit(node, base.id);
         }
       }
+
       addBorders(base.id);
+
       function addBorders(id: string) {
         if (!separateBorders) return;
         // A one-sided divider remains an editable rectangle, rather than disappearing.
@@ -495,9 +560,11 @@ export async function importHtmlFragment(
         });
       }
     };
+
     for (const child of Array.from(layout.children))
       visit(child as HTMLElement, options.parentId, true);
     if (!nodes.length) throw new Error("HTML did not produce visible layers.");
+
     return nodes;
   } finally {
     host.remove();

@@ -11,6 +11,7 @@ export async function mountSnapshotFixture() {
   Object.assign(host.style, { position: "fixed", inset: "0", zIndex: "1" });
   document.body.append(host);
   const root = createRoot(host);
+
   const controls = await new Promise<CanvasControls>((resolve) => {
     flushSync(() =>
       root.render(
@@ -24,12 +25,14 @@ export async function mountSnapshotFixture() {
       ),
     );
   });
+
   controls.setPanelsOpen(false);
   await new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
   controls.camera.setViewport({ x: 0, y: 0, zoom: 1 });
   controls.camera.flush();
+
   return {
     controls,
     dispose: () => {

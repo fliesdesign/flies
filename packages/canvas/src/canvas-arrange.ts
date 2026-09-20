@@ -23,18 +23,22 @@ export function arrangeSelection(
   if (selected.length < 2) return [];
   const bounds = selectionBounds(selected, [...roots])!;
   const offsets = new Map<string, Point>();
+
   if (action === "horizontal" || action === "vertical") {
     if (selected.length < 3) return [];
     const horizontal = action === "horizontal";
     const axis = horizontal ? "x" : "y";
     const dimension = horizontal ? "width" : "height";
     selected.sort((first, second) => first[axis] - second[axis]);
+
     const gap =
       (selected[selected.length - 1][axis] -
         selected[0][axis] -
         selected.slice(0, -1).reduce((sum, node) => sum + node[dimension], 0)) /
       (selected.length - 1);
+
     let next = selected[0][axis];
+
     for (const node of selected) {
       offsets.set(node.id, horizontal ? { x: next - node.x, y: 0 } : { x: 0, y: next - node.y });
       next += node[dimension] + gap;
@@ -43,6 +47,7 @@ export function arrangeSelection(
     for (const node of selected) {
       let x = 0;
       let y = 0;
+
       switch (action) {
         case "left":
           x = bounds.x - node.x;
@@ -63,6 +68,7 @@ export function arrangeSelection(
           y = bounds.y + bounds.height - node.height - node.y;
           break;
       }
+
       offsets.set(node.id, { x, y });
     }
   }
@@ -70,26 +76,33 @@ export function arrangeSelection(
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const inherited = new Map<string, Point | null>();
   const updates: CanvasFrame[] = [];
+
   for (const node of nodes) {
     let current: CanvasFrame | undefined = node;
     let offset: Point | null = null;
     const path = new Set<string>();
+
     while (current && !path.has(current.id)) {
       if (offsets.has(current.id)) {
         offset = offsets.get(current.id)!;
         break;
       }
+
       if (inherited.has(current.id)) {
         offset = inherited.get(current.id)!;
         break;
       }
+
       path.add(current.id);
       current = current.parentId ? byId.get(current.parentId) : undefined;
     }
+
     for (const id of path) inherited.set(id, offset);
+
     if (offset && (offset.x || offset.y)) {
       updates.push({ ...node, x: node.x + offset.x, y: node.y + offset.y });
     }
   }
+
   return updates;
 }

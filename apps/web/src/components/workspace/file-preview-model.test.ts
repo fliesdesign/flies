@@ -30,6 +30,7 @@ describe("file preview scene", () => {
       null,
       { id: "missing" },
     ]);
+
     assert.equal(nodes.length, 3);
     assert.equal(nodes[0]?.fill, "#ffffff");
     assert.equal(nodes[1]?.fill, undefined);
@@ -54,6 +55,7 @@ describe("file preview scene", () => {
       },
       { id: "orphan", kind: "rectangle", x: 400, y: 0, width: 40, height: 40, fill: "#3b82f6" },
     ]);
+
     const bounds = previewBounds(parsed);
     assert.deepEqual(bounds, { x: 100, y: 0, width: 340, height: 150 });
     const box = previewViewBox(bounds!);
@@ -81,6 +83,7 @@ describe("file preview scene", () => {
         fill: "#ffffff",
       })),
     );
+
     assert.equal(nodes.length, PREVIEW_NODE_LIMIT);
   });
 });

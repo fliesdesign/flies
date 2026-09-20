@@ -1,6 +1,7 @@
 //! Local MCP Streamable HTTP endpoint and desktop request bridge.
 mod tools;
 
+use axum::http::request::Parts;
 use axum::Router;
 use rmcp::{
     model::*,
@@ -30,7 +31,8 @@ pub struct Bridge {
     sender: mpsc::Sender<EditorRequest>,
     receiver: Mutex<mpsc::Receiver<EditorRequest>>,
     pending: Mutex<HashMap<String, Reply>>,
-    serial: Mutex<()>,
+    sessions: Mutex<HashMap<String, String>>,
+    locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     capacity: Semaphore,
 }
 
@@ -41,18 +43,34 @@ impl Bridge {
             sender,
             receiver: Mutex::new(receiver),
             pending: Mutex::new(HashMap::new()),
-            serial: Mutex::new(()),
+            sessions: Mutex::new(HashMap::new()),
+            locks: Mutex::new(HashMap::new()),
             capacity: Semaphore::new(17),
         })
     }
 
+    #[cfg(test)]
     async fn call(&self, name: String, arguments: Value) -> Value {
-        // Wait FIFO for the active tool, while bounding queued HTTP requests.
+        self.call_on(name, arguments, None).await
+    }
+
+    async fn call_on(&self, name: String, mut arguments: Value, session: Option<&str>) -> Value {
+        // Bound queued HTTP tools. Same-file calls stay FIFO; other files run together.
         let Ok(_capacity) = self.capacity.try_acquire() else {
             return tool_error("Desktop request queue is full (16 waiting tools). Wait for pending calls to finish.");
         };
-        let Ok(_serial) = tokio::time::timeout(TIMEOUT, self.serial.lock()).await else {
-            return tool_error("Request waited 45 seconds in the queue and was not dispatched. It is safe to retry.");
+        self.bind_session_file(&name, &mut arguments, session).await;
+        let file_lock = self.file_lock(&name, &arguments).await;
+        let _serial = match file_lock.as_ref() {
+            Some(lock) => match tokio::time::timeout(TIMEOUT, lock.lock()).await {
+                Ok(guard) => Some(guard),
+                Err(_) => {
+                    return tool_error(
+                        "Request waited 45 seconds in the queue and was not dispatched. It is safe to retry.",
+                    );
+                }
+            },
+            None => None,
         };
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
@@ -63,7 +81,7 @@ impl Bridge {
         }
         let request = EditorRequest {
             id: id.clone(),
-            name,
+            name: name.clone(),
             arguments,
         };
         if self.sender.try_send(request).is_err() {
@@ -75,9 +93,53 @@ impl Bridge {
         let result = tokio::time::timeout(TIMEOUT, rx).await;
         self.pending.lock().await.remove(&id);
         match result {
-            Ok(Ok(value)) => value,
+            Ok(Ok(value)) => {
+                self.remember_opened_file(session, &name, &value).await;
+                value
+            }
             _ => tool_error("Desktop editor did not reply within 45 seconds. If an edit was dispatched, inspect the document before retrying."),
         }
+    }
+
+    async fn bind_session_file(&self, name: &str, arguments: &mut Value, session: Option<&str>) {
+        if matches!(
+            name,
+            "create_file" | "list_files" | "open_file" | "archive_file" | "restore_file"
+        ) {
+            return;
+        }
+        if argument_file_id(arguments).is_some() {
+            return;
+        }
+        let Some(session) = session else { return };
+        let Some(file_id) = self.sessions.lock().await.get(session).cloned() else {
+            return;
+        };
+        if let Some(object) = arguments.as_object_mut() {
+            object.insert("fileId".into(), json!(file_id));
+        }
+    }
+
+    async fn remember_opened_file(&self, session: Option<&str>, name: &str, result: &Value) {
+        let Some(session) = session else { return };
+        let Some(file_id) = opened_file_id(name, result) else {
+            return;
+        };
+        self.sessions
+            .lock()
+            .await
+            .insert(session.to_owned(), file_id);
+    }
+
+    async fn file_lock(&self, name: &str, arguments: &Value) -> Option<Arc<Mutex<()>>> {
+        let key = lock_key(name, arguments)?;
+        let mut locks = self.locks.lock().await;
+        Some(
+            locks
+                .entry(key)
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone(),
+        )
     }
 
     async fn next(&self) -> Option<EditorRequest> {
@@ -109,6 +171,55 @@ struct FliesServer {
 
 fn tool_error(message: &str) -> Value {
     json!({"isError":true,"content":[{"type":"text","text":message}]})
+}
+
+fn argument_file_id(arguments: &Value) -> Option<&str> {
+    arguments
+        .get("fileId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+}
+
+fn lock_key(name: &str, arguments: &Value) -> Option<String> {
+    match name {
+        "list_files" => None,
+        "create_file" => Some(format!("create:{}", uuid::Uuid::new_v4())),
+        _ => Some(argument_file_id(arguments).unwrap_or_default().to_owned()),
+    }
+}
+
+fn opened_file_id(name: &str, result: &Value) -> Option<String> {
+    if !matches!(name, "create_file" | "open_file") {
+        return None;
+    }
+    if result.get("isError").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let text = result
+        .get("content")?
+        .as_array()?
+        .first()?
+        .get("text")?
+        .as_str()?;
+    serde_json::from_str::<Value>(text)
+        .ok()?
+        .get("fileId")?
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
+fn mcp_session(context: &RequestContext<RoleServer>) -> Option<String> {
+    context
+        .extensions
+        .get::<Parts>()
+        .and_then(|parts| parts.headers.get("mcp-session-id"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
 }
 
 impl ServerHandler for FliesServer {
@@ -144,7 +255,7 @@ impl ServerHandler for FliesServer {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         if !tools::catalog()
             .iter()
@@ -155,11 +266,13 @@ impl ServerHandler for FliesServer {
         if request.name == "get_guide" {
             return Ok(CallToolResult::success(vec![ContentBlock::text(tools::GUIDE)]).into());
         }
+        let session = mcp_session(&context);
         let value = self
             .bridge
-            .call(
+            .call_on(
                 request.name.into_owned(),
                 Value::Object(request.arguments.unwrap_or_default()),
+                session.as_deref(),
             )
             .await;
         let mut result: CallToolResult = serde_json::from_value(value)

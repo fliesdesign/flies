@@ -7,6 +7,7 @@ export function normalizeCanvasHex(value: string) {
       .split("")
       .map((digit) => digit + digit)
       .join("")}`.toLowerCase();
+
   return /^[\da-f]{6}([\da-f]{2})?$/i.test(hex) ? `#${hex.toLowerCase()}` : null;
 }
 
@@ -18,12 +19,14 @@ export function colorToHsv(value: string): HsvColor {
   const maximum = Math.max(r, g, b);
   const delta = maximum - Math.min(r, g, b);
   let h = 0;
+
   if (delta) {
     if (maximum === r) h = ((g - b) / delta) % 6;
     else if (maximum === g) h = (b - r) / delta + 2;
     else h = (r - g) / delta + 4;
     h = (h * 60 + 360) % 360;
   }
+
   return {
     h,
     s: maximum ? delta / maximum : 0,
@@ -44,6 +47,7 @@ export function colorFromHsv({ h, s, v, a }: HsvColor) {
   const chroma = brightness * saturation;
   const x = chroma * (1 - Math.abs((hue % 2) - 1));
   const base = brightness - chroma;
+
   const rgb =
     hue < 1
       ? [chroma, x, 0]
@@ -56,7 +60,9 @@ export function colorFromHsv({ h, s, v, a }: HsvColor) {
             : hue < 5
               ? [x, 0, chroma]
               : [chroma, 0, x];
+
   const alpha = Math.max(0, Math.min(1, a));
+
   return `#${rgb.map((channel) => byte(channel + base)).join("")}${alpha < 1 ? byte(alpha) : ""}`;
 }
 
@@ -80,5 +86,6 @@ export function scrubNumericValue(
 ) {
   const scale = alt ? 0.1 : shift ? 10 : 1;
   const next = Math.max(min, Math.min(max, value + pixels * step * scale));
+
   return Math.round(next * 10000) / 10000;
 }

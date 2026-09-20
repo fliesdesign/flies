@@ -21,6 +21,7 @@ function layoutsEqual(first: CanvasLayout | undefined, second: CanvasLayout | un
 function visualFieldsEqual(first: CanvasFrame, second: CanvasFrame) {
   const before = first as unknown as Record<string, unknown>;
   const after = second as unknown as Record<string, unknown>;
+
   // Documents freeze and reuse point/shadow arrays. Layout objects are copied,
   // so compare their scalars while keeping every other field reference-based.
   for (const key in before) {
@@ -29,9 +30,11 @@ function visualFieldsEqual(first: CanvasFrame, second: CanvasFrame) {
       if (!layoutsEqual(before[key] as CanvasLayout, after[key] as CanvasLayout)) return false;
     } else if (before[key] !== after[key]) return false;
   }
+
   for (const key in after) {
     if (!(key in before)) return false;
   }
+
   return true;
 }
 
@@ -53,15 +56,20 @@ export class CanvasRenderNodeStore {
 
   getSnapshot = (): CanvasFrame | undefined => {
     const frame = this.document.getFrame(this.id);
+
     const parent =
       frame?.parentId === undefined ? undefined : this.document.getFrame(frame.parentId);
+
     if (frame === this.frame && parent === this.parent) return this.snapshot;
     this.frame = frame;
     this.parent = parent;
+
     if (!frame) {
       this.snapshot = undefined;
+
       return this.snapshot;
     }
+
     const x = frame.x - (parent?.x ?? 0);
     const y = frame.y - (parent?.y ?? 0);
     if (
@@ -71,18 +79,22 @@ export class CanvasRenderNodeStore {
       !visualFieldsEqual(this.snapshot, frame)
     )
       this.snapshot = Object.freeze({ ...frame, x, y });
+
     return this.snapshot;
   };
 
   subscribe = (listener: Listener) => {
     this.listeners.add(listener);
+
     if (this.listeners.size === 1) {
       this.published = this.getSnapshot();
       this.unsubscribeNode = this.document.subscribeFrame(this.id, this.refresh);
       this.followParent();
     }
+
     return () => {
       this.listeners.delete(listener);
+
       if (this.listeners.size === 0) {
         this.unsubscribeNode?.();
         this.unsubscribeParent?.();

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const html =
   '<meta charset="utf-8"><x-paper-html><div style="width:240px;height:80px;background:white"><p>Native snapshot</p></div></x-paper-html>';
+
 const surface = "[data-snapshot-fixture] .design-canvas";
 
 async function mountDesktopClipboard(page: Page, fail = false) {
@@ -17,6 +18,7 @@ async function mountDesktopClipboard(page: Page, fail = false) {
       Object.defineProperty(navigator, "userAgent", { configurable: true, value: "Macintosh" });
       Reflect.set(window, "nativeClipboardReads", 0);
       Reflect.set(window, "webClipboardReads", 0);
+
       for (const method of ["read", "readText"]) {
         Object.defineProperty(navigator.clipboard, method, {
           configurable: true,
@@ -26,6 +28,7 @@ async function mountDesktopClipboard(page: Page, fail = false) {
           },
         });
       }
+
       mockIPC(async (command: string) => {
         if (command !== "read_canvas_clipboard") throw new Error(`Unexpected command: ${command}`);
         Reflect.set(
@@ -35,6 +38,7 @@ async function mountDesktopClipboard(page: Page, fail = false) {
         );
         await new Promise((resolve) => setTimeout(resolve, 40));
         if (shouldFail) throw new Error("Clipboard is unavailable");
+
         return { html: clipboardHtml, text: "Wrong plain fallback", imageBase64: null };
       });
     },
@@ -66,9 +70,11 @@ test("desktop Cmd+V reads native HTML once and centers it, with normal undo", as
   await page.locator(surface).focus();
   await page.keyboard.press("Meta+v");
   await expect.poll(() => importedRoot(page)).toMatchObject({ name: "Paper snapshot" });
+
   const size = await page.evaluate(
     () => Reflect.get(window, "snapshotFixture").controls.camera.getCurrent().size,
   );
+
   expect(await importedRoot(page)).toMatchObject({ x: size.x / 2 - 120, y: size.y / 2 - 40 });
   expect(await page.evaluate(() => Reflect.get(window, "nativeClipboardReads"))).toBe(1);
   expect(await page.evaluate(() => Reflect.get(window, "webClipboardReads"))).toBe(0);
@@ -87,6 +93,7 @@ test("an empty native paste event reads the pasteboard and overlapping events do
         cancelable: true,
         clipboardData: new DataTransfer(),
       });
+
       element.dispatchEvent(event);
       if (!event.defaultPrevented) throw new Error("Native paste must be handled");
     }
@@ -116,12 +123,14 @@ test("native clipboard handling leaves text-field paste to the text editor", asy
   await page.locator(surface).evaluate((element) => {
     const input = document.createElement("input");
     element.append(input);
+
     const key = new KeyboardEvent("keydown", {
       key: "v",
       metaKey: true,
       bubbles: true,
       cancelable: true,
     });
+
     input.dispatchEvent(key);
     const paste = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
     input.dispatchEvent(paste);

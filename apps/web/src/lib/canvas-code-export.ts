@@ -10,6 +10,7 @@ type Element = {
   children?: (Element | string)[];
 };
 const px = (value: number) => `${Number(value.toFixed(4))}px`;
+
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -19,6 +20,7 @@ function nodeElement(
   origin: { x: number; y: number },
 ): Element {
   const frame = !node.kind || node.kind === "frame";
+
   const styles: Styles = {
     position: "absolute",
     left: px(node.x - origin.x),
@@ -31,14 +33,17 @@ function nodeElement(
     padding: "0px",
     border: "0px",
   };
+
   if (node.opacity !== undefined) styles.opacity = String(node.opacity);
   const children: Element[] = [];
+
   const fillStyles: Styles = {
     display: "block",
     width: "100%",
     height: "100%",
     "border-radius": px(node.cornerRadius ?? 0),
   };
+
   if (frame || node.kind === "rectangle") {
     styles.background = node.fill ?? "#ffffff";
     styles["border-radius"] = px(node.cornerRadius ?? 0);
@@ -109,10 +114,12 @@ function nodeElement(
       ],
     });
   }
+
   const descendants = doc
     .getChildren(node.id)
     .map((id) => doc.getFrame(id)!)
     .filter((child) => !child.hidden);
+
   if (descendants.length) {
     const clip = frame && node.clipContent !== false;
     children.push({
@@ -126,6 +133,7 @@ function nodeElement(
       children: descendants.map((child) => nodeElement(child, doc, node)),
     });
   }
+
   // Overlay effects preserve the canvas's border-box geometry and child clipping.
   if (node.borderWidth || node.shadows?.length) {
     const appearance: Styles = {
@@ -138,6 +146,7 @@ function nodeElement(
       "border-color": node.borderColor ?? "#000000",
       "border-radius": px(node.cornerRadius ?? 0),
     };
+
     if (node.shadows?.length)
       appearance["box-shadow"] = node.shadows
         .map(
@@ -147,6 +156,7 @@ function nodeElement(
         .join(", ");
     children.push({ tag: "div", attrs: { "aria-hidden": "true" }, styles: appearance });
   }
+
   return { tag: "div", attrs: { "data-name": node.name }, styles, children };
 }
 
@@ -165,6 +175,7 @@ const UTILITIES: Record<string, string> = {
   "white-space:pre-wrap": "whitespace-pre-wrap",
   "border-style:solid": "border-solid",
 };
+
 const PREFIXES: Record<string, string> = {
   width: "w",
   height: "h",
@@ -181,21 +192,26 @@ function utility(property: string, value: string): string {
   const known = UTILITIES[`${property}:${value}`];
   if (known) return known;
   const encoded = value.replace(/_/g, "\\_").replace(/ /g, "_");
+
   return PREFIXES[property] ? `${PREFIXES[property]}-[${encoded}]` : `[${property}:${encoded}]`;
 }
 
 function render(element: Element, react: boolean, tailwind: boolean, depth: number): string {
   const indent = "  ".repeat(depth);
+
   const attrs = Object.entries(element.attrs ?? {}).map(([name, value]) => {
     const attribute =
       react && name.startsWith("stroke-")
         ? name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
         : name;
+
     return react
       ? `${attribute}={${JSON.stringify(value)}}`
       : `${attribute}="${escapeHtml(value)}"`;
   });
+
   const styles = Object.entries(element.styles ?? {});
+
   if (styles.length) {
     if (tailwind) {
       const classes = styles.map(([property, value]) => utility(property, value)).join(" ");
@@ -209,6 +225,7 @@ function render(element: Element, react: boolean, tailwind: boolean, depth: numb
           value,
         ]),
       );
+
       attrs.push(`style={${JSON.stringify(style)}}`);
     } else {
       attrs.push(
@@ -216,13 +233,17 @@ function render(element: Element, react: boolean, tailwind: boolean, depth: numb
       );
     }
   }
+
   const open = `${indent}<${element.tag}${attrs.length ? " " + attrs.join(" ") : ""}`;
   if (element.tag === "img") return open + (react ? " />" : ">");
   if (!element.children?.length) return `${open}></${element.tag}>`;
+
   if (element.children.length === 1 && typeof element.children[0] === "string") {
     const text = element.children[0];
+
     return `${open}>${react ? `{${JSON.stringify(text)}}` : escapeHtml(text)}</${element.tag}>`;
   }
+
   return `${open}>\n${element.children.map((child) => (typeof child === "string" ? `${indent}  ${react ? `{${JSON.stringify(child)}}` : escapeHtml(child)}` : render(child, react, tailwind, depth + 1))).join("\n")}\n${indent}</${element.tag}>`;
 }
 
@@ -236,6 +257,7 @@ export function exportCanvasCode(
   const roots = doc.getRootIds(selectedIds).filter((id) => !doc.isHidden(id));
   const bounds = selectionBounds(doc.getFrames(), roots);
   if (!bounds) throw new Error("Select a visible layer to copy as code.");
+
   const scene: Element = {
     tag: "div",
     styles: {
@@ -246,8 +268,10 @@ export function exportCanvasCode(
     },
     children: roots.map((id) => nodeElement(doc.getFrame(id)!, doc, bounds)),
   };
+
   const react = format.startsWith("React");
   const markup = render(scene, react, format.includes("Tailwind"), react ? 2 : 0);
+
   return react
     ? `export default function CanvasSelection() {\n  return (\n${markup}\n  );\n}\n`
     : markup;

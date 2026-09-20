@@ -12,6 +12,7 @@ const round = (value: number) => Math.round(value * 100) / 100;
 
 function populatedArtboards(): CanvasFrame[] {
   const nodes: CanvasFrame[] = [];
+
   for (let board = 0; board < 3; board++) {
     const rootId = `perf-board-${board}`;
     const origin = board * 960;
@@ -24,6 +25,7 @@ function populatedArtboards(): CanvasFrame[] {
       height: 1100,
       fill: "#ffffff",
     });
+
     for (let card = 0; card < 60; card++) {
       const id = `${rootId}-card-${card}`;
       const x = origin + 24 + (card % 5) * 174;
@@ -85,6 +87,7 @@ function populatedArtboards(): CanvasFrame[] {
       );
     }
   }
+
   return nodes;
 }
 
@@ -100,13 +103,16 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
   const root = createRoot(host);
   const renders = new Map<string, number>();
   const mounts = new Map<string, number>();
+
   function RenderProbe({ frame }: { frame: CanvasFrame }) {
     renders.set(frame.id, (renders.get(frame.id) ?? 0) + 1);
     useEffect(() => {
       mounts.set(frame.id, (mounts.get(frame.id) ?? 0) + 1);
     }, [frame.id]);
+
     return null;
   }
+
   const controls = await new Promise<CanvasControls>((resolve) => {
     flushSync(() =>
       root.render(
@@ -121,6 +127,7 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
       ),
     );
   });
+
   controls.setPanelsOpen(false);
   controls.camera.setViewport({ x: 60, y: 60, zoom: 0.38 });
   controls.camera.flush();
@@ -133,20 +140,24 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
     controls.camera.flush();
     await nextFrame();
     await nextFrame();
+
     const startingElements = new Map(
       [...host.querySelectorAll<HTMLElement>(".canvas-frame-position")].map((element) => [
         element.dataset.frameId!,
         element,
       ]),
     );
+
     const sampleElement = host.querySelector<HTMLElement>(
       '[data-frame-id="perf-board-0-card-4-title"]',
     )!;
+
     const sampleBefore = sampleElement.getBoundingClientRect();
     renders.clear();
     mounts.clear();
     let frameStyleChanges = 0;
     let cameraStyleChanges = 0;
+
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         const target = mutation.target as HTMLElement;
@@ -154,16 +165,21 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
         if (target.classList.contains("canvas-world")) cameraStyleChanges++;
       }
     });
+
     observer.observe(host, { subtree: true, attributes: true, attributeFilter: ["style"] });
+
     const subtree = controls.document
       .getDescendantIds(["perf-board-0"])
       .map((id) => controls.document.getFrame(id)!);
+
     if (phase === "drag") {
       controls.select("perf-board-0");
       controls.document.beginGesture(subtree.map((node) => node.id));
     }
+
     const intervals: number[] = [];
     let last = await nextFrame();
+
     for (let tick = 0; tick < 80; tick++) {
       if (phase === "drag")
         controls.previewMany(
@@ -179,21 +195,27 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
       if (tick >= 10) intervals.push(now - last);
       last = now;
     }
+
     controls.flushPreview();
     controls.camera.flush();
     await nextFrame();
     observer.disconnect();
     const endingElements = [...host.querySelectorAll<HTMLElement>(".canvas-frame-position")];
+
     const stableElements = endingElements.filter((element) =>
       startingElements.has(element.dataset.frameId!),
     );
+
     const remountedNodes = stableElements.filter(
       (element) => startingElements.get(element.dataset.frameId!) !== element,
     ).length;
+
     const stableFrameRenders = [...renders]
       .filter(([id]) => startingElements.has(id))
       .reduce((sum, [, count]) => sum + count, 0);
+
     const samples = intervals.toSorted((a, b) => a - b);
+
     const result = {
       phase,
       contentProbe: probe,
@@ -216,9 +238,12 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
       p95FrameMs: round(samples[Math.ceil(samples.length * 0.95) - 1]),
       maxFrameMs: round(samples[samples.length - 1]),
     };
+
     if (phase === "drag") controls.document.endGesture(true);
+
     return result;
   }
+
   return {
     measure,
     dispose: () => {

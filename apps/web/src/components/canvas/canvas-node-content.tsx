@@ -31,9 +31,11 @@ export function canvasTextStyle(frame: CanvasText): CSSProperties {
 /** Measure unscaled content at its actual wrapping width, including an empty trailing line. */
 export function measureCanvasTextHeight(frame: CanvasText): number {
   const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
+
   if (typeof document === "undefined") {
     return Math.max(1, Math.ceil(frame.text.split("\n").length * lineHeight));
   }
+
   const measurement = document.createElement("span");
   const typography = canvasTextStyle(frame);
   measurement.className = "canvas-text-content canvas-text-measurement";
@@ -44,12 +46,15 @@ export function measureCanvasTextHeight(frame: CanvasText): number {
   });
   measurement.textContent = frame.text + "\u200b";
   document.body.append(measurement);
+
   const height = Math.max(
     1,
     Math.ceil(lineHeight),
     Math.ceil(measurement.getBoundingClientRect().height),
   );
+
   measurement.remove();
+
   return height;
 }
 
@@ -58,7 +63,9 @@ const PenContent = memo(function PenContent({ frame }: { frame: CanvasPen }) {
     () => frame.points.map((point) => `${point.x},${point.y}`).join(" "),
     [frame.points],
   );
+
   const first = frame.points[0];
+
   return (
     <svg
       className="canvas-pen-content"
@@ -129,6 +136,7 @@ export const CanvasNodeAppearance = memo(function CanvasNodeAppearance({
   frame: CanvasFrame;
 }) {
   const style = canvasAppearanceStyle(frame);
+
   return style ? <span aria-hidden="true" data-canvas-appearance="" style={style} /> : null;
 });
 
@@ -141,6 +149,7 @@ type TextEditorProps = {
 function textHeight(input: HTMLTextAreaElement, frame: CanvasText) {
   const height = measureCanvasTextHeight({ ...frame, text: input.value });
   input.style.height = `${height}px`;
+
   return height;
 }
 
@@ -153,8 +162,10 @@ export function subscribeTextDraftLifecycle(
   const commitWhenHidden = () => {
     if (visibility.visibilityState === "hidden") commit();
   };
+
   page.addEventListener("pagehide", commit, true);
   visibility.addEventListener("visibilitychange", commitWhenHidden, true);
+
   return () => {
     page.removeEventListener("pagehide", commit, true);
     visibility.removeEventListener("visibilitychange", commitWhenHidden, true);
@@ -216,12 +227,14 @@ export function CanvasTextEditor({ frame, onCommit, onCancel }: TextEditorProps)
         event.preventDefault();
         // Capture the surface before the callback can remove this textarea.
         const surface = event.currentTarget.closest<HTMLElement>(".design-canvas");
+
         if (cancel) {
           finishedRef.current = true;
           onCancel?.(frame.id);
         } else {
           commit(event.currentTarget);
         }
+
         // Pointer-driven blur keeps the clicked control's focus; keyboard exits
         // return to the canvas so editing and tool shortcuts continue working.
         surface?.focus({ preventScroll: true });

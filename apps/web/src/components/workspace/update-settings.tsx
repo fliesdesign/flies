@@ -22,6 +22,7 @@ export function UpdateSettings({ desktop }: { desktop: boolean }) {
   useEffect(() => {
     if (!desktop) return;
     let cancelled = false;
+
     void (async () => {
       try {
         const next = await desktopAppVersion();
@@ -30,6 +31,7 @@ export function UpdateSettings({ desktop }: { desktop: boolean }) {
         if (!cancelled) setVersion(null);
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -37,6 +39,7 @@ export function UpdateSettings({ desktop }: { desktop: boolean }) {
 
   async function check() {
     setStatus({ kind: "checking" });
+
     try {
       const found = await checkForDesktopUpdate();
       pending.current = found;
@@ -55,6 +58,7 @@ export function UpdateSettings({ desktop }: { desktop: boolean }) {
     const update = pending.current;
     if (!update) return;
     setStatus({ kind: "downloading", received: 0, total: 0 });
+
     try {
       await update.install((progress) => {
         setStatus({ kind: "downloading", ...progress });
@@ -112,6 +116,7 @@ export function DesktopUpdateBanner({ desktop }: { desktop: boolean }) {
   useEffect(() => {
     if (!shouldAutoCheckUpdates(desktop, import.meta.env.PROD)) return;
     let cancelled = false;
+
     void (async () => {
       try {
         const found = await checkForDesktopUpdate();
@@ -122,6 +127,7 @@ export function DesktopUpdateBanner({ desktop }: { desktop: boolean }) {
         /* production launch check stays silent when GitHub is unreachable */
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -131,6 +137,7 @@ export function DesktopUpdateBanner({ desktop }: { desktop: boolean }) {
     const update = pending.current;
     if (!update) return;
     setStatus({ kind: "downloading", received: 0, total: 0 });
+
     try {
       await update.install((progress) => {
         setStatus({ kind: "downloading", ...progress });

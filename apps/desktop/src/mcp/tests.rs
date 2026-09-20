@@ -68,6 +68,7 @@ async fn discovery_exposes_incremental_html_scopes() {
     assert_eq!(properties["targetId"]["type"], "string");
     assert_eq!(properties["replace"]["type"], "boolean");
     assert_eq!(properties["validateOnly"]["type"], "boolean");
+    assert_eq!(properties["fileId"]["type"], "string");
     assert_eq!(tool["inputSchema"]["required"], json!(["html"]));
 }
 
@@ -292,6 +293,101 @@ async fn overlapping_write_and_screenshot_wait_in_order() {
         .send(json!({"content":[]}))
         .unwrap();
     assert_eq!(screenshot.await.unwrap(), json!({"content":[]}));
+}
+
+#[tokio::test]
+async fn different_files_dispatch_without_waiting() {
+    let bridge = Bridge::new();
+    let writer = bridge.clone();
+    let first = tokio::spawn(async move {
+        writer
+            .call("write_html".into(), json!({"fileId":"alpha"}))
+            .await
+    });
+    let alpha = bridge.next().await.unwrap();
+    assert_eq!(alpha.arguments["fileId"], "alpha");
+    let reader = bridge.clone();
+    let second = tokio::spawn(async move {
+        reader
+            .call("write_html".into(), json!({"fileId":"beta"}))
+            .await
+    });
+    let beta = tokio::time::timeout(Duration::from_secs(2), bridge.next())
+        .await
+        .expect("the second file should dispatch while the first is still running")
+        .unwrap();
+    assert_eq!(beta.arguments["fileId"], "beta");
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&beta.id)
+        .unwrap()
+        .send(json!({"content":[{"type":"text","text":"b"}]}))
+        .unwrap();
+    assert_eq!(
+        second.await.unwrap(),
+        json!({"content":[{"type":"text","text":"b"}]})
+    );
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&alpha.id)
+        .unwrap()
+        .send(json!({"content":[{"type":"text","text":"a"}]}))
+        .unwrap();
+    assert_eq!(
+        first.await.unwrap(),
+        json!({"content":[{"type":"text","text":"a"}]})
+    );
+}
+
+#[tokio::test]
+async fn a_session_remembers_its_opened_file() {
+    let bridge = Bridge::new();
+    let opener = bridge.clone();
+    let open = tokio::spawn(async move {
+        opener
+            .call_on(
+                "open_file".into(),
+                json!({"fileId":"poster"}),
+                Some("agent-a"),
+            )
+            .await
+    });
+    let request = bridge.next().await.unwrap();
+    assert_eq!(request.name, "open_file");
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&request.id)
+        .unwrap()
+        .send(json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\",\"name\":\"Poster\"}"}]}))
+        .unwrap();
+    assert_eq!(open.await.unwrap().get("isError"), None);
+    let writer = bridge.clone();
+    let write = tokio::spawn(async move {
+        writer
+            .call_on(
+                "write_html".into(),
+                json!({"html":"<div></div>"}),
+                Some("agent-a"),
+            )
+            .await
+    });
+    let forwarded = bridge.next().await.unwrap();
+    assert_eq!(forwarded.arguments["fileId"], "poster");
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&forwarded.id)
+        .unwrap()
+        .send(json!({"content":[]}))
+        .unwrap();
+    assert_eq!(write.await.unwrap(), json!({"content":[]}));
 }
 
 #[tokio::test]

@@ -84,7 +84,9 @@ export function PropertyField({
         previewRef.current?.onEnd(true);
       }
     }
+
     window.addEventListener("blur", cancel);
+
     return () => {
       window.removeEventListener("blur", cancel);
       cancel();
@@ -116,6 +118,7 @@ export function PropertyField({
               const gesture = active.current;
               if (!gesture || gesture.pointerId !== event.pointerId) return;
               event.preventDefault();
+
               const next = scrubNumericValue(gesture.value, event.clientX - gesture.lastX, {
                 step,
                 min,
@@ -123,6 +126,7 @@ export function PropertyField({
                 shift: event.shiftKey,
                 alt: event.altKey,
               });
+
               gesture.lastX = event.clientX;
               gesture.value = next;
               preview.onPreview(next);
@@ -145,9 +149,11 @@ export function PropertyField({
             onKeyDown={(event) => {
               const historyShortcut =
                 (event.metaKey || event.ctrlKey) && ["z", "y"].includes(event.key.toLowerCase());
+
               // Once the scrub ends, let the editor undo the committed gesture normally.
               if (historyShortcut && !active.current) return;
               event.stopPropagation();
+
               if (event.key === "Escape" || (active.current && historyShortcut)) {
                 event.preventDefault();
                 finishScrub(true);
@@ -196,6 +202,7 @@ export function PropertyField({
             skipCommit.current = false;
           } else if (shown.trim() !== source && shown.trim() !== "") {
             const number = Number(shown);
+
             if (
               !numeric ||
               (Number.isFinite(number) &&
@@ -205,21 +212,26 @@ export function PropertyField({
               onCommit(numeric ? String(number) : shown.trim());
             }
           }
+
           setDraft(null);
         }}
         onKeyDown={(event) => {
           event.stopPropagation();
+
           if (event.key === "Enter" || event.key === "Escape") {
             event.preventDefault();
+
             if (event.key === "Escape") {
               skipCommit.current = true;
               setDraft(null);
             }
+
             const panel = event.currentTarget.closest<HTMLElement>(".canvas-properties");
             event.currentTarget.blur();
             panel?.focus({ preventScroll: true });
           } else if (numeric && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
             event.preventDefault();
+
             const next = scrubNumericValue(Number(shown || 0), event.key === "ArrowUp" ? 1 : -1, {
               step,
               min,
@@ -227,6 +239,7 @@ export function PropertyField({
               shift: event.shiftKey,
               alt: event.altKey,
             });
+
             setDraft({ source, value: displayNumber(next) });
           }
         }}
@@ -361,6 +374,7 @@ function ColorPopover({
 
   useEffect(() => {
     panel.current?.focus({ preventScroll: true });
+
     function dismiss(event: PointerEvent) {
       if (!(event.target instanceof Node) || panel.current?.contains(event.target)) return;
       if (event.target instanceof Element && event.target.closest(".canvas-property-swatch"))
@@ -368,18 +382,22 @@ function ColorPopover({
       // Commit before the canvas or another control begins a new document gesture.
       closeRef.current(false, false);
     }
+
     function focusOutside(event: FocusEvent) {
       if (event.target instanceof Element && event.target.closest(".canvas-property-swatch"))
         return;
       if (event.target instanceof Node && !panel.current?.contains(event.target))
         closeRef.current(false, false);
     }
+
     function cancel() {
       closeRef.current(true);
     }
+
     document.addEventListener("pointerdown", dismiss, true);
     document.addEventListener("focusin", focusOutside);
     window.addEventListener("blur", cancel);
+
     return () => {
       document.removeEventListener("pointerdown", dismiss, true);
       document.removeEventListener("focusin", focusOutside);
@@ -415,6 +433,7 @@ function ColorPopover({
       onPaste={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
+
         if (
           event.key === "Escape" ||
           ((event.metaKey || event.ctrlKey) && ["z", "y"].includes(event.key.toLowerCase()))
@@ -513,6 +532,7 @@ function ColorPopover({
           onChange={(event) => {
             setHexDraft(event.target.value);
             const normalized = normalizeCanvasHex(event.target.value);
+
             if (normalized) {
               setColor(colorToHsv(normalized));
               onPreview(normalized);

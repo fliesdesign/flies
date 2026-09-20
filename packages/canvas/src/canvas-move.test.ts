@@ -17,6 +17,7 @@ const parent: CanvasFrameNode = {
   height: 200,
   layout: { direction: "row", gap: 10, padding: 20, align: "start", justify: "start" },
 };
+
 const child: CanvasFrame = {
   id: "child",
   name: "Child",
@@ -33,6 +34,7 @@ function previewMove(document: CanvasDocument, roots: string[], delta: { x: numb
   const requested = moveSelection(document.getFrames(), roots, delta);
   document.beginGesture(requested.map((node) => node.id));
   document.previewMany(requested);
+
   return requested;
 }
 

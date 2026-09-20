@@ -19,6 +19,7 @@ function fixture() {
     frame("grandchild", 150, 160, "child"),
     frame("other", 500, 600),
   ]);
+
   return { document, store: new CanvasRenderNodeStore(document, "child") };
 }
 
@@ -39,11 +40,13 @@ describe("canvas render node snapshots", () => {
     const unsubscribeDescendant = descendant.subscribe(() => notifications++);
     const subtree = document.getDescendantIds(["root"]);
     document.beginGesture(subtree);
+
     for (let step = 0; step < 5; step++) {
       document.previewMany(subtree.map((id) => translated(document.getFrame(id)!, 4, 8)));
       assert.strictEqual(store.getSnapshot(), original);
       assert.strictEqual(descendant.getSnapshot(), originalDescendant);
     }
+
     document.endGesture();
     assert.strictEqual(store.getSnapshot(), original);
     assert.strictEqual(descendant.getSnapshot(), originalDescendant);
@@ -78,10 +81,12 @@ describe("canvas render node snapshots", () => {
     const unsubscribe = store.subscribe(() => notifications++);
     const subtree = document.getDescendantIds(["root"]);
     document.beginGesture(subtree);
+
     for (let step = 0; step < 80; step++) {
       document.previewMany(subtree.map((id) => translated(document.getFrame(id)!, 0.1, 0.3)));
       assert.strictEqual(store.getSnapshot(), initial);
     }
+
     document.endGesture();
     assert.equal(notifications, 0);
     document.update(translated(document.getFrame("child")!, 0.00001, 0));
@@ -131,6 +136,7 @@ describe("canvas render node snapshots", () => {
         shadows: [{ offsetX: 2, offsetY: 2, blur: 4, spread: 0, color: "#000" }],
       },
     ]);
+
     const child = new CanvasRenderNodeStore(document, "child");
     const pen = new CanvasRenderNodeStore(document, "pen");
     const before = child.getSnapshot();
@@ -199,14 +205,17 @@ describe("canvas render node snapshots", () => {
     const { document, store } = fixture();
     const subscribeFrame = document.subscribeFrame;
     const active = new Set<string>();
+
     document.subscribeFrame = (id, listener) => {
       active.add(id);
       const unsubscribe = subscribeFrame(id, listener);
+
       return () => {
         active.delete(id);
         unsubscribe();
       };
     };
+
     let notifications = 0;
     const first = store.subscribe(() => notifications++);
     const second = store.subscribe(() => notifications++);

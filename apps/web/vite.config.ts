@@ -16,9 +16,11 @@ function repoUrlPlugin(): Plugin {
       server.middlewares.use((req, _res, next) => {
         if (!req.url) return next();
         const [pathname, query] = req.url.split("?");
+
         if (!pathname?.startsWith("/scripts/") && !pathname?.startsWith("/packages/")) {
           return next();
         }
+
         const file = path.resolve(repoRoot, decodeURIComponent(pathname.slice(1)));
         req.url = `/@fs${file}${query ? `?${query}` : ""}`;
         next();
@@ -48,8 +50,10 @@ export default defineConfig(() => ({
   // Prebundle it through that package so the first WebGPU import does not
   // invalidate the dep cache and reload the editor.
   optimizeDeps: { include: ["@flies/canvas > pixi.js"] },
+  envDir: repoRoot,
   clearScreen: false,
   server: {
+    proxy: { "/api": "http://localhost:3001", "/auth": "http://localhost:3001" },
     port: 1420,
     strictPort: true,
     host: host || false,

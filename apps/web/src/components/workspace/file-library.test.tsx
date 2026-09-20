@@ -5,13 +5,13 @@ import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vite-plus/test";
 
-import type { FileLibrary } from "@/lib/local-files";
+import type { FileLibrary } from "@/lib/files";
 import { WORKSPACE_SESSION_KEY } from "@/lib/workspace-session";
 
 import { FileLibraryView } from "./file-library";
 
 const library: FileLibrary = {
-  directory: "/tmp/flies",
+  workspace: { id: "workspace", name: "My workspace" },
   warnings: [],
   files: [
     {
@@ -81,7 +81,6 @@ function render(desktop = true) {
       onArchive={async () => {}}
       onRestore={async () => {}}
       onRefresh={async () => {}}
-      onBrowser={() => {}}
     />,
   );
 }
@@ -98,6 +97,7 @@ function withSession(session: Record<string, unknown> | null, run: () => void) {
       removeItem: (key: string) => store.delete(key),
     },
   });
+
   try {
     run();
   } finally {
@@ -121,8 +121,10 @@ describe("file library startup sidebar", () => {
       assert.ok(markup.indexOf("<span>Archive</span>") < markup.indexOf("<span>Settings</span>"));
       assert.match(
         markup,
-        /data-sidebar="menu-button"[^>]*>[\s\S]*?<svg[\s\S]*?text-muted-foreground/,
+        /data-sidebar="menu-button"[^>]*>[\s\S]*?<svg[\s\S]*?size-3\.5[\s\S]*?text-muted-foreground/,
       );
+      assert.match(markup, /data-size="sm"/);
+      assert.match(markup, /text-xs/);
       assert.match(markup, />Poster</);
       assert.match(markup, /class="library-grid"/);
       assert.match(markup, /class="library-preview"/);

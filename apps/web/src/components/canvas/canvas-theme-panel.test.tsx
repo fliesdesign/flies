@@ -33,6 +33,7 @@ describe("canvas theme panel", () => {
         }
       />,
     );
+
     assert.match(markup, /4 tokens/);
     assert.match(markup, /Brand/);
     assert.match(markup, />20</);

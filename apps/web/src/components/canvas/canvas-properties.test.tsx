@@ -16,6 +16,7 @@ const frame: CanvasFrame = {
   width: 400,
   height: 300,
 };
+
 const rectangle: CanvasFrame = {
   id: "rect",
   name: "Rectangle",
@@ -27,6 +28,7 @@ const rectangle: CanvasFrame = {
   height: 60,
   fill: "#abc123",
 };
+
 const text: CanvasFrame = {
   id: "text",
   name: "Heading",
@@ -109,6 +111,7 @@ describe("canvas properties panel", () => {
       opacity: 0.4,
       fill: "#ffffff",
     };
+
     const markup = render([frame, rectangle, other], [rectangle.id, other.id]);
     assert.match(input(markup, "X position"), /value="130"/);
     assert.match(input(markup, "Width"), /value="250"/);
@@ -146,6 +149,7 @@ describe("canvas properties panel", () => {
       ],
       [rectangle.id],
     );
+
     assert.match(input(markup, "X position"), /disabled/);
     assert.match(button(markup, "Show selection"), /aria-pressed="true"/);
     assert.match(button(markup, "Lock selection"), /aria-pressed="false"/);
@@ -169,6 +173,7 @@ describe("canvas properties panel", () => {
       stroke: "#ff0000",
       strokeWidth: 3,
     };
+
     const markup = render([pen], [pen.id]);
     assert.match(input(markup, "Stroke color"), /value="FF0000"/);
     assert.match(input(markup, "Stroke width"), /value="3"/);
@@ -188,6 +193,7 @@ describe("canvas properties panel", () => {
     assert.match(free, /aria-label="Auto layout direction"/);
     assert.match(free, /<option value="none" selected="">Free layout/);
     assert.doesNotMatch(free, /aria-label="Layout gap"/);
+
     const arranged = render(
       [
         {
@@ -203,6 +209,7 @@ describe("canvas properties panel", () => {
       ],
       [frame.id],
     );
+
     assert.match(arranged, /<option value="row" selected="">Horizontal/);
     assert.match(input(arranged, "Layout gap"), /value="20"/);
     assert.match(input(arranged, "Layout padding"), /value="12"/);
@@ -220,6 +227,7 @@ describe("canvas properties panel", () => {
       ],
       [rectangle.id],
     );
+
     assert.match(input(markup, "X position"), /disabled/);
     assert.match(input(markup, "Y position"), /disabled/);
     assert.match(button(markup, "Adjust x position"), /disabled/);

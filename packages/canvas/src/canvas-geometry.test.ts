@@ -41,6 +41,7 @@ describe("canvas coordinates", () => {
 
 describe("frame resizing", () => {
   const start: FrameRect = { x: -100, y: -50, width: 200, height: 120 };
+
   const cases: [ResizeHandle, FrameRect][] = [
     ["n", { x: -100, y: -20, width: 200, height: 90 }],
     ["ne", { x: -100, y: -20, width: 220, height: 90 }],
@@ -62,6 +63,7 @@ describe("frame resizing", () => {
         x: handle.includes("w") ? 500 : -500,
         y: handle.includes("n") ? 500 : -500,
       };
+
       const result = resizeFrame(start, handle, delta);
       const horizontal = handle.includes("w") || handle.includes("e");
       const vertical = handle.includes("n") || handle.includes("s");
@@ -106,6 +108,7 @@ describe("fitting the viewport", () => {
       { x: -400, y: -200, width: 300, height: 200 },
       { x: 200, y: 100, width: 400, height: 500 },
     ];
+
     const viewport = fitViewport(frames, { x: 800, y: 640 }, 80);
 
     assert.deepEqual(viewport, { x: 340, y: 200, zoom: 0.6 });
@@ -132,6 +135,7 @@ describe("fitting the viewport", () => {
 
 describe("proportional resizing", () => {
   const start = { x: 100, y: 200, width: 200, height: 100 };
+
   for (const handle of ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as ResizeHandle[]) {
     it(`preserves aspect and the opposite anchor for ${handle}`, () => {
       const next = resizeFrameProportionally(start, handle, { x: 50, y: 30 });
@@ -144,6 +148,7 @@ describe("proportional resizing", () => {
       else assert.equal(next.y + next.height / 2, 250);
     });
   }
+
   it("keeps both minimum dimensions and never flips", () => {
     const next = resizeFrameProportionally(start, "nw", { x: 1000, y: 1000 }, 40);
     assert.deepEqual(next, { x: 220, y: 260, width: 80, height: 40 });

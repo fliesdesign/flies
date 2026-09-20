@@ -1,0 +1,26 @@
+{
+  "name": "@flies/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env --watch src/index.ts",
+    "start": "bun --env-file=../../.env src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test/unit.test.ts",
+    "test:integration": "bun --env-file=../../.env test test/integration.test.ts",
+    "db:generate": "bun --env-file=../../.env x drizzle-kit generate",
+    "db:migrate": "bun --env-file=../../.env src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@flies/canvas": "workspace:*",
+    "@workos-inc/node": "^10.13.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.8",
+    "valibot": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "~6.0.3"
+  }
+}

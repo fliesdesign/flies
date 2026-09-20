@@ -27,10 +27,12 @@ describe("canvas project replacement", () => {
     const original = document.getFrames();
     const replacement = [frame("b", 200), frame("a", 400), frame("new", 600)];
     let commits = 0;
+
     const unsubscribe = document.subscribe(() => {
       commits++;
       assert.deepEqual(document.getFrames(), replacement);
     });
+
     assert.equal(document.replaceAll(replacement), true);
     assert.equal(commits, 1);
     assert.equal(document.getHistoryStats().undoEntries, 1);
@@ -59,6 +61,7 @@ describe("canvas project replacement", () => {
     document.beginGesture("a");
     document.preview(frame("a", 40));
     const snapshot = document.getSnapshot();
+
     for (const invalid of [
       [frame("b"), frame("b")],
       [{ ...frame("b"), width: -1 }],
@@ -69,6 +72,7 @@ describe("canvas project replacement", () => {
       assert.strictEqual(document.getSnapshot(), snapshot);
       assert.deepEqual(document.getCommittedFrames(), [frame("a")]);
     }
+
     document.endGesture(true);
     assert.deepEqual(document.getFrames(), [frame("a")]);
   });
@@ -138,6 +142,7 @@ describe("canvas document subscriptions", () => {
   it("notifies index consumers after frame and ordering are updated and supports unsubscribe", () => {
     const document = new CanvasDocument();
     const events: string[] = [];
+
     const unsubscribeChanges = document.subscribeChanges(([id]) => {
       assert.equal(id, "a");
       assert.deepEqual(document.getIds(), ["a"]);
@@ -145,6 +150,7 @@ describe("canvas document subscriptions", () => {
       assert.equal(document.getSnapshot().revision, 1);
       events.push("index");
     });
+
     const unsubscribe = document.subscribe(() => events.push("global"));
     let frameNotifications = 0;
     const unsubscribeFrame = document.subscribeFrame("a", () => frameNotifications++);
@@ -169,6 +175,7 @@ describe("canvas node content", () => {
     color: "#ededed",
     height: 30,
   };
+
   const pen: CanvasPen = {
     ...frame("pen"),
     kind: "pen",
@@ -181,6 +188,7 @@ describe("canvas node content", () => {
     pathWidth: 30,
     pathHeight: 20,
   };
+
   const variants: CanvasFrame[] = [
     frame("legacy"),
     { ...frame("explicit"), kind: "frame" },
@@ -244,6 +252,7 @@ describe("canvas node content", () => {
         { ...text, id: "convert" },
       ],
     ];
+
     for (const [before, after] of changes) {
       const document = new CanvasDocument([before]);
       document.update(after);
@@ -284,6 +293,7 @@ describe("canvas node content", () => {
       { ...frame("image"), kind: "image", src: "data:image/png;base64,AAAA", cornerRadius: 8 },
       frame("legacy"),
     ];
+
     const document = new CanvasDocument(styled);
     let saved = "";
     saveCanvasFrames(document.getFrames(), {
@@ -321,6 +331,7 @@ describe("canvas node content", () => {
       { ...text, letterSpacing: 100.01 },
       { ...text, textAlign: "justify" },
     ];
+
     for (const node of invalid) {
       assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify([node]) }), []);
       const document = new CanvasDocument([text]);
@@ -353,6 +364,7 @@ describe("canvas node content", () => {
       { x: 0, y: 0 },
       { x: 5, y: 8 },
     ];
+
     const document = new CanvasDocument([{ ...pen, points: inputPoints }]);
     inputPoints[0].x = 999;
     inputPoints.push({ x: 50, y: 50 });
@@ -364,10 +376,12 @@ describe("canvas node content", () => {
     assert.ok(Object.isFrozen(original.points));
     assert.ok(original.points.every(Object.isFrozen));
     document.beginGesture(pen.id);
+
     for (let x = 1; x <= 60; x++) {
       document.preview({ ...original, x, width: original.width + x });
       assert.strictEqual((document.getFrame(pen.id) as CanvasPen).points, original.points);
     }
+
     document.endGesture();
     document.undo();
     assert.strictEqual((document.getFrame(pen.id) as CanvasPen).points, original.points);
@@ -396,6 +410,7 @@ describe("canvas node content", () => {
     const small = variants
       .filter((node) => node.kind && node.kind !== "frame")
       .map((node) => Object.assign({}, node, { width: 1, height: 1 }));
+
     assert.deepEqual(new CanvasDocument(small).getFrames(), small);
     const document = new CanvasDocument();
     document.add({ ...frame("legacy"), width: 39 });
@@ -427,10 +442,12 @@ describe("canvas node content", () => {
       { ...pen, pathHeight: Number.NaN },
       { ...pen, stroke: "invalid" },
     ];
+
     for (const item of invalid) {
       assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify([item]) }), []);
       assert.throws(() => new CanvasDocument([item as CanvasFrame]));
     }
+
     const document = new CanvasDocument(variants);
     const snapshot = document.getSnapshot();
     document.update({ ...text, fontSize: 0 });
@@ -523,9 +540,11 @@ describe("canvas persistence", () => {
     const loaded = loadCanvasFrames({
       getItem: (key) => {
         assert.equal(key, CANVAS_STORAGE_KEY);
+
         return JSON.stringify([{ ...frame("a", -40), arbitrary: "ignored" }, frame("b")]);
       },
     });
+
     assert.deepEqual(loaded, [frame("a", -40), frame("b")]);
     assert.ok(Object.isFrozen(loaded[0]));
   });
@@ -534,6 +553,7 @@ describe("canvas persistence", () => {
     const loaded = loadCanvasFrames({
       getItem: (key) => (key === LEGACY_CANVAS_STORAGE_KEY ? JSON.stringify([frame("a")]) : null),
     });
+
     assert.deepEqual(loaded, [frame("a")]);
   });
 
@@ -550,6 +570,7 @@ describe("canvas persistence", () => {
     ]) {
       assert.deepEqual(loadCanvasFrames({ getItem: () => saved }), []);
     }
+
     assert.deepEqual(loadCanvasFrames({ getItem: () => null }), []);
     assert.deepEqual(
       loadCanvasFrames({
@@ -627,6 +648,7 @@ describe("canvas hierarchy and atomic operations", () => {
       frame("a"),
       child("second", "a"),
     ]);
+
     assert.deepEqual(document.getIds(), ["b", "a", "first", "nested", "nested-child", "second"]);
     assert.deepEqual(document.getChildren(), ["b", "a"]);
     assert.deepEqual(document.getChildren("a"), ["first", "nested", "second"]);
@@ -659,6 +681,7 @@ describe("canvas hierarchy and atomic operations", () => {
       { ...group("g", "a"), x: 125 },
       { ...child("c", "g", 140), locked: false },
     ];
+
     let saved = "";
     saveCanvasFrames(new CanvasDocument(nodes).getFrames(), {
       setItem: (_key, value) => {
@@ -686,6 +709,7 @@ describe("canvas hierarchy and atomic operations", () => {
       [{ ...frame("a"), clipContent: "yes" } as unknown as CanvasFrame],
       [{ ...frame("a"), parentId: null } as unknown as CanvasFrame],
     ];
+
     for (const nodes of invalid) {
       assert.throws(() => new CanvasDocument(nodes));
       assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify(nodes) }), []);
@@ -775,6 +799,7 @@ describe("canvas hierarchy and atomic operations", () => {
       child("higher", "parent"),
       frame("outside"),
     ]);
+
     document.transact({ add: [group("g", "parent")], update: [child("a", "g"), child("b", "g")] });
     assert.deepEqual(document.getIds(), ["parent", "g", "a", "b", "higher", "outside"]);
     assert.deepEqual(document.getChildren("parent"), ["g", "higher"]);
@@ -816,11 +841,13 @@ describe("canvas hierarchy and atomic operations", () => {
     const document = new CanvasDocument(nodes);
     const snapshot = document.getSnapshot();
     document.beginGesture(["a", "c"]);
+
     for (let delta = 1; delta <= 60; delta++) {
       document.previewMany(
         nodes.slice(0, 2).map((node) => Object.assign({}, node, { x: node.x + delta })),
       );
     }
+
     assert.strictEqual(document.getSnapshot(), snapshot);
     assert.deepEqual(document.getCommittedFrames(), nodes);
     document.endGesture();
@@ -957,6 +984,7 @@ describe("canvas hierarchy and atomic operations", () => {
       frame("b"),
       frame("c"),
     ]);
+
     document.reorder(["a", "a1"], "front");
     assert.deepEqual(document.getIds(), ["b", "c", "a", "a1", "a2"]);
     document.undo();
@@ -997,20 +1025,24 @@ describe("canvas legacy migration", () => {
       legacyObject("inside-outer", 600, 400),
       legacyObject("outside", 900, 900),
     ];
+
     const migrated = loadCanvasFrames(
       { getItem: () => JSON.stringify(nodes) },
       { migrateLegacy: true },
     );
+
     const byId = new Map(migrated.map((node) => [node.id, node]));
     assert.equal(byId.get("inner")?.parentId, "outer");
     assert.equal(byId.get("inside-inner")?.parentId, "inner");
     assert.equal(byId.get("inside-outer")?.parentId, "outer");
     assert.equal(byId.get("outside")?.parentId, undefined);
     assert.equal(migrated.length, nodes.length);
+
     for (const original of nodes) {
       const { parentId: _parent, ...node } = byId.get(original.id)!;
       assert.deepEqual(node, original);
     }
+
     const document = new CanvasDocument(migrated);
     assert.deepEqual(document.getDescendantIds(["outer"]), [
       "outer",
@@ -1029,10 +1061,12 @@ describe("canvas legacy migration", () => {
       { ...frame("equal-b", 1000), y: 1000 },
       legacyObject("on-equal", 1100, 1100),
     ];
+
     const migrated = loadCanvasFrames(
       { getItem: () => JSON.stringify(nodes) },
       { migrateLegacy: true },
     );
+
     const byId = new Map(migrated.map((node) => [node.id, node]));
     assert.equal(byId.get("inner")?.parentId, "middle");
     assert.equal(byId.get("middle")?.parentId, "outer");
@@ -1046,10 +1080,12 @@ describe("canvas legacy migration", () => {
     const nodes = [frame("outer"), legacyObject("object", 10, 10)];
     assert.deepEqual(loadCanvasFrames({ getItem: () => JSON.stringify(nodes) }), nodes);
     const explicit = [...nodes, { ...legacyObject("child", 20, 20), parentId: "outer" }];
+
     const loaded = loadCanvasFrames(
       { getItem: () => JSON.stringify(explicit) },
       { migrateLegacy: true },
     );
+
     assert.equal(loaded.find((node) => node.id === "object")?.parentId, undefined);
     assert.equal(loaded.find((node) => node.id === "child")?.parentId, "outer");
   });
@@ -1064,10 +1100,12 @@ describe("canvas legacy migration", () => {
     });
     assert.deepEqual(JSON.parse(saved), { version: 2, nodes, theme: { tokens: [] } });
     assert.deepEqual(loadCanvasFrames({ getItem: () => saved }, { migrateLegacy: true }), nodes);
+
     const migrated = loadCanvasFrames(
       { getItem: () => JSON.stringify(nodes) },
       { migrateLegacy: true },
     );
+
     saveCanvasFrames(migrated, {
       setItem: (_key, value) => {
         saved = value;
@@ -1105,10 +1143,12 @@ describe("canvas border and shadow appearance", () => {
     assert.ok(Object.isFrozen(original.shadows));
     assert.ok(original.shadows?.every(Object.isFrozen));
     document.beginGesture(node.id);
+
     for (let x = 1; x < 10; x++) {
       document.preview({ ...original, x });
       assert.strictEqual(document.getFrame(node.id)?.shadows, original.shadows);
     }
+
     document.endGesture();
     document.undo();
     assert.strictEqual(document.getFrame(node.id)?.shadows, original.shadows);
@@ -1118,6 +1158,7 @@ describe("canvas border and shadow appearance", () => {
 
   it("compares every shadow property and list order without adding history for equivalent values", () => {
     const before = { ...frame("effects"), shadows: [shadow] };
+
     const variants: readonly CanvasShadow[][] = [
       [{ ...shadow, offsetX: 4 }],
       [{ ...shadow, offsetY: -5 }],
@@ -1128,6 +1169,7 @@ describe("canvas border and shadow appearance", () => {
       [shadow, { ...shadow, offsetX: 8 }],
       [],
     ];
+
     for (const shadows of variants) {
       const document = new CanvasDocument([before]);
       const initialSnapshot = document.getSnapshot();
@@ -1141,9 +1183,11 @@ describe("canvas border and shadow appearance", () => {
       document.redo();
       assert.deepEqual(document.getFrame(before.id)?.shadows, shadows);
     }
+
     const document = new CanvasDocument([
       { ...before, shadows: [shadow, { ...shadow, inset: true }] },
     ]);
+
     document.update({ ...before, shadows: [{ ...shadow, inset: true }, shadow] });
     assert.equal(document.getHistoryStats().undoEntries, 1);
     document.update({ ...frame("effects") });
@@ -1164,6 +1208,7 @@ describe("canvas border and shadow appearance", () => {
       [{ ...shadow, inset: "true" }],
       Array.from({ length: 9 }, () => shadow),
     ];
+
     for (const shadows of malformed) {
       const original = frame("effects");
       const node = { ...original, shadows } as CanvasFrame;

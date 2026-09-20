@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("HTML import, document history and screenshot use the real renderer", async ({ page }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const htmlModule = "/src/lib/mcp/html.ts";
     const docModule = "/packages/canvas/src/canvas-document.ts";
@@ -9,10 +10,12 @@ test("HTML import, document history and screenshot use the real renderer", async
     const { importHtml } = await import(/* @vite-ignore */ htmlModule);
     const { CanvasDocument } = await import(/* @vite-ignore */ docModule);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exportModule);
+
     const nodes = await importHtml(
       '<div data-name="Card" style="display:flex;flex-direction:column;gap:12px;padding:20px;width:300px;height:200px;background:#ff0000;border-radius:8px;font-family:Georgia;color:#ffffff"><p style="font-size:24px">Hello Flies</p><div style="width:60px;height:40px;background:#00ff00"></div></div>',
       { x: 100, y: 200, width: 800 },
     );
+
     const doc = new CanvasDocument();
     doc.addMany(nodes);
     const root = doc.getChildren()[0];
@@ -32,6 +35,7 @@ test("HTML import, document history and screenshot use the real renderer", async
     doc.undo();
     const emptyAfterUndo = doc.getIds().length === 0;
     doc.redo();
+
     return {
       root: nodes[0],
       text,
@@ -43,6 +47,7 @@ test("HTML import, document history and screenshot use the real renderer", async
       restored: doc.getIds().length === nodes.length,
     };
   });
+
   expect(result.root).toMatchObject({ name: "Card", x: 100, y: 200, width: 300, height: 200 });
   expect(result.text).toMatchObject({ text: "Hello Flies", x: 120, y: 220, fontSize: 24 });
   expect(result.pixel).toEqual([255, 0, 0, 255]);
@@ -55,9 +60,11 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
   page,
 }) => {
   await page.goto("/");
+
   const errors = await page.evaluate(async () => {
     const path = "/src/lib/mcp/html.ts";
     const { importHtml } = await import(/* @vite-ignore */ path);
+
     const sources = [
       "<script>window.pwned=true</script>",
       '<img src="https://example.com/test.png">',
@@ -65,10 +72,12 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
       '<div style="background:image-set(&quot;https://example.com/image.png&quot;)">Hi</div>',
       '<div style="transform:rotate(20deg)">Hi</div>',
     ];
+
     return Promise.all(
       sources.map(async (source) => {
         try {
           await importHtml(source, { x: 0, y: 0, width: 400 });
+
           return false;
         } catch {
           return true;
@@ -76,16 +85,19 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
       }),
     );
   });
+
   expect(errors).toEqual([true, true, true, true, true]);
 });
 
 test("write_html replacement is atomic and undo restores the old children", async ({ page }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const docPath = "/packages/canvas/src/canvas-document.ts";
     const editorPath = "/src/lib/mcp/editor.ts";
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
+
     const doc = new CanvasDocument([
       { id: "parent", name: "Frame", x: 100, y: 200, width: 400, height: 300 },
       {
@@ -100,6 +112,7 @@ test("write_html replacement is atomic and undo restores the old children", asyn
         fill: "#000000",
       },
     ]);
+
     const controls = { document: doc, prepare: () => {}, select: () => {}, getSelection: () => [] };
     await editorTool(controls, "write_html", {
       parentId: "parent",
@@ -112,6 +125,7 @@ test("write_html replacement is atomic and undo restores the old children", asyn
     const oldRemoved = !doc.getFrame("old");
     await editorTool(controls, "undo", {});
     const restored = doc.getChildren("parent");
+
     try {
       await editorTool(controls, "write_html", {
         parentId: "parent",
@@ -121,8 +135,10 @@ test("write_html replacement is atomic and undo restores the old children", asyn
     } catch {
       /* Expected. */
     }
+
     return { child, oldRemoved, restored, afterFailure: doc.getChildren("parent") };
   });
+
   expect(result.child).toMatchObject({ parentId: "parent", x: 110, y: 220, width: 80, height: 60 });
   expect(result.oldRemoved).toBe(true);
   expect(result.restored).toEqual(["old"]);

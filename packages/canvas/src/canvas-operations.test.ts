@@ -89,17 +89,20 @@ describe("canvas selection geometry", () => {
       width: 100,
       height: 200,
     });
+
     assert.deepEqual(changed, [{ ...scene[1], x: 70, y: 80, width: 100, height: 200 }]);
   });
 
   it("scales multiple selections and all nested descendants around the original bounds", () => {
     const start = selectionBounds(scene, ["inner", "sibling"])!;
+
     const changed = resizeSelection(scene, ["inner", "sibling"], start, {
       x: 0,
       y: 0,
       width: start.width * 2,
       height: start.height * 3,
     });
+
     assert.deepEqual(
       changed.map(({ id, x, y, width, height }) => ({ id, x, y, width, height })),
       [
@@ -112,6 +115,7 @@ describe("canvas selection geometry", () => {
 
   it("scales group typography while direct text box resizing keeps its font size", () => {
     const group = frame("group", { kind: "group", width: 100, height: 100 });
+
     const text: CanvasFrame = {
       ...rectangle("text", { parentId: "group", x: 10, y: 10 }),
       kind: "text",
@@ -119,6 +123,7 @@ describe("canvas selection geometry", () => {
       fontSize: 20,
       color: "#fff",
     };
+
     const doubled = { x: 0, y: 0, width: 200, height: 200 };
     const changed = resizeSelection([group, text], ["group"], group, doubled);
     assert.equal(changed[1].kind === "text" && changed[1].fontSize, 40);
@@ -291,6 +296,7 @@ describe("canvas marquee", () => {
 
   it("uses visible clipped bounds and excludes completely hidden children", () => {
     const outer = frame("outer", { width: 100, height: 100 });
+
     const partial = rectangle("partial", {
       parentId: "outer",
       x: 80,
@@ -298,6 +304,7 @@ describe("canvas marquee", () => {
       width: 80,
       height: 40,
     });
+
     const hidden = rectangle("hidden", { parentId: "outer", x: 150, y: 20 });
     const nodes = [outer, partial, hidden];
     assert.deepEqual(marqueeSelection(nodes, { x: 79, y: 19, width: 22, height: 42 }), ["partial"]);
@@ -316,6 +323,7 @@ describe("canvas marquee", () => {
       frame("group", { kind: "group", parentId: "inner", x: 80, width: 1, height: 1 }),
       rectangle("child", { parentId: "group", x: 95, y: 30, width: 50, height: 40 }),
     ];
+
     assert.deepEqual(marqueeSelection(nodes, { x: 94, y: 29, width: 7, height: 42 }), ["child"]);
   });
 });
@@ -370,6 +378,7 @@ describe("canvas clipboard", () => {
         color: "#fff",
       } as CanvasFrame,
     ];
+
     assert.deepEqual(decodeCanvasClipboard(encodeCanvasClipboard(nodes, ["frame"])!), nodes);
   });
 
@@ -398,6 +407,7 @@ describe("canvas clipboard", () => {
     ]) {
       assert.equal(decodeCanvasClipboard(text), null);
     }
+
     assert.equal(decodeCanvasClipboard(clipboardPayload([{ ...scene[0], width: "400" }])), null);
     assert.equal(decodeCanvasClipboard(clipboardPayload([scene[0], scene[0]])), null);
     assert.equal(

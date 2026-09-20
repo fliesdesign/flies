@@ -1,0 +1,90 @@
+import { sql } from "drizzle-orm";
+import {
+  pgTable,
+  text,
+  uuid,
+  timestamp,
+  integer,
+  jsonb,
+  boolean,
+  uniqueIndex,
+  index,
+  check,
+} from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: text().primaryKey(),
+  email: text().notNull(),
+  name: text().notNull(),
+  createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+});
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    ownerId: text()
+      .notNull()
+      .references(() => users.id),
+    name: text().notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("workspace_owner").on(t.ownerId)],
+);
+export const files = pgTable(
+  "files",
+  {
+    id: uuid().defaultRandom().primaryKey(),
+    workspaceId: uuid()
+      .notNull()
+      .references(() => workspaces.id),
+    name: text().notNull(),
+    revision: integer().notNull(),
+    objectKey: text().notNull(),
+    nodeCount: integer().notNull(),
+    preview: jsonb().$type<Record<string, unknown>[]>().notNull(),
+    archived: boolean().default(false).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("files_workspace_updated").on(t.workspaceId, t.updatedAt),
+    check("file_revision_nonnegative", sql`${t.revision} >= 0`),
+  ],
+);
+export const revisions = pgTable(
+  "file_revisions",
+  {
+    id: uuid().primaryKey(),
+    fileId: uuid()
+      .notNull()
+      .references(() => files.id),
+    number: integer().notNull(),
+    objectKey: text().notNull(),
+    sha256: text().notNull(),
+    byteLength: integer().notNull(),
+    createdBy: text()
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("file_revision_number").on(t.fileId, t.number),
+    uniqueIndex("revision_object_key").on(t.objectKey),
+  ],
+);
+export const sessions = pgTable("sessions", {
+  tokenHash: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => users.id),
+  sealedSession: text().notNull(),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+});
+export const loginAttempts = pgTable("login_attempts", {
+  state: text().primaryKey(),
+  verifier: text().notNull(),
+  browserHash: text().notNull(),
+  desktopChallenge: text(),
+  sessionToken: text(),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+});

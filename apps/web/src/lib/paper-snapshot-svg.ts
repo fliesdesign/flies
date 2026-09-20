@@ -6,13 +6,16 @@ export function withSnapshotTimeout<T>(promise: Promise<T>, milliseconds = 3000)
       () => reject(new Error("Snapshot image decoding timed out.")),
       milliseconds,
     );
+
     promise.then(
       (value) => {
         window.clearTimeout(timer);
+
         return resolve(value);
       },
       (error: unknown) => {
         window.clearTimeout(timer);
+
         return reject(error);
       },
     );

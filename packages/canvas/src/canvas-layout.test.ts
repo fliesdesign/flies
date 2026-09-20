@@ -25,6 +25,7 @@ const layout: CanvasLayout = {
   align: "start",
   justify: "start",
 };
+
 const parent: CanvasFrameNode = {
   id: "parent",
   name: "Parent",
@@ -34,6 +35,7 @@ const parent: CanvasFrameNode = {
   height: 160,
   layout,
 };
+
 function child(id: string, overrides: Partial<CanvasFrame> = {}): CanvasFrame {
   return {
     id,
@@ -48,8 +50,10 @@ function child(id: string, overrides: Partial<CanvasFrame> = {}): CanvasFrame {
     ...overrides,
   } as CanvasFrame;
 }
+
 function position(document: CanvasDocument, id: string) {
   const node = document.getFrame(id)!;
+
   return { x: node.x, y: node.y };
 }
 
@@ -74,6 +78,7 @@ describe("fixed-size canvas auto layout", () => {
         justify: "center" as const,
       },
     };
+
     assert.deepEqual(
       [...canvasLayoutPositions(column, [child("a"), child("b", { width: 80 })])],
       [
@@ -88,6 +93,7 @@ describe("fixed-size canvas auto layout", () => {
       ...parent,
       layout: { ...layout, justify: "space-between" as const, align: "center" as const },
     };
+
     assert.deepEqual(
       [...canvasLayoutPositions(distributed, [child("a"), child("b")])],
       [
@@ -95,10 +101,12 @@ describe("fixed-size canvas auto layout", () => {
         ["b", { x: 330, y: 260 }],
       ],
     );
+
     const positions = canvasLayoutPositions({ ...distributed, width: 100 }, [
       child("a"),
       child("b"),
     ]);
+
     assert.deepEqual(positions.get("b"), { x: 180, y: 260 });
     assert.equal(canvasLayoutPositions(distributed, [child("a")]).get("a")?.x, 120);
   });
@@ -109,6 +117,7 @@ describe("fixed-size canvas auto layout", () => {
       child("hidden", { hidden: true }),
       child("b"),
     ]);
+
     assert.equal(positions.size, 2);
     assert.equal(positions.get("b")?.x, 180);
     assert.equal(canvasLayoutPositions({ ...parent, layout: undefined }, [child("a")]).size, 0);
@@ -116,6 +125,7 @@ describe("fixed-size canvas auto layout", () => {
 
   it("rejects malformed or non-finite layout options", () => {
     assert.ok(isCanvasLayout(DEFAULT_CANVAS_LAYOUT));
+
     for (const invalid of [
       null,
       [],
@@ -139,6 +149,7 @@ describe("auto layout document operations", () => {
       x: 1e308,
       layout: { ...layout, padding: 1e308 },
     };
+
     assert.throws(() => new CanvasDocument([overflowing, child("a")]), /finite, valid bounds/);
     const document = new CanvasDocument([{ ...parent, x: 1e308 }, child("a")]);
     const initial = document.getFrames();
@@ -194,6 +205,7 @@ describe("auto layout document operations", () => {
       child("a", { x: 501, y: 302 }),
       child("b", { x: -5, y: -10 }),
     ];
+
     const document = new CanvasDocument(nodes);
     const original = document.getFrames();
     document.update(parent);
@@ -240,7 +252,9 @@ describe("auto layout document operations", () => {
       parentId: "parent",
       layout: { ...layout, direction: "column", padding: 5, gap: 4 },
     };
+
     const nested = child("nested", { parentId: "inner", width: 20, height: 20 });
+
     const document = new CanvasDocument([
       parent,
       child("a"),
@@ -248,6 +262,7 @@ describe("auto layout document operations", () => {
       nested,
       child("nested2", { parentId: "inner", width: 20, height: 20 }),
     ]);
+
     assert.deepEqual(position(document, "inner"), { x: 180, y: 220 });
     assert.deepEqual(position(document, "nested"), { x: 185, y: 225 });
     assert.deepEqual(position(document, "nested2"), { x: 185, y: 249 });
@@ -272,12 +287,14 @@ describe("auto layout document operations", () => {
       width: 50,
       height: 40,
     };
+
     const document = new CanvasDocument([
       parent,
       group,
       child("inside", { parentId: "group" }),
       child("b"),
     ]);
+
     assert.deepEqual(position(document, "inside"), { x: 120, y: 220 });
     const before = document.getFrames();
     document.update({ ...document.getFrame("inside")!, width: 90 });
@@ -289,6 +306,7 @@ describe("auto layout document operations", () => {
 
   it("reparents and reorders layers into their layout positions in one atomic history entry", () => {
     const second: CanvasFrameNode = { ...parent, id: "second", x: 500 };
+
     const document = new CanvasDocument([
       parent,
       child("a"),
@@ -296,6 +314,7 @@ describe("auto layout document operations", () => {
       second,
       child("c", { parentId: "second" }),
     ]);
+
     const before = document.getFrames();
     document.moveLayers(["a"], "second", "inside");
     assert.deepEqual(position(document, "a"), { x: 580, y: 220 });
@@ -320,6 +339,7 @@ describe("auto layout document operations", () => {
       height: 100,
       layout: undefined,
     };
+
     const group: CanvasFrame = {
       id: "group",
       name: "Group",
@@ -330,12 +350,14 @@ describe("auto layout document operations", () => {
       width: 50,
       height: 40,
     };
+
     const destination: CanvasFrameNode = {
       ...parent,
       id: "destination",
       x: 600,
       layout: undefined,
     };
+
     const document = new CanvasDocument([
       parent,
       child("a"),
@@ -344,6 +366,7 @@ describe("auto layout document operations", () => {
       child("nested", { parentId: "group" }),
       destination,
     ]);
+
     const before = document.getFrames();
     assert.equal(
       document.transact({
@@ -403,6 +426,7 @@ describe("auto layout document operations", () => {
     const unrelated = Array.from({ length: 10000 }, (_, index) =>
       child(`unrelated-${index}`, { parentId: undefined }),
     );
+
     const document = new CanvasDocument([parent, child("a"), child("b"), ...unrelated]);
     const snapshot = document.getSnapshot();
     const untouched = document.getFrame("unrelated-5000");

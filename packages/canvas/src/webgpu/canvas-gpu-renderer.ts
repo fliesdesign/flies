@@ -53,6 +53,7 @@ type Artwork = {
 const DEFAULT_ARTBOARD_SHADOW: readonly CanvasShadow[] = [
   { offsetX: 0, offsetY: 2, blur: 8, spread: 0, color: "#0000001a" },
 ];
+
 const EMPTY_SHADOWS: readonly CanvasShadow[] = [];
 const RASTER_DATA_URL = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,/i;
 
@@ -68,6 +69,7 @@ function sameVisual(first: CanvasFrame, second: CanvasFrame) {
     first.cornerRadius !== second.cornerRadius
   )
     return false;
+
   switch (first.kind) {
     case "text":
       return (
@@ -155,6 +157,7 @@ export class CanvasGpuRenderer {
     eventMode: "none",
     interactiveChildren: false,
   });
+
   private readonly nodes = new Map<string, Artwork>();
   private readonly dirty = new Set<string>();
   private readonly batch = new AnimationFrameBatch(() => this.render());
@@ -184,6 +187,7 @@ export class CanvasGpuRenderer {
     );
     void renderer.gpu.device.lost.then((reason) => {
       if (!this.destroyed) this.fail(new Error(`WebGPU device lost: ${reason.message}`));
+
       return undefined;
     });
     renderer.gpu.device.addEventListener("uncapturederror", this.handleDeviceError);
@@ -196,6 +200,7 @@ export class CanvasGpuRenderer {
     const renderer = new WebGPURenderer();
     const resolution = Math.min(window.devicePixelRatio || 1, 2);
     let instance: CanvasGpuRenderer | undefined;
+
     try {
       await renderer.init({
         canvas: options.canvas,
@@ -213,6 +218,7 @@ export class CanvasGpuRenderer {
       });
       instance = new CanvasGpuRenderer(renderer, options, resolution);
       instance.render(true);
+
       return instance;
     } catch (error) {
       if (instance) instance.destroy();
@@ -223,8 +229,10 @@ export class CanvasGpuRenderer {
         } catch {
           /* Keep the original initialization error. */
         }
+
         device.destroy();
       }
+
       throw error;
     }
   }
@@ -298,9 +306,11 @@ export class CanvasGpuRenderer {
     if (change === this.lastActivityChange) return;
     this.lastActivityChange = change;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
     for (const id of this.options.document.getRootIds(activity.changedIds)) {
       this.fades.set(id, performance.now());
     }
+
     this.requestRender();
   };
 
@@ -310,6 +320,7 @@ export class CanvasGpuRenderer {
         node.opacityFilter = new AlphaFilter();
         node.outer.filters = [node.opacityFilter];
       }
+
       node.opacityFilter.alpha = opacity;
     } else if (node.opacityFilter) {
       node.outer.filters = [];
@@ -320,38 +331,49 @@ export class CanvasGpuRenderer {
 
   private render(initial = false) {
     if (this.destroyed) return;
+
     try {
       if (this.hierarchyDirty) this.reconcile();
+
       for (const id of this.dirty) {
         const node = this.nodes.get(id);
         const frame = this.options.document.getFrame(id);
         if (node && frame) this.updateNode(node, frame);
       }
+
       this.dirty.clear();
+
       for (const [id, started] of this.fades) {
         const node = this.nodes.get(id);
+
         if (!node) {
           this.fades.delete(id);
           continue;
         }
+
         const progress = Math.min(1, (performance.now() - started) / 320);
         const multiplier = 0.25 + 0.75 * (1 - (1 - progress) ** 3);
         this.updateOpacity(node, (node.frame.opacity ?? 1) * multiplier);
         if (progress === 1) this.fades.delete(id);
       }
+
       const { viewport, size } = this.options.camera.getCurrent();
+
       for (const node of this.nodes.values()) {
         if (node.frame.kind === "svg" && (node.svgScale ?? 0) < this.svgRasterScale(node.frame)) {
           this.updateBody(node, node.frame);
         }
       }
+
       const width = Math.max(1, size.x);
       const height = Math.max(1, size.y);
+
       if (width !== this.lastWidth || height !== this.lastHeight) {
         this.lastWidth = width;
         this.lastHeight = height;
         this.renderer.resize(width, height, this.resolution);
       }
+
       this.world.position.set(viewport.x, viewport.y);
       this.world.scale.set(viewport.zoom);
       this.renderer.render({ container: this.world });
@@ -366,6 +388,7 @@ export class CanvasGpuRenderer {
     this.hierarchyDirty = false;
     const ids = this.options.document.getIds();
     const membership = new Set(ids);
+
     for (const [id, node] of this.nodes) {
       if (!membership.has(id)) {
         node.outer.removeFromParent();
@@ -376,20 +399,25 @@ export class CanvasGpuRenderer {
         this.fontLoads.delete(id);
       }
     }
+
     for (const id of ids) {
       const frame = this.options.document.getFrame(id)!;
       let node = this.nodes.get(id);
+
       if (!node) {
         node = this.createNode(frame);
         this.nodes.set(id, node);
         this.dirty.add(id);
       }
+
       if (node.frame !== frame) this.dirty.add(id);
       const parent = frame.parentId ? this.nodes.get(frame.parentId)?.children : this.world;
       if (parent && node.outer.parent !== parent) parent.addChild(node.outer);
     }
+
     // Document ids are in paint order; sibling ordering changes need no resource rebuilds.
     const positions = new Map<Container, number>();
+
     for (const id of ids) {
       const node = this.nodes.get(id)!;
       const parent = node.outer.parent;
@@ -408,6 +436,7 @@ export class CanvasGpuRenderer {
     const contentMask = new Graphics();
     const childrenMask = new Graphics();
     outer.addChild(body, children, decoration, contentMask, childrenMask);
+
     const node: Artwork = {
       outer,
       body,
@@ -424,6 +453,7 @@ export class CanvasGpuRenderer {
         this.requestDocumentRender();
       }),
     };
+
     return node;
   }
 
@@ -445,9 +475,12 @@ export class CanvasGpuRenderer {
         node.imageSprite.width = frame.width;
         node.imageSprite.height = frame.height;
       }
+
       return;
     }
+
     this.clearBody(node);
+
     if (isFrame(frame) || frame.kind === "rectangle") {
       const color = "fill" in frame ? (frame.fill ?? "#ffffff") : "#ffffff";
       node.body.addChild(shape(new Graphics(), frame).fill(color));
@@ -456,15 +489,19 @@ export class CanvasGpuRenderer {
     } else if (frame.kind === "pen") {
       const pen = new Graphics();
       const first = frame.points[0];
+
       if (first && frame.points.length === 1) {
         pen.circle(first.x, first.y, frame.strokeWidth / 2).fill(frame.stroke);
       } else if (first) {
         pen.moveTo(first.x, first.y);
+
         for (let index = 1; index < frame.points.length; index++) {
           pen.lineTo(frame.points[index].x, frame.points[index].y);
         }
+
         pen.stroke({ color: frame.stroke, width: frame.strokeWidth, cap: "round", join: "round" });
       }
+
       pen.scale.set(frame.width / frame.pathWidth, frame.height / frame.pathHeight);
       node.body.addChild(pen);
     } else if (frame.kind === "image" || frame.kind === "svg") {
@@ -474,6 +511,7 @@ export class CanvasGpuRenderer {
 
   private addText(node: Artwork, frame: CanvasText) {
     const fontKey = `${frame.fontFamily}:${frame.fontWeight}:${frame.fontStyle}:${frame.text}`;
+
     if (frame.fontFamily && this.fontLoads.get(frame.id) !== fontKey) {
       this.fontLoads.set(frame.id, fontKey);
       void ensureCanvasFont(frame)
@@ -488,6 +526,7 @@ export class CanvasGpuRenderer {
           node.initialized = false;
           this.dirty.add(frame.id);
           this.requestDocumentRender();
+
           return true;
         })
         .catch(() => {
@@ -500,17 +539,20 @@ export class CanvasGpuRenderer {
     const metrics = CanvasTextMetrics.measureText(content, style);
     const textureWidth = Math.max(1, metrics.width);
     const textureHeight = Math.max(1, metrics.height);
+
     const resolution = Math.min(
       this.resolution,
       4096 / textureWidth,
       4096 / textureHeight,
       Math.sqrt(8_000_000 / (textureWidth * textureHeight)),
     );
+
     const text = new Text({ text: content, style, resolution });
     // Pixi aligns lines within the longest line; CSS aligns within the text node's full width.
     const alignment = frame.textAlign === "center" ? 0.5 : frame.textAlign === "right" ? 1 : 0;
     text.x = (frame.width - metrics.maxLineWidth) * alignment;
     node.body.addChild(text);
+
     if (frame.textDecoration && frame.textDecoration !== "none") {
       const lines = new Graphics();
       const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
@@ -552,6 +594,7 @@ export class CanvasGpuRenderer {
       "load",
       () => {
         if (this.destroyed || node.image !== image) return;
+
         try {
           // Pixi's WebGPU uploader otherwise converts HTML images to canvas itself
           // and warns on every upload. Supply the supported resource directly.
@@ -569,10 +612,13 @@ export class CanvasGpuRenderer {
           const texture = Texture.from(raster, true);
           const sprite = new Sprite(texture);
           const current = this.options.document.getFrame(frame.id);
+
           if (!current || current.kind !== frame.kind || current.src !== frame.src) {
             sprite.destroy({ texture: true, textureSource: true });
+
             return;
           }
+
           sprite.width = current.width;
           sprite.height = current.height;
           node.imageSprite = sprite;
@@ -601,22 +647,27 @@ export class CanvasGpuRenderer {
     node.outerShadow = undefined;
     node.innerShadow = undefined;
     for (const child of node.decoration.removeChildren()) child.destroy();
+
     const shadows =
       frame.shadows ??
       (isFrame(frame) && !frame.parentId ? DEFAULT_ARTBOARD_SHADOW : EMPTY_SHADOWS);
+
     node.outerShadow = createShadowSprite(frame, shadows, false, this.resolution);
     if (node.outerShadow) node.outer.addChildAt(node.outerShadow, 0);
     node.innerShadow = createShadowSprite(frame, shadows, true, this.resolution);
     if (node.innerShadow) node.decoration.addChild(node.innerShadow);
     const borderWidth = frame.borderWidth ?? 0;
+
     if (borderWidth > 0) {
       const border = shape(new Graphics(), frame).stroke({
         width: borderWidth,
         color: frame.borderColor ?? "#000000",
         alignment: 1,
       });
+
       node.decoration.addChild(border);
     }
+
     node.contentMask.clear();
     if (frame.kind === "text" || frame.kind === "image" || frame.kind === "svg") {
       shape(node.contentMask, frame).fill("#fff");
@@ -636,6 +687,7 @@ export class CanvasGpuRenderer {
       node.image.src = "";
       node.image = undefined;
     }
+
     node.imageSource = undefined;
     destroySprite(node.imageSprite);
     node.imageSprite = undefined;

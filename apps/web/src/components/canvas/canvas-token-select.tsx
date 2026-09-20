@@ -5,6 +5,7 @@ export type TokenChoiceProps = {
   tokenId?: string;
   onToken?: (id: string | null) => void;
 };
+
 export function CanvasTokenSelect({
   tokens,
   tokenId,
@@ -13,6 +14,7 @@ export function CanvasTokenSelect({
   disabled,
 }: TokenChoiceProps & { label: string; disabled?: boolean }) {
   if (!tokens?.length || !onToken) return null;
+
   return (
     <select
       className="canvas-token-select"

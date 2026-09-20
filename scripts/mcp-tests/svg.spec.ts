@@ -4,9 +4,11 @@ test("SVG file import preserves vectors through projects, clipboard, and code ex
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const module = "/packages/canvas/src/index.ts";
     const exporter = "/src/lib/canvas-code-export.ts";
+
     const {
       readCanvasImage,
       CanvasDocument,
@@ -15,7 +17,9 @@ test("SVG file import preserves vectors through projects, clipboard, and code ex
       encodeCanvasClipboard,
       decodeCanvasClipboard,
     } = await import(/* @vite-ignore */ module);
+
     const { exportCanvasCode } = await import(/* @vite-ignore */ exporter);
+
     const asset = await readCanvasImage(
       new File(
         [
@@ -25,6 +29,7 @@ test("SVG file import preserves vectors through projects, clipboard, and code ex
         { type: "image/svg+xml" },
       ),
     );
+
     const scene = new CanvasDocument([{ ...asset, id: "svg", x: 10, y: 20 }]);
     const initial = scene.getFrame("svg");
     scene.update({ ...initial, width: 320, height: 240 });
@@ -33,6 +38,7 @@ test("SVG file import preserves vectors through projects, clipboard, and code ex
     scene.redo();
     const saved = unpackCanvasProject(packCanvasProject("Vectors", scene.getFrames())).nodes[0];
     const copied = decodeCanvasClipboard(encodeCanvasClipboard(scene.getFrames(), ["svg"]))[0];
+
     return {
       asset,
       restored,
@@ -42,6 +48,7 @@ test("SVG file import preserves vectors through projects, clipboard, and code ex
       code: exportCanvasCode(scene.getFrames(), ["svg"], "css"),
     };
   });
+
   expect(result.asset).toMatchObject({ kind: "svg", width: 32, height: 24, name: "Logo" });
   expect(result.source).toContain("linearGradient");
   expect(result.source).not.toMatch(/script|onload|foreignObject|https:\/\/example/);
@@ -55,15 +62,18 @@ test("inline SVG imports as a vector node with inherited color and exports visib
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const module = "/src/lib/mcp/html.ts";
     const exporter = "/src/components/canvas/canvas-export.tsx";
     const { importHtml } = await import(/* @vite-ignore */ module);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exporter);
+
     const nodes = await importHtml(
       '<div style="width:100px;height:100px;color:#ff0000"><svg data-name="Icon" width="100" height="100" viewBox="0 0 10 10"><rect width="10" height="10" fill="currentColor"/></svg></div>',
       { x: 0, y: 0, width: 100 },
     );
+
     const node = nodes.find((item: { kind: string }) => item.kind === "svg");
     const png = await exportCanvasPng(nodes, [node.id]);
     const image = new Image();
@@ -74,23 +84,29 @@ test("inline SVG imports as a vector node with inherited color and exports visib
     const context = canvas.getContext("2d")!;
     context.drawImage(image, 0, 0);
     URL.revokeObjectURL(image.src);
+
     return { node, pixel: [...context.getImageData(50, 50, 1, 1).data] };
   });
+
   expect(result.node).toMatchObject({ kind: "svg", name: "Icon", width: 100, height: 100 });
   expect(result.pixel).toEqual([255, 0, 0, 255]);
 });
 
 test("SVG files reject malformed markup", async ({ page }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const module = "/packages/canvas/src/canvas-svg.ts";
     const { readCanvasSvg } = await import(/* @vite-ignore */ module);
+
     try {
       readCanvasSvg("<svg><path></svg>");
     } catch (error) {
       return String(error);
     }
+
     return "accepted";
   });
+
   expect(result).toContain("not valid SVG");
 });

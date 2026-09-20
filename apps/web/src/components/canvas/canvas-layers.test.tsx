@@ -16,6 +16,7 @@ const frame: CanvasFrame = {
   width: 400,
   height: 300,
 };
+
 const back: CanvasFrame = {
   id: "back",
   name: "Back",
@@ -27,6 +28,7 @@ const back: CanvasFrame = {
   width: 100,
   height: 80,
 };
+
 const front: CanvasFrame = { ...frame, id: "front", name: "Front", parentId: "frame" };
 const nested: CanvasFrame = { ...back, id: "nested", name: "Nested", parentId: "front" };
 const root: CanvasFrame = { ...back, id: "root", name: "Root", parentId: undefined };
@@ -52,6 +54,7 @@ function rows(markup: string) {
     const attributes = Object.fromEntries(
       [...element.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]),
     );
+
     return attributes;
   });
 }
@@ -106,10 +109,13 @@ describe("canvas layers hierarchy", () => {
     const markup = render(
       new CanvasDocument([{ ...frame, locked: true }, back, { ...front, locked: true }]),
     );
+
     assert.equal(rows(markup).filter((item) => item["data-locked"] === "true").length, 3);
+
     const inheritedControl = markup.match(
       /<button[^>]*aria-label="Back is locked by its parent"[^>]*>/,
     )?.[0];
+
     assert.ok(inheritedControl?.includes('disabled=""'));
     const ownControl = markup.match(/<button[^>]*aria-label="Unlock Front"[^>]*>/)?.[0];
     assert.ok(ownControl);
@@ -125,6 +131,7 @@ describe("canvas layers hierarchy", () => {
         name: `Layer ${index}`,
       })),
     );
+
     const items = rows(render(document, ["layer-0"]));
     assert.ok(items.length < 50, `${items.length} layer rows were mounted`);
     assert.equal(items[0]["data-layer-id"], "layer-999");
@@ -139,12 +146,15 @@ describe("canvas layers hierarchy", () => {
     const markup = render(
       new CanvasDocument([{ ...frame, hidden: true }, back, { ...front, hidden: true }]),
     );
+
     assert.equal(rows(markup).filter((item) => item["data-hidden"] === "true").length, 3);
     assert.match(markup, /aria-label="Show Frame"/);
     assert.match(markup, /aria-label="Show Front"/);
+
     const inherited = markup.match(
       /<button[^>]*aria-label="Back is hidden by its parent"[^>]*>/,
     )?.[0];
+
     assert.ok(inherited?.includes('disabled=""'));
   });
 

@@ -73,22 +73,27 @@ export class CanvasSpatialIndex {
     if (range.count > MAX_FRAME_CELLS) {
       this.entries.set(frame.id, { bounds, cells: null });
       this.oversized.add(frame.id);
+
       return;
     }
 
     const keys: string[] = [];
+
     for (let y = range.top; y <= range.bottom; y++) {
       for (let x = range.left; x <= range.right; x++) {
         const key = `${x},${y}`;
         let cell = this.cells.get(key);
+
         if (!cell) {
           cell = new Set();
           this.cells.set(key, cell);
         }
+
         cell.add(frame.id);
         keys.push(key);
       }
     }
+
     this.entries.set(frame.id, { bounds, cells: keys });
   }
 
@@ -105,6 +110,7 @@ export class CanvasSpatialIndex {
     } else {
       this.oversized.delete(id);
     }
+
     this.entries.delete(id);
   }
 
@@ -121,10 +127,12 @@ export class CanvasSpatialIndex {
       for (const [id, entry] of this.entries) {
         if (intersects(bounds, entry.bounds)) matches.push(id);
       }
+
       return matches;
     }
 
     const candidates = new Set(this.oversized);
+
     for (let y = range.top; y <= range.bottom; y++) {
       for (let x = range.left; x <= range.right; x++) {
         const cell = this.cells.get(`${x},${y}`);
@@ -136,6 +144,7 @@ export class CanvasSpatialIndex {
       const entry = this.entries.get(id);
       if (entry && intersects(bounds, entry.bounds)) matches.push(id);
     }
+
     return matches;
   }
 }

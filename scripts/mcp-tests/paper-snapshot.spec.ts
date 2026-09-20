@@ -25,12 +25,15 @@ async function paste(page: Page, source: string, options: { text?: string; image
       if (text) data.setData("text/plain", text);
       if (image)
         data.items.add(new File([new Uint8Array([1, 2, 3])], "preview.png", { type: "image/png" }));
+
       const event = new ClipboardEvent("paste", {
         clipboardData: data,
         bubbles: true,
         cancelable: true,
       });
+
       Reflect.get(window, "snapshotFixture").controls.surface.dispatchEvent(event);
+
       return event.defaultPrevented;
     },
     { html: source, ...options },
@@ -52,6 +55,7 @@ async function routeSnapshotImages(page: Page) {
         context.fillStyle = index ? "#4285f4" : "#c0c0c0";
         context.fillRect(0, 0, canvas.width, canvas.height);
         context.fillStyle = "#ffffff";
+
         if (index) {
           context.beginPath();
           context.arc(16, 16, 8, 0, Math.PI * 2);
@@ -60,10 +64,12 @@ async function routeSnapshotImages(page: Page) {
           for (let x = 2; x < 17; x += 4) context.fillRect(x, 3, 2, 2);
           context.fillRect(4, 7, 11, 2);
         }
+
         return { url, base64: canvas.toDataURL().split(",")[1] };
       }),
     sourceImageUrls,
   );
+
   const requests: string[] = [];
   await Promise.all(
     images.map(({ url, base64 }) =>
@@ -77,6 +83,7 @@ async function routeSnapshotImages(page: Page) {
       }),
     ),
   );
+
   return requests;
 }
 
@@ -85,13 +92,16 @@ test("the supplied Paper capture keeps its natural box size, text, and vector SV
 }, testInfo) => {
   await page.goto("/");
   const assetRequests = await routeSnapshotImages(page);
+
   const result = await page.evaluate(async (html) => {
     const path = "/src/lib/paper-snapshot.ts";
     const { importPaperSnapshot, isPaperSnapshot } = await import(/* @vite-ignore */ path);
     const { nodes, warnings } = await importPaperSnapshot(html);
+
     const imageNodes = nodes.filter(
       (node: CanvasFrame) => node.kind === "image" || node.kind === "svg",
     );
+
     const paintedPixels = await Promise.all(
       imageNodes.map(async (node: { src: string }) => {
         const image = new Image();
@@ -105,9 +115,11 @@ test("the supplied Paper capture keeps its natural box size, text, and vector SV
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
         let painted = 0;
         for (let index = 3; index < pixels.length; index += 4) if (pixels[index]) painted++;
+
         return painted;
       }),
     );
+
     const documentPath = "/packages/canvas/src/canvas-document.ts";
     const exportPath = "/src/components/canvas/canvas-export.tsx";
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
@@ -115,16 +127,20 @@ test("the supplied Paper capture keeps its natural box size, text, and vector SV
     const scene = new CanvasDocument(nodes);
     const png = await exportCanvasPng(scene.getFrames(), scene.getChildren());
     const pngBytes = Array.from(new Uint8Array(await png.arrayBuffer()));
+
     return { recognized: isPaperSnapshot(html), nodes, warnings, paintedPixels, pngBytes };
   }, sample);
+
   writeFileSync(testInfo.outputPath("paper-snapshot.png"), Buffer.from(result.pngBytes));
   expect(result.recognized).toBe(true);
   const roots = result.nodes.filter((node: CanvasFrame) => !node.parentId);
   expect(roots).toHaveLength(1);
   expect(roots[0]).toMatchObject({ name: "Paper snapshot", x: 0, y: 0, width: 1544, height: 56 });
+
   const text = result.nodes
     .filter((node: CanvasFrame) => node.kind === "text")
     .map((node: { text: string }) => node.text);
+
   expect(text).toEqual(expect.arrayContaining(["DK", "Opret", "9+", "Søg"]));
   expect(
     result.nodes.find((node: CanvasFrame) => node.kind === "text" && node.text === "Søg"),
@@ -192,18 +208,23 @@ test("captured text remains editable and its paste event is left to the active t
   const editor = page.locator(`${fixture} textarea.canvas-text-editor`);
   await expect(editor).toBeVisible();
   const before = await frames(page);
+
   const prevented = await editor.evaluate((element, html) => {
     const data = new DataTransfer();
     data.setData("text/html", html);
     data.setData("text/plain", "Ordinary text paste");
+
     const event = new ClipboardEvent("paste", {
       clipboardData: data,
       bubbles: true,
       cancelable: true,
     });
+
     element.dispatchEvent(event);
+
     return event.defaultPrevented;
   }, smallSnapshot);
+
   expect(prevented).toBe(false);
   expect(await frames(page)).toEqual(before);
   await editor.fill("Edited after importing");
@@ -348,10 +369,12 @@ test("snapshot measurement stays passive: scripts, embeds, and remote CSS images
     await route.abort();
   });
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const path = "/src/lib/paper-snapshot.ts";
     const { importPaperSnapshot } = await import(/* @vite-ignore */ path);
     Reflect.set(window, "snapshotScriptRan", false);
+
     const html = `<x-paper-html><div style="width:300px;height:80px;background-image:url(https://snapshot.example.invalid/style.png)">
       <script>window.snapshotScriptRan=true</script>
       <style>@import url(https://snapshot.example.invalid/style.css);</style>
@@ -361,15 +384,19 @@ test("snapshot measurement stays passive: scripts, embeds, and remote CSS images
       <svg width="20" height="20"><image href="https://snapshot.example.invalid/svg-image.png" width="20" height="20" /><rect width="20" height="20" fill="#333" /></svg>
       <a href="javascript:window.snapshotScriptRan=true">Safe text</a>
     </div></x-paper-html>`;
+
     const imageRequests: string[] = [];
+
     const imported = await importPaperSnapshot(html, {
       loadImage: async (url: string) => {
         imageRequests.push(url);
         throw new Error("Offline for this test");
       },
     });
+
     return { ...imported, imageRequests, executed: Reflect.get(window, "snapshotScriptRan") };
   });
+
   expect(result.executed).toBe(false);
   expect(
     result.nodes.some((node: CanvasFrame) => node.kind === "text" && node.text === "Safe text"),
@@ -383,6 +410,7 @@ test("SVG root opacity is applied once, including CSS overriding the matching pr
   page,
 }) => {
   await page.goto("/");
+
   const alphas = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
     const documentPath = "/packages/canvas/src/canvas-document.ts";
@@ -390,6 +418,7 @@ test("SVG root opacity is applied once, including CSS overriding the matching pr
     const { importPaperSnapshot } = await import(/* @vite-ignore */ importPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exportPath);
+
     return Promise.all(
       [
         'width="24" height="24" opacity="0.5" style="opacity:0.5"',
@@ -398,6 +427,7 @@ test("SVG root opacity is applied once, including CSS overriding the matching pr
         const { nodes } = await importPaperSnapshot(
           `<x-paper-html><svg ${attributes} viewBox="0 0 24 24"><rect width="24" height="24" fill="red" /></svg></x-paper-html>`,
         );
+
         const scene = new CanvasDocument(nodes);
         const png = await exportCanvasPng(scene.getFrames(), scene.getChildren());
         const bitmap = await createImageBitmap(png);
@@ -407,10 +437,12 @@ test("SVG root opacity is applied once, including CSS overriding the matching pr
         context.drawImage(bitmap, 0, 0);
         const alpha = context.getImageData(12, 12, 1, 1).data[3];
         bitmap.close();
+
         return alpha;
       }),
     );
   });
+
   expect(alphas).toHaveLength(2);
   for (const alpha of alphas) expect(Math.abs(alpha - 128)).toBeLessThanOrEqual(1);
 });
@@ -419,6 +451,7 @@ test("captured asymmetric corners preserve transparent corners, fill, and border
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
     const documentPath = "/packages/canvas/src/canvas-document.ts";
@@ -426,9 +459,11 @@ test("captured asymmetric corners preserve transparent corners, fill, and border
     const { importPaperSnapshot } = await import(/* @vite-ignore */ importPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exportPath);
+
     const { nodes } = await importPaperSnapshot(
       '<x-paper-html><div style="box-sizing:border-box;width:80px;height:40px;border:2px solid #0000ff;background:#ff0000;border-radius:20px 0 20px 0"></div></x-paper-html>',
     );
+
     const scene = new CanvasDocument(nodes);
     const png = await exportCanvasPng(scene.getFrames(), scene.getChildren());
     const bitmap = await createImageBitmap(png);
@@ -438,6 +473,7 @@ test("captured asymmetric corners preserve transparent corners, fill, and border
     const context = canvas.getContext("2d")!;
     context.drawImage(bitmap, 0, 0);
     const pixel = (x: number, y: number) => Array.from(context.getImageData(x, y, 1, 1).data);
+
     const pixels = {
       topLeft: pixel(0, 0),
       topRight: pixel(79, 0),
@@ -448,9 +484,12 @@ test("captured asymmetric corners preserve transparent corners, fill, and border
       curvedBorder: pixel(6, 6),
       insideCurve: pixel(9, 9),
     };
+
     bitmap.close();
+
     return { root: nodes[0], pixels };
   });
+
   expect(result.root).toMatchObject({ width: 80, height: 40 });
   expect(result.pixels.topLeft[3]).toBe(0);
   expect(result.pixels.bottomRight[3]).toBe(0);
@@ -468,6 +507,7 @@ test("embedded root images decode before measurement and invalid bytes produce a
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
     const documentPath = "/packages/canvas/src/canvas-document.ts";
@@ -481,9 +521,11 @@ test("embedded root images decode before measurement and invalid bytes produce a
     const context = canvas.getContext("2d")!;
     context.fillStyle = "#0000ff";
     context.fillRect(0, 0, 8, 6);
+
     const valid = await importPaperSnapshot(
       `<x-paper-html><img src="${canvas.toDataURL()}" style="display:block;width:16px;height:12px"></x-paper-html>`,
     );
+
     const scene = new CanvasDocument(valid.nodes);
     const png = await exportCanvasPng(scene.getFrames(), scene.getChildren());
     const bitmap = await createImageBitmap(png);
@@ -492,11 +534,14 @@ test("embedded root images decode before measurement and invalid bytes produce a
     context.drawImage(bitmap, 0, 0);
     const pixel = Array.from(context.getImageData(8, 6, 1, 1).data);
     bitmap.close();
+
     const invalid = await importPaperSnapshot(
       '<x-paper-html><img src="data:image/png;base64,AAAA" style="display:block;width:16px;height:12px"></x-paper-html>',
     );
+
     return { valid, invalid, pixel };
   });
+
   expect(result.valid.nodes[0]).toMatchObject({ width: 16, height: 12 });
   expect(result.valid.nodes.some((node: CanvasFrame) => node.kind === "image")).toBe(true);
   expect(result.pixel).toEqual([0, 0, 255, 255]);

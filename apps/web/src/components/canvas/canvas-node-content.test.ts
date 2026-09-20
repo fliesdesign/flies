@@ -15,6 +15,7 @@ import {
 } from "./canvas-node-content";
 
 const bounds = { id: "node", name: "Node", x: 0, y: 0, width: 240, height: 120 };
+
 const render = (frame: CanvasFrame) =>
   renderToStaticMarkup(createElement(CanvasNodeContent, { frame }));
 
@@ -27,6 +28,7 @@ describe("canvas node content", () => {
       fontSize: 24,
       color: "#EDEDED",
     });
+
     assert.ok(!markup.includes("<img"));
     assert.match(markup, /&lt;img/);
     assert.match(markup, /\nSecond line &amp; detail/);
@@ -42,6 +44,7 @@ describe("canvas node content", () => {
       fontSize: 18,
       color: "#212121",
     };
+
     const markup = renderToStaticMarkup(createElement(CanvasTextEditor, { frame }));
     assert.match(markup, /aria-label="Edit Caption"/);
     assert.match(markup, /First line\n&lt;\/textarea&gt;&lt;script&gt;/);
@@ -64,6 +67,7 @@ describe("canvas node content", () => {
       letterSpacing: 1.5,
       textAlign: "right",
     };
+
     const content = render(frame);
     const editor = renderToStaticMarkup(createElement(CanvasTextEditor, { frame }));
     assert.equal(content.match(/style="([^"]*)"/)?.[1], editor.match(/style="([^"]*)"/)?.[1]);
@@ -84,6 +88,7 @@ describe("canvas node content", () => {
       fontSize: 20,
       color: "#000",
     };
+
     assert.deepEqual(canvasTextStyle(frame), {
       color: "#000",
       fontSize: 20,
@@ -113,6 +118,7 @@ describe("canvas node content", () => {
       pathWidth: 22,
       pathHeight: 32,
     };
+
     const initial = render(pen);
     assert.equal(render({ ...pen, width: 880, height: 64 }), initial);
     assert.match(initial, /viewBox="0 0 22 32"/);
@@ -133,6 +139,7 @@ describe("canvas node content", () => {
       pathWidth: 4,
       pathHeight: 4,
     });
+
     assert.match(markup, /<circle cx="2" cy="2" r="2" fill="#EDEDED"/);
     assert.ok(!markup.includes("<polyline"));
   });
@@ -143,6 +150,7 @@ describe("canvas node content", () => {
       kind: "image",
       src: "data:image/png;base64,iVBORw0KGgo=",
     });
+
     assert.match(markup, /alt=""/);
     assert.match(markup, /draggable="false"/);
     assert.match(markup, /decoding="async"/);
@@ -156,12 +164,14 @@ describe("canvas node content", () => {
 
   it("applies corner radius to both shape and image content", () => {
     const rectangle = render({ ...bounds, kind: "rectangle", fill: "#123", cornerRadius: 16 });
+
     const image = render({
       ...bounds,
       kind: "image",
       src: "data:image/png;base64,iVBORw0KGgo=",
       cornerRadius: 24,
     });
+
     assert.match(rectangle, /border-radius:16px/);
     assert.match(image, /border-radius:24px/);
   });

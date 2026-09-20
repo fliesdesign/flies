@@ -1,0 +1,260 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
+import { S3Client } from "bun";
+import { eq, inArray } from "drizzle-orm";
+
+import { createApp } from "../src/app";
+import { hash, type AuthProvider } from "../src/auth";
+import { readConfig } from "../src/config";
+import { connectDatabase } from "../src/db/client";
+import { files, revisions, sessions, users, workspaces, loginAttempts } from "../src/db/schema";
+import { ensureWorkspace, type Identity } from "../src/files";
+import { createStorage } from "../src/storage";
+
+const config = readConfig();
+if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL)
+  throw new Error("Integration tests require the isolated TEST_DATABASE_URL as DATABASE_URL.");
+config.S3_PREFIX = `tests/${crypto.randomUUID()}`;
+const { db, client } = connectDatabase(config.DATABASE_URL);
+const storage = createStorage(config);
+
+const identities = ["alice", "bob"].map((name): Identity => ({
+  id: `test_${name}_${crypto.randomUUID()}`,
+  email: `${name}@example.com`,
+  name,
+}));
+
+let available = true;
+let uploadsFail = false;
+
+const provider: AuthProvider = {
+  authorizationUrl: (state) => `https://example.com/authorize?state=${state}`,
+  async exchange(code) {
+    const user = identities.find((u) => u.id === code);
+    if (!user) throw new Error("Invalid code");
+
+    return { user, sealedSession: user.id };
+  },
+  async verify(session) {
+    const user = identities.find((u) => u.id === session);
+
+    return available && user ? { user, sealedSession: session } : null;
+  },
+  async revoke() {},
+};
+
+const { app, auth } = createApp(
+  db,
+  {
+    ...storage,
+    put: (key, doc) => {
+      if (uploadsFail) throw new Error("S3 unavailable");
+
+      return storage.put(key, doc);
+    },
+  },
+  config,
+  provider,
+);
+
+let tokens: string[];
+let fileId: string;
+
+const request = (path: string, user = 0, body?: unknown) =>
+  app.request(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      Authorization: `Bearer ${tokens[user]}`,
+      Origin: config.WEB_URL,
+      "Content-Type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+const snapshot = {
+  name: "Integration design",
+  nodes: [{ id: "frame", name: "Frame", x: 0, y: 0, width: 800, height: 600 }],
+  theme: { tokens: [] },
+};
+
+beforeAll(async () => {
+  tokens = await Promise.all(identities.map((user) => auth.createSession(user, user.id)));
+}, 30_000);
+afterAll(async () => {
+  const owned = await db
+    .select()
+    .from(workspaces)
+    .where(
+      inArray(
+        workspaces.ownerId,
+        identities.map((u) => u.id),
+      ),
+    );
+
+  const docs = await db
+    .select()
+    .from(files)
+    .where(
+      inArray(
+        files.workspaceId,
+        owned.map((w) => w.id),
+      ),
+    );
+
+  await db.delete(revisions).where(
+    inArray(
+      revisions.fileId,
+      docs.map((d) => d.id),
+    ),
+  );
+  await db.delete(files).where(
+    inArray(
+      files.workspaceId,
+      owned.map((w) => w.id),
+    ),
+  );
+  await db.delete(sessions).where(
+    inArray(
+      sessions.userId,
+      identities.map((u) => u.id),
+    ),
+  );
+  await db.delete(workspaces).where(
+    inArray(
+      workspaces.ownerId,
+      identities.map((u) => u.id),
+    ),
+  );
+  await db.delete(users).where(
+    inArray(
+      users.id,
+      identities.map((u) => u.id),
+    ),
+  );
+
+  const s3 = new S3Client({
+    endpoint: config.S3_ENDPOINT,
+    region: config.S3_REGION,
+    bucket: config.S3_BUCKET,
+    accessKeyId: config.S3_ACCESS_KEY_ID,
+    secretAccessKey: config.S3_SECRET_ACCESS_KEY,
+  });
+
+  const objects = await s3.list({ prefix: config.S3_PREFIX });
+  await Promise.all((objects.contents ?? []).map((object) => s3.delete(object.key)));
+  await client.close();
+}, 30_000);
+describe("Neon + Railway revision API", () => {
+  test("authentication and CSRF reject untrusted requests", async () => {
+    expect((await app.request("/api/files")).status).toBe(401);
+    expect(
+      (
+        await app.request("/api/files", {
+          method: "POST",
+          headers: { Origin: "https://evil.example", "Content-Type": "application/json" },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(403);
+  });
+  test("concurrent first logins create exactly one default workspace", async () => {
+    const rows = await Promise.all(
+      Array.from({ length: 4 }, () => ensureWorkspace(db, identities[0])),
+    );
+
+    expect(new Set(rows.map((r) => r.id)).size).toBe(1);
+  }, 20_000);
+  test("create and read a real gzipped S3 revision", async () => {
+    const response = await request("/api/files", 0, snapshot);
+    expect(response.status).toBe(201);
+    const file = await response.json();
+    fileId = file.id;
+    expect(file.revision).toBe(0);
+    const read = await request(`/api/files/${fileId}`);
+    expect(await read.json()).toEqual(file);
+    expect(
+      (await (await request("/api/files")).json()).files.map((f: { id: string }) => f.id),
+    ).toContain(fileId);
+  }, 30_000);
+  test("other users cannot list, read, save, archive, or inspect revisions", async () => {
+    expect((await (await request("/api/files", 1)).json()).files).toEqual([]);
+    for (const path of [`/api/files/${fileId}`, `/api/files/${fileId}/revisions`])
+      // eslint-disable-next-line no-await-in-loop
+      expect((await request(path, 1)).status).toBe(404);
+    expect(
+      (
+        await request(`/api/files/${fileId}/revisions`, 1, {
+          ...snapshot,
+          revision: 0,
+          mutationId: crypto.randomUUID(),
+        })
+      ).status,
+    ).toBe(404);
+    expect((await request(`/api/files/${fileId}/archive`, 1, { archived: true })).status).toBe(404);
+  }, 20_000);
+  test("concurrent saves reject stale writers and retain immutable history", async () => {
+    // oxlint-disable-next-line oxc/no-map-spread -- Each concurrent request needs its own snapshot.
+    const payloads = [1, 2].map((n) => ({
+      ...snapshot,
+      name: `Save ${n}`,
+      revision: 0,
+      mutationId: crypto.randomUUID(),
+    }));
+
+    const responses = await Promise.all(
+      payloads.map((p) => request(`/api/files/${fileId}/revisions`, 0, p)),
+    );
+
+    expect(responses.map((r) => r.status).toSorted()).toEqual([200, 409]);
+    const winner = responses.findIndex((r) => r.status === 200);
+    const saved = await responses[winner].json();
+    expect(saved.revision).toBe(1);
+    expect(
+      await (await request(`/api/files/${fileId}/revisions`, 0, payloads[winner])).json(),
+    ).toEqual(saved);
+    const rows = await db.select().from(revisions).where(eq(revisions.fileId, fileId));
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.objectKey)).size).toBe(2);
+    expect(
+      ((await storage.get(rows.find((r) => r.number === 0)!.objectKey)) as { name: string }).name,
+    ).toBe(snapshot.name);
+  }, 30_000);
+  test("failed S3 writes preserve the previous revision and allow retry", async () => {
+    uploadsFail = true;
+    const payload = { ...snapshot, revision: 1, mutationId: crypto.randomUUID() };
+    expect((await request(`/api/files/${fileId}/revisions`, 0, payload)).status).toBe(500);
+    uploadsFail = false;
+    expect((await (await request(`/api/files/${fileId}`)).json()).revision).toBe(1);
+    expect((await request(`/api/files/${fileId}/revisions`, 0, payload)).status).toBe(200);
+  }, 30_000);
+  test("archive and restore stay scoped to the workspace", async () => {
+    expect((await request(`/api/files/${fileId}/archive`, 0, { archived: true })).status).toBe(200);
+    expect((await request(`/api/files/${fileId}`)).status).toBe(404);
+    expect((await request(`/api/files/${fileId}/archive`, 0, { archived: false })).status).toBe(
+      200,
+    );
+    expect((await request(`/api/files/${fileId}`)).status).toBe(200);
+  }, 20_000);
+  test("desktop callback requires browser state and verifier; completion is single use", async () => {
+    const verifier = crypto.randomUUID().replaceAll("-", "") + "abcdefghijk";
+    const response = await app.request(`/auth/login?desktop=${hash(verifier)}`);
+    const state = new URL(response.headers.get("Location")!).searchParams.get("state")!;
+    const cookie = response.headers.get("Set-Cookie")!.split(";")[0];
+    const url = `/auth/callback?state=${state}&code=${identities[0].id}`;
+    expect((await app.request(url)).status).toBe(400);
+    expect((await app.request(url, { headers: { Cookie: cookie } })).status).toBe(200);
+    expect((await app.request(url, { headers: { Cookie: cookie } })).status).toBe(400);
+    const completed = await request("/auth/desktop/complete", 0, { verifier });
+    expect((await completed.json()).token).toBeString();
+    expect(
+      (await (await request("/auth/desktop/complete", 0, { verifier })).json()).token,
+    ).toBeNull();
+    await db.delete(loginAttempts).where(eq(loginAttempts.state, state));
+  }, 20_000);
+  test("logout invalidates the local session", async () => {
+    expect((await request("/auth/logout", 0, {})).status).toBe(200);
+    expect((await request("/api/files")).status).toBe(401);
+    available = false;
+    expect((await request("/api/files", 1)).status).toBe(401);
+  });
+});

@@ -153,15 +153,18 @@ function isEditingTarget(target: EventTarget | null) {
 
 function isNodeLocked(document: CanvasDocument, id: string): boolean {
   let node = document.getFrame(id);
+
   while (node) {
     if (node.locked) return true;
     node = node.parentId ? document.getFrame(node.parentId) : undefined;
   }
+
   return false;
 }
 
 function DrawingPreview({ frame, camera }: { frame: CanvasFrame; camera: CanvasCamera }) {
   const { viewport } = useSyncExternalStore(camera.subscribe, camera.getSnapshot);
+
   return (
     <div
       className="canvas-draft"
@@ -182,31 +185,36 @@ export function DesignCanvas({
   initialFrames,
   initialTheme,
   fileActions,
-  persist = true,
+  persist = false,
   FrameContent,
   onReady,
 }: DesignCanvasProps = {}) {
   const [notice, setNotice] = useState("");
+
   const saveFailed = useCallback(
     () => setNotice("Could not save this canvas. Browser storage may be full."),
     [],
   );
+
   const document = useCanvasDocument({
     initialFrames,
     initialTheme,
     persist,
     onSaveError: saveFailed,
   });
+
   const snapshot = useCanvasSnapshot(document);
   const { ids, canUndo, canRedo } = snapshot;
   const { undo, redo } = document;
   const [camera] = useState(() => new CanvasCamera());
   const [rendererBackend, setRendererBackend] = useState<"dom" | "webgpu">("dom");
+
   const inspectHtml = useSyncExternalStore(
     subscribeCanvasInspection,
     getCanvasInspection,
     () => false,
   );
+
   const hitTester = useMemo(() => new CanvasHitTester(document), [document]);
   useEffect(() => hitTester.connect(), [hitTester]);
   const [guides] = useState(() => new CanvasGuides());
@@ -216,13 +224,16 @@ export function DesignCanvas({
   const mountedRef = useRef(true);
   const pendingImportsRef = useRef(0);
   const [layersOpen, setLayersOpen] = useState(true);
+
   const [propertiesOpen, setPropertiesOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 760,
   );
+
   const setPanelsOpen = useCallback((open: boolean) => {
     setLayersOpen(open);
     setPropertiesOpen(open);
   }, []);
+
   const propertyPreviewRef = useRef<{ frames: CanvasFrame[]; ids: readonly string[] } | null>(null);
   const reopenPropertiesRef = useRef<HTMLButtonElement>(null);
   const propertiesCollapsedRef = useRef(false);
@@ -234,17 +245,21 @@ export function DesignCanvas({
   const [draft, setDraft] = useState<CanvasFrame | null>(null);
   const [draftBatch] = useState(() => new LatestValueFrameBatch<CanvasFrame>(setDraft));
   const interactionRef = useRef<Interaction | null>(null);
+
   const [previewBatch] = useState(
     () => new LatestValueFrameBatch<readonly CanvasFrame[]>(document.previewMany),
   );
+
   const previewFrame = useCallback(
     (frame: CanvasFrame) => previewBatch.schedule([frame]),
     [previewBatch],
   );
+
   const menuPointRef = useRef<Point>({ x: 0, y: 0 });
   const spaceRef = useRef(false);
   const [selection, setSelection] = useState<string[]>([]);
   const selectOne = useCallback((id: string | null) => setSelection(id ? [id] : []), []);
+
   const propertyIds = useMemo(
     () =>
       snapshot.ids.length
@@ -252,8 +267,10 @@ export function DesignCanvas({
         : [],
     [document, selection, snapshot],
   );
+
   const hasPropertySelection = propertyIds.length > 0;
   const showProperties = propertiesOpen && hasPropertySelection;
+
   const selectedIds = useMemo(
     () =>
       snapshot.ids.length
@@ -263,13 +280,17 @@ export function DesignCanvas({
         : [],
     [document, selection, snapshot],
   );
+
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
   const [storedGroupScope, setGroupScope] = useState<string | null>(null);
+
   const groupScope =
     storedGroupScope && document.getFrame(storedGroupScope)?.kind === "group"
       ? storedGroupScope
       : null;
+
   const [marquee, setMarquee] = useState<FrameRect | null>(null);
+
   const [marqueeBatch] = useState(
     () =>
       new LatestValueFrameBatch<{ rect: FrameRect; ids: string[] }>((value) => {
@@ -277,6 +298,7 @@ export function DesignCanvas({
         setSelection(value.ids);
       }),
   );
+
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
   const clipboardRef = useRef<string | null>(null);
   const pasteRef = useRef({ payload: "", count: 0 });
@@ -290,6 +312,7 @@ export function DesignCanvas({
 
   useEffect(() => {
     mountedRef.current = true;
+
     return () => {
       mountedRef.current = false;
     };
@@ -298,6 +321,7 @@ export function DesignCanvas({
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 7000);
+
     return () => clearTimeout(timer);
   }, [notice]);
 
@@ -319,16 +343,19 @@ export function DesignCanvas({
 
   const localPoint = useCallback((clientX: number, clientY: number): Point => {
     const bounds = surfaceRef.current?.getBoundingClientRect();
+
     return { x: clientX - (bounds?.left ?? 0), y: clientY - (bounds?.top ?? 0) };
   }, []);
 
   const addNode = useCallback(
     (node: CanvasFrame) => {
       let all = [...document.getFrames(), node];
+
       const placed =
         reparentSelection(all, [node.id], {
           requireContainment: !node.kind || node.kind === "frame",
         }).find((item) => item.id === node.id) ?? node;
+
       all = all.map((item) => (item.id === node.id ? placed : item));
       const children = !node.kind || node.kind === "frame" ? adoptFrameContents(all, node.id) : [];
       document.transact({ add: [placed], update: children });
@@ -343,15 +370,18 @@ export function DesignCanvas({
       autoPan.stop();
       guides.clear();
       interactionRef.current = null;
+
       if (cancel) {
         previewBatch.cancel();
         changeViewport(active.viewport);
       } else {
         previewBatch.flush();
       }
+
       if (active.kind === "draw") {
         draftBatch.cancel();
         setDraft(null);
+
         if (!cancel && active.draft) {
           let next = active.draft;
           if (!active.moved && (next.kind === "frame" || next.kind === "rectangle"))
@@ -379,9 +409,11 @@ export function DesignCanvas({
                 active.requestedMove ?? [],
               )
             : undefined;
+
         document.endGesture(cancel, parents);
         if (!cancel && !active.moved && active.collapseTo) selectOne(active.collapseTo);
       }
+
       camera.flush();
       const surface = surfaceRef.current;
       if (surface?.hasPointerCapture(active.pointerId))
@@ -419,12 +451,16 @@ export function DesignCanvas({
           layerAnchorRef.current && current.includes(layerAnchorRef.current)
             ? layerAnchorRef.current
             : current[current.length - 1];
+
         const start = anchor ? modifiers.visibleIds.indexOf(anchor) : -1;
         const end = modifiers.visibleIds.indexOf(id);
+
         if (modifiers.range && start !== -1 && end !== -1) {
           const range = modifiers.visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1);
+
           return modifiers.additive ? [...new Set([...current, ...range])] : range;
         }
+
         return modifiers.additive
           ? current.includes(id)
             ? current.filter((item) => item !== id)
@@ -500,29 +536,37 @@ export function DesignCanvas({
 
   useEffect(() => {
     const compact = window.matchMedia("(max-width: 760px)");
+
     const update = () => {
       if (compact.matches) setPropertiesOpen(false);
     };
+
     compact.addEventListener("change", update);
+
     return () => compact.removeEventListener("change", update);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     let lastKey = "";
+
     const load = () => {
       const texts = document.getFrames().filter((node) => node.kind === "text");
+
       const key = texts
         .map((node) => `${node.fontFamily}:${node.fontWeight}:${node.fontStyle}:${node.text}`)
         .join("|");
+
       if (key === lastKey) return;
       lastKey = key;
       void ensureCanvasFonts(texts).catch((error: unknown) => {
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
       });
     };
+
     load();
     const unsubscribe = document.subscribeChanges(load);
+
     return () => {
       cancelled = true;
       unsubscribe();
@@ -536,8 +580,10 @@ export function DesignCanvas({
       options?: CanvasPropertyOptions,
     ) => {
       finishInteraction(true);
+
       if (["fontFamily", "fontWeight", "fontStyle"].includes(property)) {
         const before = propertyIds.map((id) => document.getFrame(id));
+
         const updates = changeCanvasProperty(
           document.getFrames(),
           propertyIds,
@@ -546,14 +592,18 @@ export function DesignCanvas({
           (node) => node.height,
           options,
         );
+
         try {
           await ensureCanvasFonts(updates.filter((node) => node.kind === "text"));
         } catch (error) {
           setNotice(error instanceof Error ? error.message : String(error));
+
           return;
         }
+
         if (before.some((node, index) => document.getFrame(propertyIds[index]) !== node)) return;
       }
+
       document.updateMany(
         changeCanvasProperty(
           document.getFrames(),
@@ -585,13 +635,16 @@ export function DesignCanvas({
     endPropertyPreview(true);
     const subtree = document.getDescendantIds(propertyIds);
     const related = new Set(subtree);
+
     for (const id of propertyIds) {
       let parent = document.getFrame(id)?.parentId;
+
       while (parent && !related.has(parent)) {
         related.add(parent);
         parent = document.getFrame(parent)?.parentId;
       }
     }
+
     propertyPreviewRef.current = {
       frames: [...related].map((id) => document.getFrame(id)!),
       ids: propertyIds,
@@ -649,6 +702,7 @@ export function DesignCanvas({
         flushPreview: previewBatch.flush,
         surface: surfaceRef.current,
       });
+
     return () => onReady?.(null);
   }, [
     prepareFileAction,
@@ -698,6 +752,7 @@ export function DesignCanvas({
     document.updateMany(
       propertyIds.flatMap((id) => {
         const node = document.getFrame(id);
+
         return node?.kind === "text" ? [{ ...node, height: measureCanvasTextHeight(node) }] : [];
       }),
     );
@@ -711,9 +766,11 @@ export function DesignCanvas({
     const surface = surfaceRef.current;
     if (!surface) return;
     let initialized = false;
+
     const observer = new ResizeObserver(([entry]) => {
       const nextSize = { x: entry.contentRect.width, y: entry.contentRect.height };
       camera.setSize(nextSize);
+
       if (!initialized) {
         initialized = true;
         if (document.getIds().length)
@@ -725,20 +782,24 @@ export function DesignCanvas({
           );
       }
     });
+
     observer.observe(surface);
     surface.focus({ preventScroll: true });
+
     return () => observer.disconnect();
   }, [changeViewport, document, camera]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
+
     function wheel(event: WheelEvent) {
       if (isEditingTarget(event.target)) return;
       event.preventDefault();
       if (interactionRef.current || menuOpen) return;
       const view = camera.getCurrent().viewport;
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? surface!.clientHeight : 1;
+
       if (event.ctrlKey || event.metaKey) {
         changeViewport(
           zoomAtPoint(
@@ -755,7 +816,9 @@ export function DesignCanvas({
         });
       }
     }
+
     surface.addEventListener("wheel", wheel, { passive: false });
+
     return () => surface.removeEventListener("wheel", wheel);
   }, [changeViewport, localPoint, menuOpen, camera]);
 
@@ -763,19 +826,23 @@ export function DesignCanvas({
     function releaseSpace(event: globalThis.KeyboardEvent) {
       const active = interactionRef.current;
       if (active) active.modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
+
       if (event.code === "Space") {
         spaceRef.current = false;
         setSpaceHeld(false);
       }
     }
+
     function blur() {
       spaceRef.current = false;
       setSpaceHeld(false);
       setHoveredId(null);
       finishInteraction();
     }
+
     window.addEventListener("keyup", releaseSpace);
     window.addEventListener("blur", blur);
+
     return () => {
       window.removeEventListener("keyup", releaseSpace);
       window.removeEventListener("blur", blur);
@@ -784,12 +851,14 @@ export function DesignCanvas({
 
   function nextName(prefix: string) {
     let number = 0;
+
     for (const frame of document.getFrames()) {
       if (frame.name.startsWith(`${prefix} `)) {
         const suffix = Number(frame.name.slice(prefix.length + 1));
         if (Number.isFinite(suffix)) number = Math.max(number, suffix);
       }
     }
+
     return `${prefix} ${number + 1}`;
   }
 
@@ -803,6 +872,7 @@ export function DesignCanvas({
       width: 400,
       height: 300,
     };
+
     addNode(frame);
     selectOne(frame.id);
     setTool("select");
@@ -811,6 +881,7 @@ export function DesignCanvas({
   function createText(point: Point, text = "Text", edit = true) {
     let height = 40;
     const page = surfaceRef.current?.ownerDocument;
+
     if (!edit && page) {
       const measure = page.createElement("span");
       measure.className = "canvas-text-content";
@@ -821,6 +892,7 @@ export function DesignCanvas({
       height = Math.max(40, Math.ceil(measure.getBoundingClientRect().height));
       measure.remove();
     }
+
     const onFrame = document
       .getFrames()
       .filter((node) => !document.isHidden(node.id))
@@ -836,6 +908,7 @@ export function DesignCanvas({
           point.y >= frame.y &&
           point.y <= frame.y + frame.height,
       );
+
     const frame: CanvasFrame = {
       id: crypto.randomUUID(),
       name: nextName("Text"),
@@ -848,6 +921,7 @@ export function DesignCanvas({
       width: 240,
       height,
     };
+
     addNode(frame);
     selectOne(frame.id);
     if (edit) setEditingId(frame.id);
@@ -857,10 +931,12 @@ export function DesignCanvas({
   const commitText = useCallback(
     (id: string, text: string, height: number) => {
       const frame = document.getFrame(id);
+
       if (frame?.kind === "text") {
         if (!text.trim()) document.remove(id);
         else document.update({ ...frame, text, height: Math.max(1, Math.ceil(height)) });
       }
+
       setEditingId(null);
     },
     [document],
@@ -873,6 +949,7 @@ export function DesignCanvas({
     pendingImportsRef.current++;
     setImporting(true);
     setNotice("");
+
     try {
       const results = await Promise.allSettled(files.map(readCanvasImage));
       if (!mountedRef.current) return;
@@ -881,16 +958,19 @@ export function DesignCanvas({
       const center = screenToWorld({ x: size.x / 2, y: size.y / 2 }, viewport);
       let error = "";
       const additions: CanvasFrame[] = [];
+
       for (const [index, result] of results.entries()) {
         if (result.status === "rejected") {
           error =
             result.reason instanceof Error ? result.reason.message : "Could not open this image.";
           continue;
         }
+
         const image = result.value;
         const scale = Math.min(1, 640 / image.width, 640 / image.height);
         const width = Math.max(1, Math.round(image.width * scale));
         const height = Math.max(1, Math.round(image.height * scale));
+
         const frame: CanvasFrame = {
           id: crypto.randomUUID(),
           name: image.name,
@@ -901,19 +981,24 @@ export function DesignCanvas({
           width,
           height,
         };
+
         additions.push(frame);
       }
+
       if (additions.length) {
         const importedIds = additions.map((node) => node.id);
+
         const placed = new Map(
           reparentSelection([...document.getFrames(), ...additions], importedIds).map((node) => [
             node.id,
             node,
           ]),
         );
+
         document.addMany(additions.map((node) => placed.get(node.id) ?? node));
         setSelection(importedIds);
       }
+
       if (error) setNotice(error);
       setHoveredId(null);
       setTool("select");
@@ -927,10 +1012,13 @@ export function DesignCanvas({
   function chooseTool(next: CanvasTool) {
     finishInteraction(true);
     setHoveredId(null);
+
     if (next === "image") {
       fileInputRef.current?.click();
+
       return;
     }
+
     setTool(next);
     if (next !== "select" && next !== "pan") selectOne(null);
     surfaceRef.current?.focus({ preventScroll: true });
@@ -952,9 +1040,11 @@ export function DesignCanvas({
     const decoded = payload && decodeCanvasClipboard(payload);
     if (!decoded) return;
     const copy = pasteCanvasClipboard(decoded, { x: 24, y: 24 });
+
     const parents = new Map(
       copy.selection.map((id, index) => [id, document.getFrame(selectedIds[index])?.parentId]),
     );
+
     document.addMany(
       copy.nodes.map((node) =>
         parents.has(node.id) ? { ...node, parentId: parents.get(node.id) } : node,
@@ -979,6 +1069,7 @@ export function DesignCanvas({
   async function copyFromMenu(cut = false) {
     const payload = encodeCanvasClipboard(document.getFrames(), selectedIds);
     if (!payload) return;
+
     try {
       await navigator.clipboard.writeText(payload);
       clipboardRef.current = payload;
@@ -987,6 +1078,7 @@ export function DesignCanvas({
     } catch {
       setNotice("Use Ctrl/Cmd + C or X to copy or cut from this browser.");
     }
+
     focusCanvas();
   }
 
@@ -998,6 +1090,7 @@ export function DesignCanvas({
     } catch (error) {
       setNotice(`Could not copy code. ${error instanceof Error ? error.message : String(error)}`);
     }
+
     focusCanvas();
   }
 
@@ -1005,13 +1098,16 @@ export function DesignCanvas({
     finishInteraction(true);
     const decoded = decodeCanvasClipboard(payload);
     if (!decoded) return false;
+
     const bounds = selectionBounds(
       decoded,
       decoded.map((node) => node.id),
     );
+
     if (!bounds) return false;
     const count = pasteRef.current.payload === payload ? pasteRef.current.count + 1 : 1;
     pasteRef.current = { payload, count };
+
     const targetFrame =
       !point &&
       selected &&
@@ -1019,6 +1115,7 @@ export function DesignCanvas({
       !decoded.some((node) => !node.parentId && (!node.kind || node.kind === "frame"))
         ? selected
         : undefined;
+
     const offset = inPlace
       ? { x: 0, y: 0 }
       : point
@@ -1026,13 +1123,17 @@ export function DesignCanvas({
         : targetFrame
           ? { x: targetFrame.x + 24 - bounds.x, y: targetFrame.y + 24 - bounds.y }
           : { x: count * 24, y: count * 24 };
+
     const copy = pasteCanvasClipboard(decoded, offset);
     let nodes = copy.nodes;
+
     if (inPlace) {
       const sources = decoded.filter((node) => !node.parentId);
+
       const parents = new Map(
         copy.selection.map((id, index) => [id, document.getFrame(sources[index].id)?.parentId]),
       );
+
       nodes = nodes.map((node) =>
         parents.has(node.id) ? { ...node, parentId: parents.get(node.id) } : node,
       );
@@ -1047,12 +1148,15 @@ export function DesignCanvas({
           requireContainment: true,
         }).map((node) => [node.id, node]),
       );
+
       nodes = nodes.map((node) => placed.get(node.id) ?? node);
     }
+
     document.addMany(nodes);
     setSelection(copy.selection);
     setTool("select");
     focusCanvas();
+
     return true;
   }
 
@@ -1069,16 +1173,19 @@ export function DesignCanvas({
     pendingImportsRef.current++;
     setImporting(true);
     setNotice("");
+
     try {
       const { nodes, warnings } = await importPaperSnapshot(html);
       if (!mountedRef.current) return;
       const roots = nodes.filter((node) => !node.parentId).map((node) => node.id);
       const bounds = selectionBounds(nodes, roots);
       if (!bounds) throw new Error("This Paper snapshot has no visible content.");
+
       const offset = {
         x: (point?.x ?? center.x - bounds.width / 2) - bounds.x,
         y: (point?.y ?? center.y - bounds.height / 2) - bounds.y,
       };
+
       finishInteraction(true);
       document.addMany(
         nodes.map((node) => Object.assign(node, { x: node.x + offset.x, y: node.y + offset.y })),
@@ -1100,21 +1207,29 @@ export function DesignCanvas({
   async function pasteClipboard(data: CanvasClipboard, point?: Point, inPlace = false) {
     const payload = data.internal || data.text;
     if (payload && pasteObjects(payload, inPlace ? undefined : point, inPlace)) return;
+
     if (isPaperSnapshot(data.html)) {
       await pasteSnapshot(data.html, point);
+
       return;
     }
+
     const svgText = [data.text, data.html].find((value) =>
       /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(value),
     );
+
     if (svgText) {
       await importImages([new File([svgText], "Pasted SVG.svg", { type: "image/svg+xml" })], point);
+
       return;
     }
+
     if (data.images.length) {
       await importImages(data.images, point);
+
       return;
     }
+
     if (data.text.trim()) pasteText(data.text, point);
     else setNotice("The clipboard has no supported content. Copy the snapshot again, then paste.");
   }
@@ -1123,6 +1238,7 @@ export function DesignCanvas({
     if (readingClipboardRef.current) return;
     readingClipboardRef.current = true;
     setNotice("");
+
     try {
       const data = await readCanvasClipboard();
       if (mountedRef.current) await pasteClipboard(data, point, inPlace);
@@ -1149,7 +1265,9 @@ export function DesignCanvas({
       id: crypto.randomUUID(),
       name: nextName(asFrame ? "Frame" : "Group"),
     });
+
     if (!plan) return;
+
     const upsert = asFrame
       ? plan.upsert.map((node) =>
           node.id === plan.selection[0]
@@ -1163,6 +1281,7 @@ export function DesignCanvas({
             : node,
         )
       : plan.upsert;
+
     document.transact({
       add: upsert.filter((node) => !document.getFrame(node.id)),
       update: upsert.filter((node) => document.getFrame(node.id)),
@@ -1206,9 +1325,11 @@ export function DesignCanvas({
       (rendererBackend === "webgpu" && point
         ? hitTester.hit(screenToWorld(point, camera.getCurrent().viewport))
         : undefined);
+
     if (!id || isNodeLocked(document, id)) return;
     let result = id;
     let node = document.getFrame(id);
+
     if (!deep)
       while (node?.parentId) {
         const parent = document.getFrame(node.parentId);
@@ -1216,6 +1337,7 @@ export function DesignCanvas({
         if (parent?.kind === "group") result = parent.id;
         node = parent;
       }
+
     return result;
   }
 
@@ -1231,19 +1353,24 @@ export function DesignCanvas({
     const start = localPoint(event.clientX, event.clientY);
     const frameId = resolveHit(target, event.metaKey, start);
     const frame = frameId ? document.getFrame(frameId) : undefined;
+
     const handle = target.closest<HTMLElement>("[data-handle]")?.dataset.handle as
       | ResizeHandle
       | undefined;
+
     const view = camera.getCurrent().viewport;
     const worldStart = screenToWorld(start, view);
     const hand = event.button === 1 || spaceRef.current || tool === "pan";
     setHoveredId(null);
     if (event.pointerType !== "touch") event.preventDefault();
     surfaceRef.current?.focus({ preventScroll: true });
+
     if (!hand && tool === "text") {
       createText(worldStart);
+
       return;
     }
+
     if (!hand && (tool === "frame" || tool === "rectangle" || tool === "pen")) {
       const base = {
         id: crypto.randomUUID(),
@@ -1253,7 +1380,9 @@ export function DesignCanvas({
         width: 1,
         height: 1,
       };
+
       let drawing: CanvasFrame;
+
       if (tool === "pen") {
         drawing = {
           ...base,
@@ -1267,6 +1396,7 @@ export function DesignCanvas({
       } else {
         drawing = { ...base, kind: "frame", width: 40, height: 40 };
       }
+
       selectOne(null);
       interactionRef.current = {
         kind: "draw",
@@ -1279,16 +1409,20 @@ export function DesignCanvas({
       };
       setDraft(drawing);
       event.currentTarget.setPointerCapture(event.pointerId);
+
       return;
     }
+
     if (!hand && !handle && event.shiftKey && frame) {
       setSelection(
         selectedIds.includes(frame.id)
           ? selectedIds.filter((id) => id !== frame.id)
           : [...selectedIds, frame.id],
       );
+
       return;
     }
+
     const roots = (
       handle
         ? getVisibleSelectionFrames(document, selectedIds).map((node) => node.id)
@@ -1298,14 +1432,17 @@ export function DesignCanvas({
             : [frame.id]
           : []
     ).filter((id) => !document.isHidden(id));
+
     const all = document.getFrames();
     const frames = document.getDescendantIds(roots).map((id) => document.getFrame(id)!);
     const bounds = selectionBounds(frames, roots) ?? undefined;
     const kind = hand ? "pan" : handle && roots.length ? "resize" : frame ? "move" : "marquee";
+
     const guideTargets =
       bounds && (kind === "move" || kind === "resize")
         ? new AlignmentGuideTargets(document, new Set(frames.map((node) => node.id)))
         : undefined;
+
     if (kind === "marquee") {
       if (!event.shiftKey) setSelection([]);
       setGroupScope(null);
@@ -1340,13 +1477,16 @@ export function DesignCanvas({
     const point = localPoint(event.clientX, event.clientY);
     const modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
     active.modifiers = modifiers;
+
     const samples =
       active.kind === "draw" && active.draft?.kind === "pen"
         ? (event.nativeEvent.getCoalescedEvents?.() ?? []).map((sample) =>
             localPoint(sample.clientX, sample.clientY),
           )
         : [];
+
     updateInteraction(active, point, modifiers, samples);
+
     if (
       active.moved &&
       (active.kind === "move" || active.kind === "resize" || active.kind === "marquee")
@@ -1354,8 +1494,10 @@ export function DesignCanvas({
       autoPan.update(point, camera.getCurrent().size, (delta) => {
         if (interactionRef.current !== active) {
           autoPan.stop();
+
           return;
         }
+
         const view = camera.getCurrent().viewport;
         changeViewport({ ...view, x: view.x + delta.x, y: view.y + delta.y });
         updateInteraction(active, point, active.modifiers ?? modifiers);
@@ -1376,9 +1518,11 @@ export function DesignCanvas({
   ) {
     const view = camera.getCurrent().viewport;
     const delta = { x: point.x - active.start.x, y: point.y - active.start.y };
+
     if (active.kind === "draw" && active.draft && active.worldStart) {
       const world = screenToWorld(point, active.viewport);
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
+
       if (active.draft.kind === "pen" && active.points) {
         for (const sample of samples) {
           const next = screenToWorld(sample, active.viewport);
@@ -1386,6 +1530,7 @@ export function DesignCanvas({
           if (Math.hypot(next.x - last.x, next.y - last.y) >= 0.5 / active.viewport.zoom)
             active.points.push(next);
         }
+
         const last = active.points[active.points.length - 1];
         if (world.x !== last.x || world.y !== last.y) active.points.push(world);
         active.draft = { ...active.draft, ...penFromPoints(active.points)! };
@@ -1408,11 +1553,13 @@ export function DesignCanvas({
                   ),
             }
           : world;
+
         const bounds = rectFromPoints(
           active.worldStart,
           end,
           active.draft.kind === "frame" ? 40 : 1,
         );
+
         active.draft = {
           ...active.draft,
           x: Math.round(bounds.x),
@@ -1421,15 +1568,18 @@ export function DesignCanvas({
           height: Math.round(bounds.height),
         };
       }
+
       draftBatch.schedule(active.draft);
     } else if (active.kind === "marquee") {
       const worldRect = rectFromPoints(active.worldStart!, screenToWorld(point, view), 0);
+
       const rect = {
         x: worldRect.x * view.zoom + view.x,
         y: worldRect.y * view.zoom + view.y,
         width: worldRect.width * view.zoom,
         height: worldRect.height * view.zoom,
       };
+
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       const matches = active.moved ? marqueeSelection(active.candidates ?? [], worldRect) : [];
       marqueeBatch.schedule({
@@ -1448,15 +1598,19 @@ export function DesignCanvas({
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       if (!active.moved) return;
       const worldDelta = pointerWorldDelta(active.worldStart!, point, view);
+
       if (modifiers.shiftKey && active.kind === "move") {
         if (Math.abs(worldDelta.x) > Math.abs(worldDelta.y)) worldDelta.y = 0;
         else worldDelta.x = 0;
       }
+
       const onlyFrame =
         active.roots.length === 1
           ? active.frames.find((node) => node.id === active.roots![0])
           : undefined;
+
       const minimum = onlyFrame && (!onlyFrame.kind || onlyFrame.kind === "frame") ? 40 : 1;
+
       const next =
         active.kind === "resize" && active.handle
           ? (modifiers.shiftKey ? resizeFrameProportionally : resizeFrame)(
@@ -1470,16 +1624,19 @@ export function DesignCanvas({
               x: Math.round(active.bounds.x + worldDelta.x),
               y: Math.round(active.bounds.y + worldDelta.y),
             };
+
       if (active.guideTargets && active.guideViewport !== view) {
         active.guideViewport = view;
         active.guides = active.guideTargets.inViewport(
           viewportBounds(view, camera.getCurrent().size, 0),
         );
       }
+
       const snapped =
         modifiers.altKey || (modifiers.shiftKey && active.kind === "resize")
           ? { rect: next, guides: [] }
           : active.guides!.snap(next, active.viewport.zoom, active.handle, minimum);
+
       if (modifiers.shiftKey && active.kind === "move") {
         if (worldDelta.y === 0) {
           snapped.rect.y = active.bounds.y;
@@ -1489,6 +1646,7 @@ export function DesignCanvas({
           snapped.guides = snapped.guides.filter((guide) => guide.axis === "y");
         }
       }
+
       const updates =
         active.kind === "resize"
           ? resizeSelection(active.frames, active.roots, active.bounds, snapped.rect)
@@ -1496,6 +1654,7 @@ export function DesignCanvas({
               x: snapped.rect.x - active.bounds.x,
               y: snapped.rect.y - active.bounds.y,
             });
+
       if (active.kind === "move") active.requestedMove = updates;
       previewBatch.schedule(updates);
       guides.set(snapped.guides);
@@ -1520,6 +1679,7 @@ export function DesignCanvas({
       !(command && (key === "z" || key === "y"))
     )
       return;
+
     if (key === "escape") {
       if (interactionRef.current) finishInteraction(true);
       else {
@@ -1589,6 +1749,7 @@ export function DesignCanvas({
         p: "pen",
         h: "pan",
       };
+
       chooseTool(shortcuts[key]);
     } else if (key === "enter" && selected?.kind === "text") {
       setEditingId(selected.id);
@@ -1625,17 +1786,22 @@ export function DesignCanvas({
       );
     } else if (key.startsWith("arrow") && selectedIds.length) {
       const step = event.shiftKey ? 10 : 1;
+
       const delta = {
         x: key === "arrowleft" ? -step : key === "arrowright" ? step : 0,
         y: key === "arrowup" ? -step : key === "arrowdown" ? step : 0,
       };
+
       const handle = (event.target as HTMLElement).dataset.handle as ResizeHandle | undefined;
+
       const activeIds = handle
         ? getVisibleSelectionFrames(document, selectedIds).map((node) => node.id)
         : selectedIds;
+
       const all = document.getDescendantIds(activeIds).map((id) => document.getFrame(id)!);
       const bounds = selectionBounds(all, activeIds);
       if (!bounds) return;
+
       const updated = handle
         ? resizeSelection(
             all,
@@ -1649,6 +1815,7 @@ export function DesignCanvas({
             ),
           )
         : moveSelection(all, activeIds, delta);
+
       document.updateMany(updated);
     } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       const bounds = surfaceRef.current?.getBoundingClientRect();
@@ -1662,6 +1829,7 @@ export function DesignCanvas({
     } else {
       return;
     }
+
     event.preventDefault();
   }
 
@@ -1675,12 +1843,14 @@ export function DesignCanvas({
       event.pointerType !== "mouse"
     )
       return;
+
     const id =
       resolveHit(
         event.target as HTMLElement,
         event.metaKey,
         localPoint(event.clientX, event.clientY),
       ) ?? null;
+
     setHoveredId(id);
   }
 
@@ -1696,12 +1866,15 @@ export function DesignCanvas({
       onCut={(event) => copySelection(event, true)}
       onPaste={(event) => {
         if (isEditingTarget(event.target)) return;
+
         if (usesNativeCanvasClipboard()) {
           // macOS Edit > Paste may deliver an empty/filtered WebKit event instead of keydown.
           event.preventDefault();
           void pasteFromClipboard();
+
           return;
         }
+
         const data: CanvasClipboard = {
           internal: readCanvasClipboardMime((type) => event.clipboardData.getData(type)),
           html: event.clipboardData.getData("text/html"),
@@ -1710,6 +1883,7 @@ export function DesignCanvas({
             file.type.startsWith("image/"),
           ),
         };
+
         if (
           data.internal ||
           data.text ||
@@ -1785,13 +1959,16 @@ export function DesignCanvas({
             const event = details.event;
             const { size } = camera.getCurrent();
             let point = { x: size.x / 2, y: size.y / 2 };
+
             if ("clientX" in event)
               point = localPoint(Number(event.clientX), Number(event.clientY));
             else if ("touches" in event) {
               const touch = (event as TouchEvent).touches[0];
               if (touch) point = localPoint(touch.clientX, touch.clientY);
             }
+
             menuPointRef.current = screenToWorld(point, camera.getCurrent().viewport);
+
             const target =
               "clientX" in event && "clientY" in event
                 ? surfaceRef.current?.ownerDocument.elementFromPoint(
@@ -1801,9 +1978,11 @@ export function DesignCanvas({
                 : event.target instanceof Element
                   ? event.target
                   : null;
+
             const id = resolveHit(target ?? null, false, point);
             if (id && !selectedIds.includes(id)) selectOne(id);
           }
+
           setMenuOpen(open);
         }}
       >
@@ -1820,14 +1999,17 @@ export function DesignCanvas({
           data-renderer={rendererBackend}
           onDoubleClick={(event) => {
             if (tool !== "select" || isEditingTarget(event.target)) return;
+
             // Pointer capture can retarget the double-click to the canvas surface.
             const hit = event.currentTarget.ownerDocument.elementFromPoint(
               event.clientX,
               event.clientY,
             );
+
             const id = resolveHit(hit, true, localPoint(event.clientX, event.clientY));
             if (!id || isNodeLocked(document, id)) return;
             const node = document.getFrame(id);
+
             if (node?.kind === "text") {
               selectOne(id);
               setEditingId(id);
@@ -1863,6 +2045,7 @@ export function DesignCanvas({
           onFocus={(event) => {
             const id = (event.target as HTMLElement).closest<HTMLElement>("[data-frame-id]")
               ?.dataset.frameId;
+
             if (
               id &&
               !interactionRef.current &&
@@ -1873,8 +2056,10 @@ export function DesignCanvas({
           }}
           onClick={(event) => {
             if (event.detail !== 0) return;
+
             const id = (event.target as HTMLElement).closest<HTMLElement>("[data-frame-id]")
               ?.dataset.frameId;
+
             if (id && !isNodeLocked(document, id)) selectOne(id);
           }}
           onPointerLeave={() => setHoveredId(null)}

@@ -73,6 +73,7 @@ function tokenValueBounds(type: ThemeTokenType) {
   if (type === "fontWeight") return { min: 1, max: 1000 };
   if (type === "lineHeight") return { min: 0.5, max: 4 };
   if (type === "letterSpacing") return { min: -10, max: 100 };
+
   return { min: 0, max: 10000 };
 }
 
@@ -82,6 +83,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
   if (type === "fontSize")
     return <ALargeSmallIcon size={14} strokeWidth={1.6} aria-hidden="true" />;
   if (type === "breakpoint") return <MonitorIcon size={14} strokeWidth={1.6} aria-hidden="true" />;
+
   if (type === "radius") {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -95,6 +97,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
       </svg>
     );
   }
+
   if (type === "container") {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -112,6 +115,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
       </svg>
     );
   }
+
   if (type === "fontWeight") {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -125,6 +129,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
       </svg>
     );
   }
+
   if (type === "lineHeight") {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -139,6 +144,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
       </svg>
     );
   }
+
   if (type === "letterSpacing") {
     return (
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -153,6 +159,7 @@ function TypeGlyph({ type }: { type: ThemeTokenType }) {
       </svg>
     );
   }
+
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
       <path
@@ -237,6 +244,7 @@ function TokenRow({
   onDelete: () => void;
 }) {
   const value = formatValue(token);
+
   return (
     <div
       className="canvas-theme-token"
@@ -248,10 +256,12 @@ function TokenRow({
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
+
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onSelect();
         }
+
         if (event.key === "Backspace" || event.key === "Delete") {
           event.preventDefault();
           onDelete();
@@ -297,6 +307,7 @@ function TokenRow({
           onBlur={(event) => {
             const next =
               typeof token.value === "number" ? Number(event.target.value) : event.target.value;
+
             if (next !== token.value) onEdit({ value: next });
           }}
           onKeyDown={(event) => {
@@ -342,9 +353,11 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
   useEffect(() => {
     if (searching) searchRef.current?.focus();
   }, [searching]);
+
   async function save(tokens: readonly ThemeToken[]) {
     setError("");
     setBusy(true);
+
     try {
       await updateDocumentTheme(document, { tokens });
     } catch (reason) {
@@ -353,6 +366,7 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
       setBusy(false);
     }
   }
+
   function add(type: ThemeTokenType) {
     const spec = TYPES.find((entry) => entry.value === type)!;
     const prefix = tokenPrefix(type);
@@ -364,16 +378,20 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
       if (!current.has(type)) return current;
       const next = new Set(current);
       next.delete(type);
+
       return next;
     });
     void save([...theme.tokens, { id, name: id, type, value: spec.initial }]);
   }
+
   function edit(token: ThemeToken, patch: Partial<ThemeToken>) {
     void save(
       theme.tokens.map((entry) => (entry.id === token.id ? { ...entry, ...patch } : entry)),
     );
   }
+
   const needle = query.trim().toLowerCase();
+
   const visible = needle
     ? theme.tokens.filter((token) =>
         [token.id, token.name, String(token.value)].some((value) =>
@@ -381,10 +399,13 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
         ),
       )
     : theme.tokens;
+
   const groups = TYPES.flatMap((entry) => {
     const tokens = visible.filter((token) => token.type === entry.value);
+
     return tokens.length ? [{ type: entry.value, label: entry.label, tokens }] : [];
   });
+
   const empty = theme.tokens.length === 0;
 
   return (
@@ -400,6 +421,7 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               event.stopPropagation();
+
               if (event.key === "Escape") {
                 setQuery("");
                 setSearching(false);
@@ -505,6 +527,7 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
           {groups.length === 0 && <p className="canvas-theme-empty">No matching tokens</p>}
           {groups.map((group) => {
             const open = !collapsed.has(group.type) || Boolean(needle);
+
             return (
               <section key={group.type} className="canvas-theme-section" aria-label={group.label}>
                 <button
@@ -516,6 +539,7 @@ export function CanvasThemePanel({ document }: { document: CanvasDocument }) {
                       const next = new Set(current);
                       if (next.has(group.type)) next.delete(group.type);
                       else next.add(group.type);
+
                       return next;
                     })
                   }

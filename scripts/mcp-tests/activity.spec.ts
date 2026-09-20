@@ -44,9 +44,11 @@ test("reduced motion disables agent fades", async ({ page }) => {
   await expect(page.locator(".canvas-agent-outline")).toBeVisible();
   await page.evaluate(() => Reflect.get(window, "agentTest").change());
   await expect(page.locator(".canvas-agent-outline")).toHaveCSS("left", "120px");
+
   const count = await page
     .locator('[data-frame-id="agent-frame"]')
     .evaluate((element) => element.getAnimations().length);
+
   expect(count).toBe(0);
   await expect(page.locator(".canvas-agent-dot")).toHaveCSS("animation-name", "none");
 });

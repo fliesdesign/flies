@@ -16,6 +16,7 @@ describe("property color controls", () => {
     assert.equal(normalizeCanvasHex("ABC"), "#aabbcc");
     assert.equal(normalizeCanvasHex("#f008"), "#ff000088");
     assert.equal(normalizeCanvasHex("aAbBcC7F"), "#aabbcc7f");
+
     for (const invalid of ["", "#12", "#12345", "#1234567", "red", "#abcdefgg"]) {
       assert.equal(normalizeCanvasHex(invalid), null);
     }

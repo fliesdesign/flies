@@ -21,7 +21,7 @@ type CanvasDocumentOptions = {
 export function useCanvasDocument({
   initialFrames,
   initialTheme,
-  persist = true,
+  persist = false,
   onSaveError,
 }: CanvasDocumentOptions = {}) {
   const [canvasDocument] = useState(
@@ -47,17 +47,20 @@ export function useCanvasDocument({
         dirty = false;
       else onSaveError?.();
     };
+
     const unsubscribe = canvasDocument.subscribe(() => {
       dirty = true;
       clearTimeout(timer);
       timer = setTimeout(flush, 300);
     });
+
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") flush();
     };
 
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       unsubscribe();
       window.removeEventListener("pagehide", flush);
@@ -75,10 +78,12 @@ export function useCanvasFrame(canvasDocument: CanvasDocument, id: string | null
       id === null ? () => {} : canvasDocument.subscribeFrame(id, listener),
     [canvasDocument, id],
   );
+
   const getSnapshot = useCallback(
     () => (id === null ? undefined : canvasDocument.getFrame(id)),
     [canvasDocument, id],
   );
+
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 

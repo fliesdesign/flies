@@ -11,10 +11,12 @@ import { rectFromPoints } from "./canvas-tools";
 function scheduler() {
   let id = 0;
   const callbacks = new Map<number, FrameRequestCallback>();
+
   return {
     callbacks,
     request(callback: FrameRequestCallback) {
       callbacks.set(++id, callback);
+
       return id;
     },
     cancel(key: number) {
@@ -115,10 +117,12 @@ describe("canvas edge auto-pan", () => {
     let viewport = { x: 0, y: 0, zoom: 1 };
     const start = { x: 150, y: 150 };
     const pointer = { x: 800, y: 300 };
+
     const update = () => {
       const delta = pointerWorldDelta(start, pointer, viewport);
       document.preview({ ...original, x: original.x + delta.x, y: original.y + delta.y });
     };
+
     document.beginGesture(original.id);
     update();
     pan.update(pointer, size, (delta) => {

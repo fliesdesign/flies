@@ -46,6 +46,7 @@ export function normalizeWorkspaceSession(value: unknown): WorkspaceSession {
   const raw = value as Record<string, unknown>;
   const seen = new Set<string>();
   const openIds: string[] = [];
+
   if (Array.isArray(raw.openIds)) {
     for (const id of raw.openIds) {
       if (!isFileId(id) || seen.has(id)) continue;
@@ -54,12 +55,14 @@ export function normalizeWorkspaceSession(value: unknown): WorkspaceSession {
       if (openIds.length >= MAX_OPEN_TABS) break;
     }
   }
+
   const requested =
     raw.activeId === null || raw.activeId === undefined
       ? null
       : isFileId(raw.activeId)
         ? raw.activeId
         : null;
+
   return {
     openIds,
     activeId: requested && seen.has(requested) ? requested : null,
@@ -73,6 +76,7 @@ export function restoreableOpenIds(
   availableIds: Iterable<string>,
 ): string[] {
   const alive = availableIds instanceof Set ? availableIds : new Set(availableIds);
+
   return session.openIds.filter((id) => alive.has(id));
 }
 
@@ -81,12 +85,14 @@ export function restoreableActiveId(
   openIds: readonly string[],
 ): string | null {
   if (session.activeId === null) return null;
+
   return openIds.includes(session.activeId) ? session.activeId : null;
 }
 
 export function loadWorkspaceSession(): WorkspaceSession {
   const raw = storage()?.getItem(WORKSPACE_SESSION_KEY);
   if (!raw) return DEFAULT_WORKSPACE_SESSION;
+
   try {
     return normalizeWorkspaceSession(JSON.parse(raw) as unknown);
   } catch {
@@ -96,11 +102,13 @@ export function loadWorkspaceSession(): WorkspaceSession {
 
 export function saveWorkspaceSession(session: WorkspaceSession): WorkspaceSession {
   const next = normalizeWorkspaceSession(session);
+
   try {
     storage()?.setItem(WORKSPACE_SESSION_KEY, JSON.stringify(next));
   } catch {
     /* private mode still keeps the in-memory session */
   }
+
   return next;
 }
 

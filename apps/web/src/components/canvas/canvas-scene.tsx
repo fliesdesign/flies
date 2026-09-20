@@ -31,6 +31,7 @@ import { CanvasGpuChrome } from "./canvas-gpu-chrome";
 import { CanvasNodeAppearance, CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
 const HANDLE_NAMES: Record<ResizeHandle, string> = {
   nw: "top left",
   n: "top",
@@ -41,6 +42,7 @@ const HANDLE_NAMES: Record<ResizeHandle, string> = {
   sw: "bottom left",
   w: "left",
 };
+
 const EMPTY_IDS: readonly string[] = [];
 
 export type FrameContentComponent = ComponentType<{ frame: CanvasFrame }>;
@@ -63,13 +65,17 @@ function CameraWorld({ camera, children }: { camera: CanvasCamera; children: Rea
   const world = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = world.current!;
+
     const update = () => {
       const { viewport } = camera.getSnapshot();
       element.style.transform = `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.zoom})`;
     };
+
     update();
+
     return camera.subscribe(update);
   }, [camera]);
+
   return (
     <div ref={world} className="canvas-world">
       {children}
@@ -81,6 +87,7 @@ function CameraWorld({ camera, children }: { camera: CanvasCamera; children: Rea
 function ZoomChrome({ camera, children }: { camera: CanvasCamera; children: ReactNode }) {
   const getZoom = useCallback(() => camera.getSnapshot().viewport.zoom, [camera]);
   const zoom = useSyncExternalStore(camera.subscribe, getZoom, getZoom);
+
   return (
     <div
       className="canvas-zoom-chrome"
@@ -93,6 +100,7 @@ function ZoomChrome({ camera, children }: { camera: CanvasCamera; children: Reac
 
 function useVisibleChildren(scene: CanvasScene, parentId?: string) {
   const getSnapshot = useCallback(() => scene.getVisibleChildren(parentId), [scene, parentId]);
+
   return useSyncExternalStore(scene.subscribe, getSnapshot, getSnapshot);
 }
 
@@ -107,6 +115,7 @@ const CustomFrameContent = memo(function CustomFrameContent({
   FrameContent: FrameContentComponent;
 }) {
   const frame = useCanvasFrame(document, id);
+
   return frame ? (
     <div className="canvas-frame-content" aria-hidden="true">
       <FrameContent frame={frame} />
@@ -140,11 +149,13 @@ const FrameNode = memo(function FrameNode({
   FrameContent,
 }: FrameNodeProps) {
   const renderNode = useMemo(() => new CanvasRenderNodeStore(document, id), [document, id]);
+
   const frame = useSyncExternalStore(
     renderNode.subscribe,
     renderNode.getSnapshot,
     renderNode.getSnapshot,
   );
+
   const children = useVisibleChildren(scene, id);
   if (!frame || frame.hidden) return null;
   const isFrame = frame.kind === undefined || frame.kind === "frame";
@@ -152,6 +163,7 @@ const FrameNode = memo(function FrameNode({
   const isRootContainer = (isFrame || isGroup) && !frame.parentId;
   const locked = parentLocked || Boolean(frame.locked);
   const selected = selectedIds.has(id);
+
   return (
     <div
       className="canvas-frame-position"
@@ -237,10 +249,12 @@ const FrameNode = memo(function FrameNode({
 function VisibleFrames({ scene, ...props }: SceneProps & { scene: CanvasScene }) {
   const ids = useSyncExternalStore(scene.subscribe, scene.getSnapshot, scene.getSnapshot);
   const roots = useVisibleChildren(scene);
+
   const selectedIds = useMemo(
     () => new Set(props.selectedIds ?? (props.selectedId ? [props.selectedId] : EMPTY_IDS)),
     [props.selectedId, props.selectedIds],
   );
+
   return (
     <div className="canvas-frames" data-visible-frames={ids.length}>
       {roots.map((id) => (
@@ -279,6 +293,7 @@ export const CanvasFrames = memo(function CanvasFrames(props: SceneProps) {
     () => scene.setPinned(props.selectedIds ?? props.selectedId ?? null),
     [scene, props.selectedId, props.selectedIds],
   );
+
   return (
     <>
       {allowGpu && (
@@ -318,33 +333,41 @@ class OutlineStore {
 
   getSnapshot = () => {
     const nodes = new Map<string, CanvasFrame>();
+
     for (const id of this.ids) {
       let node = this.document.getFrame(id);
+
       while (node && !nodes.has(node.id)) {
         nodes.set(node.id, node);
         node = node.parentId ? this.document.getFrame(node.parentId) : undefined;
       }
     }
+
     const next = [...nodes.values()];
     if (next.length !== this.snapshot.length || next.some((node, i) => node !== this.snapshot[i]))
       this.snapshot = next;
+
     return this.snapshot;
   };
 
   subscribe = (listener: () => void) => {
     let subscriptions: (() => void)[] = [];
+
     const subscribePath = () => {
       subscriptions.forEach((unsubscribe) => unsubscribe());
       subscriptions = this.getSnapshot().map((node) =>
         this.document.subscribeFrame(node.id, listener),
       );
     };
+
     subscribePath();
+
     // Reparenting changes the subscribed ancestor path without changing the selection.
     const unsubscribeDocument = this.document.subscribe(() => {
       subscribePath();
       listener();
     });
+
     return () => {
       unsubscribeDocument();
       subscriptions.forEach((unsubscribe) => unsubscribe());
@@ -354,6 +377,7 @@ class OutlineStore {
 
 function useOutlineFrames(document: CanvasDocument, ids: readonly string[]) {
   const store = useMemo(() => new OutlineStore(document, ids), [document, ids]);
+
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
@@ -368,6 +392,7 @@ function screenStyle(bounds: FrameRect, viewport: Viewport) {
 function clippedOutline(frame: FrameRect, clip: CanvasClipBounds, zoom: number) {
   // Negative one pixel preserves the outline on edges not constrained by clipping.
   const inset = (amount: number) => (amount > 0 ? amount * zoom : -1);
+
   return `inset(${inset(clip.top - frame.y)}px ${inset(frame.x + frame.width - clip.right)}px ${inset(frame.y + frame.height - clip.bottom)}px ${inset(clip.left - frame.x)}px)`;
 }
 
@@ -387,6 +412,7 @@ function OutlinePaint({
       style={{ clipPath: clippedOutline(bounds, getClipBounds(ancestors), zoom) }}
     />
   );
+
   for (const ancestor of ancestors) {
     const radius = clippingRadius(ancestor);
     if (!radius) continue;
@@ -406,6 +432,7 @@ function OutlinePaint({
       </div>
     );
   }
+
   return paint;
 }
 
@@ -419,11 +446,13 @@ function handlePosition(bounds: FrameRect, handle: ResizeHandle) {
 function isLocked(document: CanvasDocument, frame: CanvasFrame) {
   let node: CanvasFrame | undefined = frame;
   const visited = new Set<string>();
+
   while (node && !visited.has(node.id)) {
     if (node.locked) return true;
     visited.add(node.id);
     node = node.parentId ? document.getFrame(node.parentId) : undefined;
   }
+
   return false;
 }
 
@@ -437,36 +466,43 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
   ids: readonly string[];
 }) {
   useOutlineFrames(document, ids);
+
   const { viewport } = useSyncExternalStore(
     camera.subscribe,
     camera.getSnapshot,
     camera.getSnapshot,
   );
+
   const frames = getVisibleSelectionFrames(document, ids);
   if (frames.length === 0) return null;
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
+
   for (const frame of frames) {
     left = Math.min(left, frame.x);
     top = Math.min(top, frame.y);
     right = Math.max(right, frame.x + frame.width);
     bottom = Math.max(bottom, frame.y + frame.height);
   }
+
   const bounds = { x: left, y: top, width: right - left, height: bottom - top };
   const locked = frames.some((frame) => isLocked(document, frame));
   const single = frames.length === 1 ? frames[0] : undefined;
   const name = single?.name ?? `${frames.length} objects`;
   const ancestorPaths = frames.map((frame) => getClippingAncestors(document, frame));
+
   const sharedClips = ancestorPaths[0].filter((ancestor) =>
     ancestorPaths.every((path) => path.some((item) => item.id === ancestor.id)),
   );
+
   const clip = getClipBounds(sharedClips);
   // The badge sits 12 screen pixels below the selection and is 20 pixels tall.
   const label = `${Math.round(bounds.width)} × ${Math.round(bounds.height)}`;
   const halfBadgeWidth = (label.length * 7 + 14) / (2 * viewport.zoom);
   const badgeCenter = bounds.x + bounds.width / 2;
+
   const showDimensions =
     badgeCenter - halfBadgeWidth >= clip.left &&
     badgeCenter + halfBadgeWidth <= clip.right &&
@@ -480,6 +516,7 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
         }),
       ),
     );
+
   return (
     <div
       className="canvas-selection"
@@ -522,16 +559,19 @@ export const CanvasOutline = memo(function CanvasOutline({
 }) {
   const ids = useMemo(() => (id ? [id] : EMPTY_IDS), [id]);
   useOutlineFrames(document, ids);
+
   const { viewport } = useSyncExternalStore(
     camera.subscribe,
     camera.getSnapshot,
     camera.getSnapshot,
   );
+
   const frame = id ? document.getFrame(id) : undefined;
   if (!frame || document.isHidden(frame.id) || isLocked(document, frame)) return null;
   const ancestors = getClippingAncestors(document, frame);
   if (!isRectVisibleInRoundedClips(frame, ancestors)) return null;
   if (selection) return <CanvasSelectionOutline document={document} camera={camera} ids={ids} />;
+
   return (
     <div
       className="canvas-hover"

@@ -21,6 +21,7 @@ function round(value: number) {
 
 function summarize(samples: number[]) {
   const sorted = samples.toSorted((a, b) => a - b);
+
   return {
     samples: sorted.length,
     medianMs: round(sorted[Math.floor(sorted.length / 2)]),
@@ -31,11 +32,13 @@ function summarize(samples: number[]) {
 
 function measure(operation: (iteration: number) => void, count: number) {
   const samples: number[] = [];
+
   for (let iteration = 0; iteration < count; iteration++) {
     const start = performance.now();
     operation(iteration);
     samples.push(performance.now() - start);
   }
+
   return summarize(samples);
 }
 
@@ -44,13 +47,16 @@ function measureQuery(index: CanvasSpatialIndex, zoom: number) {
   // position; all samples include the same 200-screen-pixel overscan as the UI.
   let minCandidates = Infinity;
   let maxCandidates = 0;
+
   const timings = measure((iteration) => {
     const visible = index.query(
       viewportBounds({ x: -(iteration % 100) * 8, y: -((iteration * 3) % 100), zoom }, SCREEN),
     );
+
     minCandidates = Math.min(minCandidates, visible.length);
     maxCandidates = Math.max(maxCandidates, visible.length);
   }, QUERY_SAMPLES);
+
   return { zoom, minCandidates, maxCandidates, ...timings };
 }
 
@@ -58,12 +64,14 @@ function previousArrayAlgorithms(initial: CanvasFrame[], target: CanvasFrame) {
   // Reproduce the old data operations, without React or storage. These timings
   // compare algorithms only and must never be interpreted as browser frame time.
   let frames = initial;
+
   const preview = measure((iteration) => {
     const next = { ...target, x: target.x + (iteration % 97) + 1 };
     frames = frames.map((frame) => (frame.id === target.id ? next : frame));
   }, POINTER_UPDATES);
 
   const history: CanvasFrame[][] = [];
+
   const commit = measure((iteration) => {
     const before = frames;
     const next = { ...target, x: target.x + iteration + 1 };
@@ -82,6 +90,7 @@ function previousArrayAlgorithms(initial: CanvasFrame[], target: CanvasFrame) {
 
 function benchmark(count: number) {
   const frames = createBenchmarkFrames(count);
+
   const construction = measure(() => {
     const document = new CanvasDocument(frames);
     const index = new CanvasSpatialIndex(document.getFrames());
@@ -98,6 +107,7 @@ function benchmark(count: number) {
   document.subscribeFrame(frames[0].id, () => notifications.unrelatedFrame++);
   document.subscribeChanges((ids) => {
     notifications.committedChanges++;
+
     for (const id of ids) {
       const frame = document.getFrame(id);
       if (frame) index.upsert(frame);
@@ -107,9 +117,11 @@ function benchmark(count: number) {
 
   const queries = [measureQuery(index, 1), measureQuery(index, 0.1)];
   document.beginGesture(target.id);
+
   const preview = measure((iteration) => {
     document.preview({ ...target, x: target.x + (iteration % 97) + 1 });
   }, POINTER_UPDATES);
+
   const previewNotifications = { ...notifications };
   document.endGesture();
 
@@ -117,6 +129,7 @@ function benchmark(count: number) {
     const current = document.getFrame(target.id)!;
     document.update({ ...current, x: current.x + 1 });
   }, HISTORY_UPDATES);
+
   const undo = measure(() => document.undo(), HISTORY_UPDATES);
   const redo = measure(() => document.redo(), HISTORY_UPDATES);
 

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { FileWorkspace } from "@/components/workspace/file-workspace";
+import { AuthGate } from "@/components/workspace/auth-gate";
 
 export const Route = createFileRoute("/")({
-  component: FileWorkspace,
+  component: AuthGate,
 });

@@ -56,6 +56,7 @@ export function CanvasFileMenu({
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
+
     return () => {
       mounted.current = false;
     };
@@ -74,6 +75,7 @@ export function CanvasFileMenu({
       prepare();
       busyRef.current = true;
       setBusy(true);
+
       try {
         await action();
       } catch (error) {
@@ -89,8 +91,10 @@ export function CanvasFileMenu({
   const save = useCallback(() => {
     if (fileActions) {
       void runAction(fileActions.save);
+
       return;
     }
+
     if (busyRef.current) return;
     prepare();
     const packed = packCanvasProject(name, document.getCommittedFrames(), document.getTheme());
@@ -103,8 +107,10 @@ export function CanvasFileMenu({
   const open = useCallback(() => {
     if (fileActions) {
       void runAction(fileActions.open);
+
       return;
     }
+
     if (busyRef.current) return;
     prepare();
     fileRef.current?.click();
@@ -112,22 +118,29 @@ export function CanvasFileMenu({
 
   const exportPng = useCallback(async () => {
     if (busyRef.current) return;
+
     if (!selectedIds.length) {
       onNotice("Select a frame or layer to export.");
+
       return;
     }
+
     prepare();
     busyRef.current = true;
     setBusy(true);
     const nodes = document.getCommittedFrames();
+
     const filename =
       selectedIds.length === 1
         ? (document.getFrame(selectedIds[0])?.name ?? name)
         : `${name} selection`;
+
     onNotice("Exporting PNG…");
+
     try {
       const { exportCanvasPng } = await import("./canvas-export");
       const blob = await exportCanvasPng(nodes, selectedIds);
+
       if (mounted.current) {
         downloadCanvasFile(blob, projectFilename(filename, "png"));
         onNotice("PNG downloaded at 1× size.");
@@ -146,6 +159,7 @@ export function CanvasFileMenu({
       if (fileRef.current?.parentElement?.closest("[hidden]")) return;
       if (event.isComposing || !(event.metaKey || event.ctrlKey) || event.altKey) return;
       const key = event.key.toLowerCase();
+
       if (key === "s" && !event.shiftKey) {
         event.preventDefault();
         event.stopPropagation();
@@ -160,7 +174,9 @@ export function CanvasFileMenu({
         void exportPng();
       }
     };
+
     window.addEventListener("keydown", shortcut, true);
+
     return () => window.removeEventListener("keydown", shortcut, true);
   }, [exportPng, open, save]);
 
@@ -168,6 +184,7 @@ export function CanvasFileMenu({
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+
     try {
       if (file.size > MAX_PROJECT_BYTES)
         throw new Error("This project is larger than 100 MB. Open a smaller project.");

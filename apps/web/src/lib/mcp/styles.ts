@@ -5,6 +5,7 @@ export function validateSharedCss(value: unknown): string {
     throw new Error("css must be a string of at most 50,000 characters.");
   if (/url\s*\(|\\|@import|@font-face|expression\s*\(|<\/style/i.test(value))
     throw new Error("Shared CSS must be self-contained. Use named fonts and embedded image nodes.");
+
   return value;
 }
 
@@ -12,11 +13,13 @@ export function validateSharedCss(value: unknown): string {
 export function inheritedStyles(document: CanvasDocument, nodeId?: string): string {
   const sheets: string[] = [];
   let node = nodeId ? document.getFrame(nodeId) : undefined;
+
   while (node) {
     if ((!node.kind || node.kind === "frame") && node.htmlStyles)
       sheets.unshift(validateSharedCss(node.htmlStyles));
     node = node.parentId ? document.getFrame(node.parentId) : undefined;
   }
+
   return [document.getTheme().tokens.length ? themeCss(document.getTheme()) : "", ...sheets].join(
     "\n",
   );

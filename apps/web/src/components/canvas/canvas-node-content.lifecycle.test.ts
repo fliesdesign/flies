@@ -15,6 +15,7 @@ describe("text draft lifecycle commits", () => {
     let committed = inputValue;
     const saved: string[] = [];
     page.addEventListener("pagehide", () => saved.push(committed));
+
     const unsubscribe = subscribeTextDraftLifecycle(
       () => (committed = inputValue),
       page,
@@ -29,14 +30,17 @@ describe("text draft lifecycle commits", () => {
 
   it("commits before hidden-page saving without committing visible transitions", () => {
     const page = new EventTarget();
+
     const visibility = Object.assign(new EventTarget(), {
       visibilityState: "visible" as DocumentVisibilityState,
     });
+
     let inputValue = "Initial text";
     let committed = inputValue;
     let commits = 0;
     const saved: string[] = [];
     visibility.addEventListener("visibilitychange", () => saved.push(committed));
+
     const unsubscribe = subscribeTextDraftLifecycle(
       () => {
         committed = inputValue;

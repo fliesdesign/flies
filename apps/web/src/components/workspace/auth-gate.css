@@ -1,0 +1,90 @@
+.auth-screen {
+  min-height: calc(100dvh - var(--desktop-titlebar-height, 0px));
+  display: grid;
+  place-items: center;
+  padding: 40px 24px;
+  background: var(--background);
+}
+.auth-content {
+  width: min(100%, 390px);
+}
+.auth-wordmark {
+  display: block;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -1px;
+  margin-bottom: 64px;
+}
+.auth-content h1 {
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: -1.1px;
+  font-weight: 550;
+  margin: 32px 0 12px;
+}
+.auth-content > p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin-bottom: 28px;
+  max-width: 330px;
+}
+.auth-artboard {
+  position: relative;
+  height: 180px;
+  width: 260px;
+  border: 1px solid #777;
+  background: #222;
+}
+.auth-artboard::before,
+.auth-artboard::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #aaa;
+  background: #181818;
+}
+.auth-artboard::before {
+  left: -3px;
+  top: -3px;
+}
+.auth-artboard::after {
+  right: -3px;
+  bottom: -3px;
+}
+.auth-artboard-label {
+  position: absolute;
+  top: -22px;
+  font:
+    11px ui-monospace,
+    monospace;
+  color: #aaa;
+}
+.auth-artboard-shape {
+  position: absolute;
+  width: 130px;
+  height: 90px;
+  background: #c4d3df;
+  border-radius: 50%;
+  top: 45px;
+  left: 65px;
+  transform: rotate(-24deg);
+}
+.auth-cursor {
+  position: absolute;
+  bottom: 27px;
+  right: 41px;
+  fill: #e8e8e8;
+  color: #181818;
+  width: 27px;
+  height: 27px;
+}
+.auth-content .auth-error {
+  color: var(--destructive);
+  margin-top: 18px;
+  font-size: 13px;
+}
+.auth-error button {
+  text-decoration: underline;
+}

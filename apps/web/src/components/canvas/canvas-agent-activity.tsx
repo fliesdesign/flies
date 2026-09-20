@@ -15,6 +15,7 @@ export function CanvasAgentActivity({
 }) {
   const store = agentActivity(document);
   const activity = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+
   return activity ? (
     <ActiveAgentActivity document={document} camera={camera} activity={activity} />
   ) : null;
@@ -31,16 +32,19 @@ function ActiveAgentActivity({
   activity: AgentActivity;
 }) {
   useSyncExternalStore(document.subscribe, document.getSnapshot, document.getSnapshot);
+
   const { viewport, size } = useSyncExternalStore(
     camera.subscribe,
     camera.getSnapshot,
     camera.getSnapshot,
   );
+
   const layer = useRef<HTMLDivElement>(null);
   const animated = useRef(new WeakMap<Element, string>());
   const [, refreshGeometry] = useReducer((revision: number) => revision + 1, 0);
   useEffect(() => {
     const cleanups = activity.nodeIds.map((id) => document.subscribeFrame(id, refreshGeometry));
+
     return () => cleanups.forEach((cleanup) => cleanup());
   }, [activity.nodeIds, document]);
   const animations = useRef(new Map<Element, Animation>());
@@ -61,18 +65,22 @@ function ActiveAgentActivity({
     const canvas = layer.current?.parentElement;
     if (!canvas || canvas.closest("[hidden]")) return;
     const change = `${activity.sequence}:${activity.changedAt}`;
+
     for (const id of document.getRootIds(activity.changedIds)) {
       const element = canvas.querySelector<HTMLElement>(
         `.canvas-frame-position[data-frame-id="${CSS.escape(id)}"]`,
       );
+
       if (!element || animated.current.get(element) === change) continue;
       animated.current.set(element, change);
       animations.current.get(element)?.cancel();
       const opacity = Number(getComputedStyle(element).opacity);
+
       const animation = element.animate([{ opacity: opacity * 0.25 }, { opacity }], {
         duration: 320,
         easing: "cubic-bezier(0.2, 0, 0, 1)",
       });
+
       animations.current.set(element, animation);
       animation.addEventListener(
         "finish",
@@ -84,12 +92,16 @@ function ActiveAgentActivity({
     }
     // A pan or live drag only moves the footprint; it must not rescan every canvas node for fades.
   }, [activity.changedAt, activity.changedIds, activity.sequence, document]);
+
   const nodes = activity.nodeIds.flatMap((id) => {
     const node = document.getFrame(id);
+
     return node && !document.isHidden(id) ? [node] : [];
   });
+
   // Deleted nodes retain their last footprint briefly; existing nodes always use live geometry.
   const targets = nodes.length ? nodes : activity.removed;
+
   const bounds = targets.length
     ? targets.reduce(
         (box, node) => ({
@@ -101,6 +113,7 @@ function ActiveAgentActivity({
         { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
       )
     : null;
+
   const screen = bounds
     ? {
         left: bounds.left * viewport.zoom + viewport.x,
@@ -109,12 +122,14 @@ function ActiveAgentActivity({
         height: (bounds.bottom - bounds.top) * viewport.zoom,
       }
     : null;
+
   const offscreen =
     screen &&
     (screen.left + screen.width < 0 ||
       screen.top + screen.height < 0 ||
       screen.left > size.x ||
       screen.top > size.y);
+
   return (
     <div ref={layer} className="canvas-agent-layer" data-phase={activity.phase}>
       {screen && !offscreen && (

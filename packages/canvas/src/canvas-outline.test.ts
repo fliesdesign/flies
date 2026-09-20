@@ -86,6 +86,7 @@ describe("rounded ancestor clips", () => {
         cornerRadius: 0,
       },
     ]);
+
     assert.deepEqual(
       getVisibleSelectionFrames(document, ["hidden-corner", "visible"]).map((frame) => frame.id),
       ["visible"],

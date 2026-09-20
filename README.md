@@ -9,6 +9,7 @@ This is a Bun workspace:
 - `packages/canvas` — document model, geometry, GPU renderer, and canvas engine
 - `apps/web` — Vite+ React app (browser and the desktop webview)
 - `apps/desktop` — Tauri v2 native shell
+- `apps/api` — Bun + Hono, WorkOS, Drizzle/Postgres, immutable S3 revisions
 
 Right-click a selection and choose **Copy as → Tailwind, CSS, React Tailwind, or React CSS**
 to copy its visible layers as HTML or a React component. Exports preserve the current
@@ -22,7 +23,8 @@ for examples and supported styles.
 
 ```bash
 vp install           # install deps (or bun install)
-vp -C apps/web dev   # frontend only, Vite on :1420
+bun run api:dev       # backend API on :3001 (start first)
+vp -C apps/web dev   # frontend, Vite on :1420
 bun run tauri:dev    # desktop app (starts apps/web on :1420)
 bun run tauri:build  # bundled release build
 vp check             # format + lint (Oxfmt / Oxlint via Vite+)
@@ -165,7 +167,7 @@ Layers; their geometry and styling cannot be edited until unlocked. **Unlock all
 | Ctrl/Cmd + C / X / V                | Copy / cut / paste                                                      |
 | Ctrl/Cmd + Shift + V                | Paste in place                                                          |
 | Ctrl/Cmd + D                        | Duplicate the selection                                                 |
-| Ctrl/Cmd + S                        | Save the current local file (browser: download a ZIP)                   |
+| Ctrl/Cmd + S                        | Save the current file to your workspace                                 |
 | Ctrl/Cmd + O                        | Import a ZIP, JSON, or legacy `.lra` project                            |
 | Ctrl/Cmd + Shift + E                | Export the selected frame or layers as a PNG                            |
 | Delete / Backspace                  | Delete the selection and its descendants                                |
@@ -187,19 +189,18 @@ Small raster originals are preserved; larger images are compressed, and SVGs are
 Imported images use embedded data URLs without uploads or remote image requests. Tauri's
 window sets `dragDropEnabled: false` so HTML5 file dropping can reach the frontend on Windows.
 
-The desktop app starts with a local file library. Create a named file, reopen a recent file,
-or use **Open JSON…** to import a copy of a Flies ZIP/JSON or legacy `.lra` project. Files live in
-Tauri's app-data directory under `files/` (macOS: `~/Library/Application Support/com.flies.app/files`).
-Existing libraries under `com.lra.dsgn` are moved there on first launch.
-Each JSON contains format/version, ID, name, creation/modification timestamps, revision, and
-canvas nodes including embedded images. Rust commands handle listing, creating, reading, and
-atomic saving; edits autosave after 500 ms. Saves finish before returning to All files or closing
-the window. Failed saves remain in memory for retry and revision conflicts prevent stale overwrites.
-The top loading bar indicates file operations and respects reduced motion.
+The browser and desktop app require WorkOS sign-in and open the same API-backed file library.
+Each user receives a default workspace on first login. Files belong to that workspace; the API
+checks ownership for every list, read, write, archive, and revision request.
+Edits autosave after 500 ms. Each save adds a gzip-compressed immutable revision in private S3
+storage, with metadata and the current revision pointer in Postgres. Saves finish before tab
+closure or native window closure; failed saves remain in memory for retry. Concurrent writers
+receive a revision conflict rather than overwriting another session's work.
 
-The browser preview retains its previous localStorage canvas and portable downloads; native
-file storage is only available in the desktop app. **Recover previous canvas** imports the old
-desktop browser-storage canvas without deleting it.
+See [API setup](apps/api/README.md) for environment variables, the Neon test branch, Railway bucket,
+authentication, migrations, endpoints, and deployment with the root `Dockerfile.api`.
+Old local libraries are no longer read or written; their existing files on disk are left intact.
+Import a portable ZIP or JSON project to create a cloud copy.
 
 Use the toolbar's **Project menu** to save/open a portable ZIP (`document.json` plus images)
 or export a selection as PNG. Project files include the complete hierarchy, styling, and
@@ -208,13 +209,9 @@ invalid file leaves it intact.
 PNG exports use the selected subtree(s) at 1× size, including visible content, opacity, and
 frame clipping, without editor controls.
 
-Objects are also saved in browser `localStorage` under `flies.canvas.v1`, using a version 2
-`{ version: 2, nodes }` document. Documents stored under the previous `lra-dsgn.canvas.v1` key still load. Older flat arrays still load, with frame membership inferred
-from containment during migration. Clipboard imports use their explicit hierarchy instead.
-Up to 100 undo edits remain in memory per session. A failed
-save displays a notice, and editing continues in memory; image-heavy documents can exceed
-browser storage capacity. There is no backend or cross-device sync. `/about` and the OUI
-preview at `/components` remain accessible by direct URL.
+Design documents are no longer stored in browser localStorage. Tab IDs, appearance, and other UI
+preferences can still be remembered locally. Up to 100 undo edits remain in memory per session.
+The `/about` and component preview routes remain accessible by direct URL.
 
 ## Canvas performance
 
@@ -257,8 +254,8 @@ apps/web/src/
   components/canvas/    toolbar, object rendering/text editing, visible scene, and benchmark harness
   components/ui/        all 61 shadcn components
   hooks/use-mobile.ts   breakpoint hook used by sidebar/drawer
-  lib/                  MCP, local files, Paper snapshot import, `cn`
-apps/desktop/          Tauri v2 crate, MCP server, files, clipboard, snapshot fetch
+  lib/                  MCP, API files, Paper snapshot import, `cn`
+apps/desktop/          Tauri v2 crate, MCP server, clipboard, snapshot fetch
 vite.config.ts          workspace lint (`vp lint`) and format (`vp fmt`)
 scripts/benchmark-canvas.ts  document/index algorithm benchmark
 docs/canvas-performance.md  benchmark methodology, results, and limits
@@ -267,9 +264,11 @@ apps/web/components.json     shadcn config (style base-nova, baseColor zinc, ali
 
 ## Lint & format
 
-Vite+ owns format and lint from the root `vite.config.ts` (`fmt` and `lint` blocks). Run `vp fmt`
-and `vp lint`, or `vp check` for both. Nested `oxlint.config.ts` / `oxfmt.config.ts` files are not
-used.
+Vite+ owns format and lint from the root `vite.config.ts` (`fmt` and `lint` blocks). Run
+`bun run format` to format code and insert blank lines around functions, multiline declarations,
+blocks, and class methods, and before returns. The command applies only spacing fixes from Oxlint.
+Use `bun run format:check` to verify formatting, or `bun run check` for formatting, lint, and
+typechecks. Nested `oxlint.config.ts` / `oxfmt.config.ts` files are not used.
 
 Oxfmt sorts Tailwind classes and import statements. It reads the theme from
 `apps/web/src/styles.css`, since Tailwind v4 has no JS config.

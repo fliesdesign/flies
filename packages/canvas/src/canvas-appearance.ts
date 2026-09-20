@@ -5,6 +5,7 @@ import type { CanvasFrame } from "./canvas-document";
 /** Paint effects without changing the node bounds, text wrapping, or child clipping. */
 export function canvasAppearanceStyle(frame: CanvasFrame): CSSProperties | undefined {
   if (!(frame.borderWidth && frame.borderWidth > 0) && !frame.shadows?.length) return undefined;
+
   return {
     position: "absolute",
     inset: 0,

@@ -18,6 +18,7 @@ function withTester(
   const document = new CanvasDocument(initial);
   const tester = new CanvasHitTester(document);
   const disconnect = tester.connect();
+
   try {
     run(tester, document);
   } finally {
@@ -201,13 +202,17 @@ describe("canvas world-space hit testing", () => {
     const frames = Array.from({ length: 10_000 }, (_, index) =>
       frame(`node-${index}`, { x: index * 2000 }),
     );
+
     withTester(frames, (tester, document) => {
       const getFrame = document.getFrame;
       let reads = 0;
+
       document.getFrame = (id) => {
         reads++;
+
         return getFrame(id);
       };
+
       for (let x = 0; x < 100; x++) assert.equal(tester.hit({ x, y: 20 }), "node-0");
       assert.equal(reads, 100);
     });

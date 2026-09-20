@@ -47,6 +47,7 @@ test("export renders full frame subtree with clipping and excludes editor chrome
       hidden: true,
     },
   ]);
+
   const output = renderToStaticMarkup(<CanvasExportScene document={document} ids={["frame"]} />);
   assert.ok(output.includes("Actual artwork"));
   assert.ok(!output.includes("Do not export"));
@@ -94,6 +95,7 @@ test("export preserves authored borders, rounded edges, multiple shadows, and te
       textDecoration: "underline",
     },
   ]);
+
   const output = renderToStaticMarkup(<CanvasExportScene document={document} ids={["artboard"]} />);
   assert.ok(
     output.includes(

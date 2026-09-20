@@ -20,7 +20,10 @@ export default defineConfig({
   },
   lint: {
     plugins: ["typescript", "unicorn", "oxc", "react", "jsx-a11y", "import", "promise"],
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    jsPlugins: [
+      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
+      { name: "stylistic", specifier: "@stylistic/eslint-plugin" },
+    ],
     categories: {
       correctness: "error",
       suspicious: "warn",
@@ -32,6 +35,22 @@ export default defineConfig({
       es2024: true,
     },
     rules: {
+      "stylistic/padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "*", next: "return" },
+        {
+          blankLine: "always",
+          prev: "*",
+          next: ["function", "class", "multiline-block-like", "multiline-const", "multiline-let"],
+        },
+        {
+          blankLine: "always",
+          prev: ["function", "class", "multiline-block-like", "multiline-const", "multiline-let"],
+          next: "*",
+        },
+        { blankLine: "any", prev: "function-overload", next: "function" },
+      ],
+      "stylistic/lines-between-class-members": ["error", "always", { exceptAfterSingleLine: true }],
       "vite-plus/prefer-vite-plus-imports": "error",
       "react/react-in-jsx-scope": "off",
       "import/no-unassigned-import": ["warn", { allow: ["**/*.css"] }],

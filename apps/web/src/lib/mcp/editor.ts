@@ -31,12 +31,15 @@ export function stringArg(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || !value.trim())
     throw new Error(`${key} must be a non-empty string.`);
+
   return value;
 }
+
 function numberArg(args: Record<string, unknown>, key: string, fallback: number): number {
   const value = args[key] ?? fallback;
   if (typeof value !== "number" || !Number.isFinite(value))
     throw new Error(`${key} must be a finite number.`);
+
   return value;
 }
 
@@ -47,14 +50,18 @@ export async function editorTool(
 ): Promise<McpResult> {
   controls.prepare();
   const doc = controls.document;
+
   const getNode = (id: string) => {
     const node = doc.getFrame(id);
-    if (!node) throw new Error(`Node ${id} does not exist in the active file.`);
+    if (!node) throw new Error(`Node ${id} does not exist in this file.`);
+
     return node;
   };
+
   const validate = (add: CanvasFrame[], update: CanvasFrame[], remove: string[]) => {
     const removed = new Set(remove);
     const updates = new Map(update.map((node) => [node.id, node]));
+
     // Validate the whole transaction before changing anything; the document rejects invalid edits silently.
     const validated = new CanvasDocument([
       ...doc
@@ -63,14 +70,19 @@ export async function editorTool(
         .map((node) => updates.get(node.id) ?? node),
       ...add,
     ]);
+
     if (validated.getIds().length > 100_000)
       throw new Error("Document is limited to 100,000 nodes.");
+
     return validated;
   };
+
   const commit = (add: CanvasFrame[] = [], update: CanvasFrame[] = [], remove: string[] = []) => {
     validate(add, update, remove);
+
     return agentActivity(doc).capture(doc, () => doc.transact({ add, update, remove }));
   };
+
   switch (name) {
     case "get_theme":
       return textResult({
@@ -83,6 +95,7 @@ export async function editorTool(
             .filter((node) => Object.values(node.tokenBindings ?? {}).includes(token.id)).length,
         })),
       });
+
     case "set_theme": {
       if (!Array.isArray(args.tokens)) throw new Error("tokens must be an array.");
       if (args.replace !== undefined && typeof args.replace !== "boolean")
@@ -91,14 +104,18 @@ export async function editorTool(
       const remove = args.deleteTokenIds ?? [];
       if (!Array.isArray(remove) || !remove.every((id) => typeof id === "string"))
         throw new Error("deleteTokenIds must be an array of token IDs.");
+
       const merged = new Map(
         (args.replace ? [] : doc.getTheme().tokens).map((token) => [token.id, token]),
       );
+
       for (const id of remove) merged.delete(id);
       for (const token of updates.tokens) merged.set(token.id, token);
       await updateDocumentTheme(doc, { tokens: [...merged.values()] });
+
       return textResult({ theme: doc.getTheme(), revision: doc.getSnapshot().revision });
     }
+
     case "apply_tokens": {
       const ids = args.nodeIds;
       if (
@@ -116,14 +133,18 @@ export async function editorTool(
         )
       )
         throw new Error("Unknown token property.");
+
       const requested = Object.fromEntries(
         Object.entries(args.bindings).filter(([, id]) => id !== null),
       );
+
       if (!isTokenBindings(requested)) throw new Error("Invalid token bindings.");
       const originals = [...new Set(ids)].map(getNode);
       const theme = doc.getTheme();
+
       const updates = originals.map((node) => {
         const bindings = { ...node.tokenBindings };
+
         for (const [property, id] of Object.entries(
           args.bindings as Record<string, string | null>,
         )) {
@@ -131,29 +152,38 @@ export async function editorTool(
           if (id === null) Reflect.deleteProperty(bindings, canonical);
           else Reflect.set(bindings, canonical, id);
         }
+
         return applyTokenBindings(node, theme, bindings, true);
       });
+
       await prepareTokenUpdates(updates, originals);
       if (doc.getTheme() !== theme || originals.some((node) => doc.getFrame(node.id) !== node))
         throw new Error("Document changed while applying tokens. Try again.");
       commit([], updates);
+
       return textResult({ nodes: originals.map((node) => doc.getFrame(node.id)) });
     }
+
     case "get_selection":
       return textResult({ nodeIds: controls.getSelection() });
+
     case "get_node_info": {
       const node = getNode(stringArg(args, "nodeId"));
+
       return textResult({ node, children: doc.getChildren(node.id) });
     }
+
     case "get_tree": {
       const depth = numberArg(args, "depth", 5);
       if (!Number.isInteger(depth) || depth < 0 || depth > 20)
         throw new Error("depth must be an integer between 0 and 20.");
       let count = 0;
+
       const tree = (id: string, level: number): unknown => {
         if (++count > 5000)
           throw new Error("Tree is too large. Request a specific node or a smaller depth.");
         const node = getNode(id);
+
         return {
           id,
           name: node.name,
@@ -164,10 +194,13 @@ export async function editorTool(
             : {}),
         };
       };
+
       const roots =
         args.nodeId === undefined ? doc.getChildren() : [getNode(stringArg(args, "nodeId")).id];
+
       return textResult({ nodes: roots.map((id) => tree(id, 0)) });
     }
+
     case "create_artboard": {
       const node: CanvasFrame = {
         id: crypto.randomUUID(),
@@ -179,22 +212,28 @@ export async function editorTool(
         height: numberArg(args, "height", 600),
         fill: args.fill === undefined ? "#ffffff" : stringArg(args, "fill"),
       };
+
       commit([node]);
       controls.select(node.id);
+
       return textResult({ nodeId: node.id });
     }
+
     case "preview_html": {
       const nodeId = args.nodeId === undefined ? undefined : getNode(stringArg(args, "nodeId")).id;
       const width = numberArg(args, "width", 1280);
       const height = numberArg(args, "height", 800);
       if (width < 40 || width > 8192 || height < 40 || height > 8192)
         throw new Error("Preview dimensions must be between 40 and 8192px.");
+
       const css =
         inheritedStyles(doc, nodeId) +
         "\n" +
         (args.css === undefined ? "" : validateSharedCss(args.css));
+
       const { openPrototype } = await import("./prototype");
       await openPrototype(stringArg(args, "html"), css, width, height);
+
       return textResult({
         opened: true,
         width,
@@ -212,17 +251,21 @@ export async function editorTool(
         screenshot: "get_screenshot captures native canvas nodes, not this preview.",
       });
     }
+
     case "close_preview": {
       const { closePrototype } = await import("./prototype");
       closePrototype();
+
       return textResult({ closed: true });
     }
+
     case "set_styles": {
       const node = getNode(stringArg(args, "nodeId"));
       if (node.kind && node.kind !== "frame")
         throw new Error("Shared styles belong to a frame or artboard.");
       const css = validateSharedCss(args.css);
       commit([], [{ ...node, htmlStyles: css }]);
+
       return textResult({
         nodeId: node.id,
         css,
@@ -230,6 +273,7 @@ export async function editorTool(
           "Future descendant write_html calls and previews; existing native layers keep their measured styles.",
       });
     }
+
     case "fit_node": {
       const node = getNode(stringArg(args, "nodeId"));
       if (node.kind && node.kind !== "frame" && node.kind !== "group")
@@ -243,11 +287,14 @@ export async function editorTool(
         throw new Error("clipContent must be a boolean.");
       if (node.kind === "group" && args.clipContent !== undefined)
         throw new Error("Groups do not clip content; use a frame.");
+
       const children = doc
         .getDescendantIds(doc.getChildren(node.id))
         .map(getNode)
         .filter((child) => !doc.isHidden(child.id));
+
       if (!children.length) throw new Error("This node has no visible content to fit.");
+
       const updated = {
         ...node,
         width:
@@ -266,9 +313,12 @@ export async function editorTool(
               ),
         ...(node.kind !== "group" && { clipContent: args.clipContent ?? true }),
       } as CanvasFrame;
+
       commit([], [updated]);
+
       return textResult({ node: doc.getFrame(node.id) });
     }
+
     case "write_html": {
       const target = args.targetId === undefined ? undefined : getNode(stringArg(args, "targetId"));
       if (target && (args.parentId !== undefined || args.replace !== undefined))
@@ -285,6 +335,7 @@ export async function editorTool(
       const replacing = target ?? (args.replace ? parent : undefined);
       const descendants = replacing ? doc.getDescendantIds(doc.getChildren(replacing.id)) : [];
       const originals = descendants.map(getNode);
+
       let nodes = await importHtml(stringArg(args, "html"), {
         css: inheritedStyles(doc, anchor?.id),
         parentId: target ? target.parentId : parent?.id,
@@ -293,6 +344,7 @@ export async function editorTool(
         width: numberArg(args, "width", Math.max(40, anchor?.width ?? 800)),
         height: args.height === undefined ? anchor?.height : numberArg(args, "height", 600),
       });
+
       // Do not overwrite human edits that happened while fonts/images were measured.
       if (
         (anchor && doc.getFrame(anchor.id) !== anchor) ||
@@ -305,6 +357,7 @@ export async function editorTool(
       )
         throw new Error("Target changed during HTML import. Inspect it and retry.");
       let updates: CanvasFrame[] = [];
+
       if (target) {
         const ids = new Set(nodes.map((node) => node.id));
         const roots = nodes.filter((node) => !node.parentId || !ids.has(node.parentId));
@@ -327,6 +380,7 @@ export async function editorTool(
         );
         updates = nodes.filter((node) => node.id === target.id);
       }
+
       const added = nodes.filter((node) => node.id !== target?.id);
       const preview = validate(added, updates, descendants);
       if (!args.validateOnly)
@@ -337,6 +391,7 @@ export async function editorTool(
       // Native auto-layout or group bounds may have adjusted the measured positions.
       nodes = nodes.map((node) => resultDoc.getFrame(node.id)!);
       const importedIds = new Set(nodes.map((node) => node.id));
+
       const describe = (node: CanvasFrame) => ({
         id: args.validateOnly ? undefined : node.id,
         parentId: args.validateOnly ? undefined : node.parentId,
@@ -347,6 +402,7 @@ export async function editorTool(
         width: node.width,
         height: node.height,
       });
+
       return textResult({
         applied: !args.validateOnly,
         nodeIds: args.validateOnly ? [] : nodes.map((node) => node.id),
@@ -362,11 +418,13 @@ export async function editorTool(
         },
       });
     }
+
     case "update_node": {
       const before = getNode(stringArg(args, "nodeId"));
       const props = args.properties;
       if (!props || typeof props !== "object" || Array.isArray(props))
         throw new Error("properties must be an object.");
+
       const base = [
         "name",
         "x",
@@ -382,6 +440,7 @@ export async function editorTool(
         "borderColor",
         "shadows",
       ];
+
       const byKind = {
         frame: ["fill", "clipContent", "layout", "htmlStyles"],
         group: [],
@@ -402,6 +461,7 @@ export async function editorTool(
         svg: ["src"],
         pen: ["points", "stroke", "strokeWidth", "pathWidth", "pathHeight"],
       };
+
       const allowed = new Set([...base, ...byKind[before.kind ?? "frame"]]);
       for (const key of Object.keys(props))
         if (!allowed.has(key))
@@ -413,6 +473,7 @@ export async function editorTool(
       const patch = { ...props } as Record<string, unknown>;
       if (patch.htmlStyles !== undefined && patch.htmlStyles !== null)
         validateSharedCss(patch.htmlStyles);
+
       if (
         patch.layout &&
         typeof patch.layout === "object" &&
@@ -423,6 +484,7 @@ export async function editorTool(
           if (!["direction", "gap", "padding", "align", "justify"].includes(key))
             throw new Error(`Unsupported layout property: ${key}`);
         }
+
         patch.layout = {
           direction: "row",
           gap: 16,
@@ -433,7 +495,9 @@ export async function editorTool(
           ...patch.layout,
         };
       }
+
       const updated = { ...before, ...patch } as CanvasFrame;
+
       const optional = new Set([
         "parentId",
         "hidden",
@@ -454,10 +518,13 @@ export async function editorTool(
         "fontStyle",
         "textDecoration",
       ]);
+
       for (const [key, value] of Object.entries(patch)) {
         if (value === null && optional.has(key)) Reflect.deleteProperty(updated, key);
       }
+
       validate([], [updated], []);
+
       if (updated.kind === "text") {
         await ensureCanvasFont(updated);
         if (doc.getFrame(before.id) !== before)
@@ -465,9 +532,11 @@ export async function editorTool(
             "Target changed while loading its font. Read the node again before retrying.",
           );
       }
+
       const updates = [updated];
       const dx = updated.x - before.x;
       const dy = updated.y - before.y;
+
       if (
         (!before.kind || before.kind === "frame" || before.kind === "group") &&
         (dx !== 0 || dy !== 0)
@@ -478,9 +547,12 @@ export async function editorTool(
           updates.push({ ...child, x: child.x + dx, y: child.y + dy });
         }
       }
+
       commit([], updates);
+
       return textResult({ node: doc.getFrame(before.id) });
     }
+
     case "delete_nodes": {
       const ids = args.nodeIds;
       if (
@@ -493,24 +565,33 @@ export async function editorTool(
       ids.forEach(getNode);
       const removed = doc.getDescendantIds(ids);
       commit([], [], removed);
+
       return textResult({ removed });
     }
+
     case "set_selection": {
       const id = args.nodeId === undefined ? null : getNode(stringArg(args, "nodeId")).id;
       controls.select(id);
+
       return textResult({ nodeId: id });
     }
+
     case "undo":
       agentActivity(doc).capture(doc, () => doc.undo());
+
       return textResult({ revision: doc.getSnapshot().revision });
     case "redo":
       agentActivity(doc).capture(doc, () => doc.redo());
+
       return textResult({ revision: doc.getSnapshot().revision });
+
     case "get_screenshot": {
       const ids =
         args.nodeId === undefined ? doc.getChildren() : [getNode(stringArg(args, "nodeId")).id];
+
       const { exportCanvasPng } = await import("@/components/canvas/canvas-export");
       const blob = await exportCanvasPng(doc.getCommittedFrames(), ids);
+
       const data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.addEventListener("load", () => resolve(String(reader.result).split(",")[1]), {
@@ -521,8 +602,10 @@ export async function editorTool(
         });
         reader.readAsDataURL(blob);
       });
+
       return { content: [{ type: "image", data, mimeType: "image/png" }] };
     }
+
     default:
       throw new Error(`Unknown editor tool: ${name}`);
   }

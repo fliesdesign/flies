@@ -11,12 +11,15 @@ export async function compileTailwind(fragment: DocumentFragment): Promise<strin
       ),
     ),
   ];
+
   if (!candidates.length) return undefined;
   // Arbitrary values must not bypass the HTML importer's passive-resource policy.
   if (candidates.some((candidate) => /\\|url\s*\(|image-set\s*\(|expression\s*\(/i.test(candidate)))
     throw new Error("Tailwind classes cannot load external resources or use CSS escapes.");
+
   const compiler = await compile(
     `@layer theme, base, utilities;\n@layer theme { ${theme} }\n@layer base { ${preflight} }\n@tailwind utilities;`,
   );
+
   return compiler.build(candidates);
 }

@@ -4,6 +4,7 @@ import type { CanvasFrame } from "./canvas-document";
 export function createBenchmarkFrames(count: number): CanvasFrame[] {
   const length = Math.max(0, Math.floor(count));
   const columns = Math.ceil(Math.sqrt(length));
+
   return Array.from({ length }, (_, index) => ({
     id: `bench-${index}`,
     name: `Frame ${index + 1}`,
@@ -24,10 +25,12 @@ export function createMixedBenchmarkNodes(count: number): CanvasFrame[] {
   const boards = Math.ceil(length / 10);
   const columns = Math.ceil(Math.sqrt(boards));
   const nodes: CanvasFrame[] = [];
+
   for (let index = 0; index < boards; index++) {
     const x = (index % columns) * 440;
     const y = Math.floor(index / columns) * 360;
     const id = `mixed-${index}`;
+
     const base = (
       suffix: string,
       name: string,
@@ -44,6 +47,7 @@ export function createMixedBenchmarkNodes(count: number): CanvasFrame[] {
       width,
       height,
     });
+
     nodes.push(
       {
         id: `${id}-frame`,
@@ -139,5 +143,6 @@ export function createMixedBenchmarkNodes(count: number): CanvasFrame[] {
       },
     );
   }
+
   return nodes.slice(0, length);
 }

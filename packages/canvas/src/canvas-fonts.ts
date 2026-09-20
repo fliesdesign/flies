@@ -49,6 +49,7 @@ export function isFontFamily(value: unknown): value is string {
     !/[;{}<>]/.test(value)
   );
 }
+
 export function fontFamilyCss(family = "Arial"): string {
   const known: Record<string, string> = {
     Arial: "Arial, Helvetica, sans-serif",
@@ -56,8 +57,10 @@ export function fontFamilyCss(family = "Arial"): string {
     Georgia: "Georgia, 'Times New Roman', serif",
     "Courier New": "'Courier New', Courier, monospace",
   };
+
   return known[family] ?? `${JSON.stringify(family)}, sans-serif`;
 }
+
 export function resolveCanvasFontFamily(stack: string): string {
   const aliases: Record<string, string> = {
     "sans-serif": "Arial",
@@ -70,36 +73,46 @@ export function resolveCanvasFontFamily(stack: string): string {
     monospace: "Courier New",
     "ui-monospace": "Courier New",
   };
+
   const first = stack
     .split(",")[0]
     .trim()
     .replace(/^["']|["']$/g, "");
+
   if (!isFontFamily(first)) throw new Error("Invalid font family.");
+
   return aliases[first.toLowerCase()] ?? first;
 }
+
 function getSystemFonts() {
   systemFonts ??= invoke<SystemFont[]>("list_system_fonts").catch((error) => {
     systemFonts = undefined;
     throw error;
   });
+
   return systemFonts;
 }
+
 export async function listCanvasFonts(): Promise<string[]> {
   const local = isTauri() ? (await getSystemFonts()).map((face) => face.family) : [];
+
   // eslint-disable-next-line unicorn/no-array-sort -- Canvas targets ES2022.
   return [...new Set([...BUILTIN_FONT_FAMILIES, ...local, ...GOOGLE_FONT_FAMILIES])].sort((a, b) =>
     a.localeCompare(b),
   );
 }
+
 function timeout<T>(promise: Promise<T>, family: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`Font “${family}” took too long to load.`)),
       10000,
     );
+
     promise.then(
       (value) => {
         clearTimeout(timer);
+
         return resolve(value);
       },
       (error: unknown) => {
@@ -109,9 +122,11 @@ function timeout<T>(promise: Promise<T>, family: string): Promise<T> {
     );
   });
 }
+
 async function googleStyles(family: string, weight: number, italic: boolean) {
   const key = `${family}:${weight}:${italic}`;
   let pending = stylesheets.get(key);
+
   if (!pending) {
     const url = new URL("https://fonts.googleapis.com/css2");
     url.searchParams.set("family", `${family}:ital,wght@${italic ? 1 : 0},${weight}`);
@@ -123,6 +138,7 @@ async function googleStyles(family: string, weight: number, italic: boolean) {
         const css = await response.text();
         if (!css.includes("@font-face"))
           throw new Error(`Google Fonts returned no font for “${family}”.`);
+
         return css;
       })
       .catch((error) => {
@@ -131,6 +147,7 @@ async function googleStyles(family: string, weight: number, italic: boolean) {
       });
     stylesheets.set(key, pending);
   }
+
   return pending;
 }
 
@@ -147,17 +164,21 @@ export async function ensureCanvasFont(
   const italic = request.fontStyle === "italic" || request.fontStyle === "oblique";
   const key = `${family}:${weight}:${italic}`;
   let cache = loaded.get(doc);
+
   if (!cache) {
     cache = new Map();
     loaded.set(doc, cache);
   }
+
   let pending = cache.get(key);
+
   if (!pending) {
     pending = (async () => {
       if (isTauri()) {
         const faces = (await getSystemFonts()).filter(
           (face) => face.family.toLowerCase() === family.toLowerCase(),
         );
+
         if (faces.length) {
           const localFaces = faces.map(
             (face) =>
@@ -166,16 +187,21 @@ export async function ensureCanvasFont(
                 style: face.style,
               }),
           );
+
           const results = await Promise.allSettled(localFaces.map((face) => face.load()));
+
           const available = results.flatMap((result) =>
             result.status === "fulfilled" ? [result.value] : [],
           );
+
           if (available.length) {
             for (const face of available) doc.fonts.add(face);
+
             return;
           }
         }
       }
+
       const css = await googleStyles(family, weight, italic);
       const style = doc.createElement("style");
       style.dataset.canvasFont = key;
@@ -187,8 +213,10 @@ export async function ensureCanvasFont(
     });
     cache.set(key, pending);
   }
+
   try {
     await timeout(pending, family);
+
     // Later text can require additional Unicode subsets of an already registered face.
     const faces = await timeout(
       doc.fonts.load(
@@ -197,23 +225,28 @@ export async function ensureCanvasFont(
       ),
       family,
     );
+
     if (!faces.length) throw new Error(`Font “${family}” could not be loaded.`);
   } catch (error) {
     cache.delete(key);
+
     for (const style of doc.querySelectorAll<HTMLStyleElement>("style[data-canvas-font]")) {
       if (style.dataset.canvasFont === key) style.remove();
     }
+
     throw error;
   }
 }
 
 export async function ensureCanvasFonts(nodes: readonly FontRequest[], doc: Document = document) {
   const requests = new Map<string, FontRequest>();
+
   for (const node of nodes) {
     if (!node.fontFamily) continue;
     const key = `${node.fontFamily}:${node.fontWeight ?? 400}:${node.fontStyle ?? "normal"}`;
     const previous = requests.get(key);
     requests.set(key, { ...node, text: (previous?.text ?? "") + (node.text ?? "") });
   }
+
   await Promise.all([...requests.values()].map((request) => ensureCanvasFont(request, doc)));
 }

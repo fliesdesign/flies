@@ -61,10 +61,12 @@ function ColorRow({
 }) {
   const [draft, setDraft] = useState(value);
   const [previous, setPrevious] = useState(value);
+
   if (previous !== value) {
     setPrevious(value);
     setDraft(value);
   }
+
   return (
     <div className="appearance-color">
       <label className="appearance-swatch" title={label}>
@@ -109,12 +111,16 @@ export function AppearanceSettings() {
     function sync(event: StorageEvent) {
       if (event.key === APPEARANCE_STORAGE_KEY) setAppearance(loadAppearance());
     }
+
     window.addEventListener("storage", sync);
+
     return () => window.removeEventListener("storage", sync);
   }, []);
+
   function commit(next: Appearance) {
     setAppearance(saveAppearance(next));
   }
+
   function setColor(id: UiColorId, hex: string) {
     const colors = { ...appearance.colors };
     const parsed = parseUiHex(hex) ?? DEFAULT_UI_COLORS[id];
@@ -122,6 +128,7 @@ export function AppearanceSettings() {
     else colors[id] = parsed;
     commit({ ...appearance, colors });
   }
+
   return (
     <div className="appearance-settings">
       <section className="appearance-section" aria-labelledby="appearance-grade">

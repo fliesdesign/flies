@@ -38,12 +38,14 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   event.stopPropagation();
   const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
   const index = buttons.indexOf(event.target as HTMLButtonElement);
+
   const next =
     event.key === "Home"
       ? 0
       : event.key === "End"
         ? buttons.length - 1
         : (index + step + buttons.length) % buttons.length;
+
   buttons[next]?.focus();
 }
 

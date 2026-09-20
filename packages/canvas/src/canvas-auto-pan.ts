@@ -11,20 +11,25 @@ export function edgePanVelocity(point: Point, size: Point): Point {
     if (position < edge) return MAX_SPEED * Math.min(1, (edge - position) / edge) ** 2;
     if (position > length - edge)
       return -MAX_SPEED * Math.min(1, (position - length + edge) / edge) ** 2;
+
     return 0;
   };
+
   const velocity = { x: axis(point.x, size.x), y: axis(point.y, size.y) };
   const magnitude = Math.hypot(velocity.x, velocity.y);
+
   if (magnitude > MAX_SPEED) {
     velocity.x *= MAX_SPEED / magnitude;
     velocity.y *= MAX_SPEED / magnitude;
   }
+
   return velocity;
 }
 
 /** The start remains in world coordinates while the camera moves underneath a captured pointer. */
 export function pointerWorldDelta(start: Point, point: Point, viewport: Viewport): Point {
   const current = screenToWorld(point, viewport);
+
   return { x: current.x - start.x, y: current.y - start.y };
 }
 
@@ -43,10 +48,13 @@ export class CanvasAutoPan {
   update(point: Point, size: Point, onPan: (delta: Point) => void) {
     this.velocity = edgePanVelocity(point, size);
     this.onPan = onPan;
+
     if (!this.velocity.x && !this.velocity.y) {
       this.stop();
+
       return;
     }
+
     if (this.pending === null) this.pending = this.request(this.tick);
   }
 

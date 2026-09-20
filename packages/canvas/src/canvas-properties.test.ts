@@ -15,6 +15,7 @@ const outer: CanvasFrame = {
   width: 500,
   height: 500,
 };
+
 const frame: CanvasFrame = {
   id: "frame",
   name: "Frame",
@@ -24,6 +25,7 @@ const frame: CanvasFrame = {
   width: 200,
   height: 100,
 };
+
 const rectangle: CanvasFrame = {
   id: "rectangle",
   name: "Rectangle",
@@ -35,6 +37,7 @@ const rectangle: CanvasFrame = {
   height: 60,
   fill: "#abcdef",
 };
+
 const text: CanvasText = {
   id: "text",
   name: "Text",
@@ -47,6 +50,7 @@ const text: CanvasText = {
   fontSize: 24,
   color: "#123456",
 };
+
 const noMeasurement = () => assert.fail("This property must not measure text");
 
 describe("canvas property geometry", () => {
@@ -94,6 +98,7 @@ describe("canvas property geometry", () => {
 
   it("resizes a frame as a crop without moving or scaling children", () => {
     const document = new CanvasDocument([outer, frame, rectangle]);
+
     const changed = changeCanvasProperty(
       document.getFrames(),
       ["frame"],
@@ -101,6 +106,7 @@ describe("canvas property geometry", () => {
       90,
       noMeasurement,
     );
+
     assert.equal(changed.length, 1);
     assert.equal(changed[0].width, 90);
     document.updateMany(changed);
@@ -118,10 +124,13 @@ describe("canvas property geometry", () => {
       noMeasurement,
       { preserveAspect: true },
     );
+
     assert.deepEqual(changed, [{ ...frame, width: 300, height: 150 }]);
+
     const minimum = changeCanvasProperty([outer, frame], ["frame"], "width", 1, noMeasurement, {
       preserveAspect: true,
     });
+
     assert.deepEqual(minimum, [{ ...frame, width: 80, height: 40 }]);
   });
 
@@ -135,8 +144,10 @@ describe("canvas property geometry", () => {
       width: 240,
       height: 60,
     };
+
     const child: CanvasText = { ...text, parentId: "group", x: 0, y: 0, height: 60 };
     const document = new CanvasDocument([group, child]);
+
     const changed = changeCanvasProperty(
       document.getFrames(),
       ["group"],
@@ -145,6 +156,7 @@ describe("canvas property geometry", () => {
       noMeasurement,
       { preserveAspect: true },
     );
+
     document.updateMany(changed);
     assert.equal(document.getFrame("group")?.width, 480);
     assert.deepEqual(document.getFrame("text"), {
@@ -162,6 +174,7 @@ describe("canvas property geometry", () => {
 describe("canvas layout properties", () => {
   it("enables, adjusts and disables layout only on eligible frames", () => {
     const nodes = [outer, text];
+
     const enabled = changeCanvasProperty(
       nodes,
       ["outer", "text"],
@@ -169,6 +182,7 @@ describe("canvas layout properties", () => {
       "column",
       noMeasurement,
     );
+
     assert.equal(enabled.length, 1);
     const laidOut = enabled[0];
     assert.ok(!laidOut.kind || laidOut.kind === "frame");
@@ -179,6 +193,7 @@ describe("canvas layout properties", () => {
       align: "start",
       justify: "start",
     });
+
     for (const [property, key, value] of [
       ["layoutGap", "gap", 24],
       ["layoutPadding", "padding", 8],
@@ -192,9 +207,11 @@ describe("canvas layout properties", () => {
         value,
         noMeasurement,
       )[0];
+
       assert.ok(!changed.kind || changed.kind === "frame");
       assert.equal(changed.layout?.[key], value);
     }
+
     assert.deepEqual(
       changeCanvasProperty([laidOut], ["outer"], "layoutMode", "none", noMeasurement),
       [outer],
@@ -204,6 +221,7 @@ describe("canvas layout properties", () => {
 
   it("rejects unsupported layout values and edits to locked frames", () => {
     const enabled = changeCanvasProperty([outer], ["outer"], "layoutMode", "row", noMeasurement)[0];
+
     for (const [property, value] of [
       ["layoutMode", "grid"],
       ["layoutGap", -1],
@@ -216,6 +234,7 @@ describe("canvas layout properties", () => {
         [],
       );
     }
+
     assert.deepEqual(
       changeCanvasProperty(
         [{ ...enabled, locked: true }],
@@ -232,10 +251,13 @@ describe("canvas layout properties", () => {
 describe("canvas property text reflow", () => {
   it("measures the changed width and commits height together, while explicit height stays manual", () => {
     const measured: CanvasText[] = [];
+
     const changed = changeCanvasProperty([text], ["text"], "width", 120, (node) => {
       measured.push(node);
+
       return 90;
     });
+
     assert.equal(measured.length, 1);
     assert.equal(measured[0].width, 120);
     assert.deepEqual(changed, [{ ...text, width: 120, height: 90 }]);
@@ -260,18 +282,23 @@ describe("canvas property text reflow", () => {
       ["lineHeight", 2],
       ["letterSpacing", 3],
     ];
+
     for (const [property, value] of cases) {
       let calls = 0;
+
       const changed = changeCanvasProperty([text], ["text"], property, value, (node) => {
         calls++;
         assert.equal(node[property as keyof CanvasText], value);
         assert.equal(node.width, text.width);
         assert.equal(node.text, text.text);
+
         return 84;
       });
+
       assert.equal(calls, 1);
       assert.deepEqual(changed, [{ ...text, [property]: value, height: 84 }]);
     }
+
     assert.deepEqual(changeCanvasProperty([text], ["text"], "textAlign", "right", noMeasurement), [
       { ...text, textAlign: "right" },
     ]);
@@ -289,6 +316,7 @@ describe("canvas property styling and guards", () => {
     height: 50,
     src: "data:image/png;base64,AAAA",
   };
+
   const pen: CanvasFrame = {
     id: "pen",
     name: "Pen",
@@ -306,6 +334,7 @@ describe("canvas property styling and guards", () => {
     stroke: "#123",
     strokeWidth: 2,
   };
+
   const detachedRectangle: CanvasFrame = { ...rectangle, parentId: undefined };
   const nodes = [outer, detachedRectangle, text, image, pen];
   const ids = nodes.map((node) => node.id);
@@ -332,10 +361,13 @@ describe("canvas property styling and guards", () => {
 
   it("changes only text nodes for typography in a mixed selection", () => {
     const measured: string[] = [];
+
     const changed = changeCanvasProperty(nodes, ids, "fontSize", 32, (node) => {
       measured.push(node.id);
+
       return 80;
     });
+
     assert.deepEqual(measured, ["text"]);
     assert.deepEqual(changed, [{ ...text, fontSize: 32, height: 80 }]);
   });
@@ -366,6 +398,7 @@ describe("canvas property styling and guards", () => {
       ["hidden", 1],
       ["locked", "false"],
     ];
+
     for (const [property, value] of invalid) {
       assert.deepEqual(
         changeCanvasProperty(nodes, ids, property, value, noMeasurement),
@@ -373,6 +406,7 @@ describe("canvas property styling and guards", () => {
         property,
       );
     }
+
     assert.deepEqual(changeCanvasProperty(nodes, ["missing"], "x", 20, noMeasurement), []);
     assert.equal(text.fontSize, 24);
     assert.equal(outer.width, 500);
@@ -380,6 +414,7 @@ describe("canvas property styling and guards", () => {
 
   it("blocks edits through locked ancestors, including a partially locked multi-selection", () => {
     const lockedNodes = [{ ...outer, locked: true }, frame, rectangle, text];
+
     for (const property of ["x", "width", "opacity", "fill"] as const) {
       const value = property === "fill" ? "#fff" : 0.5;
       assert.deepEqual(
@@ -391,6 +426,7 @@ describe("canvas property styling and guards", () => {
         [],
       );
     }
+
     assert.deepEqual(changeCanvasProperty(lockedNodes, ["outer"], "locked", false, noMeasurement), [
       { ...outer, locked: false },
     ]);

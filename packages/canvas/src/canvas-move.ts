@@ -15,6 +15,7 @@ export function finalizeCanvasMove(
   const parents = reparentSelection(proposed, roots);
   if (!parents.length) return [];
   const parentsById = new Map(parents.map((node) => [node.id, node]));
+
   return selectionDescendants(
     proposed,
     parents.map((node) => node.id),

@@ -24,11 +24,13 @@ function ancestors(node: CanvasFrame, byId: ReadonlyMap<string, CanvasFrame>): s
   const result: string[] = [];
   const visited = new Set([node.id]);
   let parent = node.parentId;
+
   while (parent && !visited.has(parent) && byId.has(parent)) {
     result.push(parent);
     visited.add(parent);
     parent = byId.get(parent)?.parentId;
   }
+
   return result;
 }
 
@@ -36,6 +38,7 @@ function ancestors(node: CanvasFrame, byId: ReadonlyMap<string, CanvasFrame>): s
 export function selectionRoots(nodes: readonly CanvasFrame[], ids: readonly string[]): string[] {
   const byId = nodeMap(nodes);
   const selected = new Set(ids);
+
   return nodes
     .filter(
       (node) => selected.has(node.id) && !ancestors(node, byId).some((id) => selected.has(id)),
@@ -50,6 +53,7 @@ export function selectionDescendants(
 ): CanvasFrame[] {
   const byId = nodeMap(nodes);
   const selected = new Set(ids);
+
   return nodes.filter(
     (node) => selected.has(node.id) || ancestors(node, byId).some((id) => selected.has(id)),
   );
@@ -66,12 +70,14 @@ export function selectionBounds(
   let y = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
+
   for (const node of selected) {
     x = Math.min(x, node.x);
     y = Math.min(y, node.y);
     right = Math.max(right, node.x + node.width);
     bottom = Math.max(bottom, node.y + node.height);
   }
+
   return { x, y, width: right - x, height: bottom - y };
 }
 
@@ -82,9 +88,11 @@ export function moveSelection(
 ): CanvasFrame[] {
   if (!Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return [];
   const moved: CanvasFrame[] = [];
+
   for (const node of selectionDescendants(nodes, ids)) {
     moved.push({ ...node, x: node.x + delta.x, y: node.y + delta.y });
   }
+
   return moved;
 }
 
@@ -106,17 +114,21 @@ export function resizeSelection(
     return [];
   const roots = selectionRoots(nodes, ids);
   const single = roots.length === 1 ? nodes.find((node) => node.id === roots[0]) : undefined;
+
   if (single && (single.kind === undefined || single.kind === "frame")) {
     return [
       { ...single, ...next, width: Math.max(40, next.width), height: Math.max(40, next.height) },
     ];
   }
+
   const scaleX = next.width / start.width;
   const scaleY = next.height / start.height;
   const scaleContents = roots.length > 1 || single?.kind === "group";
   const updates: CanvasFrame[] = [];
+
   for (const node of selectionDescendants(nodes, roots)) {
     const minimum = node.kind === undefined || node.kind === "frame" ? 40 : 1;
+
     const resized = {
       ...node,
       x: next.x + (node.x - start.x) * scaleX,
@@ -124,6 +136,7 @@ export function resizeSelection(
       width: Math.max(minimum, node.width * scaleX),
       height: Math.max(minimum, node.height * scaleY),
     };
+
     // A text box resized directly reflows; scaling a group scales its typography as well.
     updates.push(
       scaleContents && resized.kind === "text"
@@ -131,6 +144,7 @@ export function resizeSelection(
         : resized,
     );
   }
+
   return updates;
 }
 
@@ -154,6 +168,7 @@ function containsRect(outer: FrameRect, inner: FrameRect) {
 
 function withParent(node: CanvasFrame, parentId: string | undefined): CanvasFrame {
   const { parentId: _oldParent, ...rest } = node;
+
   return parentId ? { ...rest, parentId } : rest;
 }
 
@@ -167,8 +182,10 @@ function visibleBounds(
   let y = node.y;
   let right = node.x + node.width;
   let bottom = node.y + node.height;
+
   for (const id of ancestors(node, byId)) {
     const parent = byId.get(id)!;
+
     if ((parent.kind === undefined || parent.kind === "frame") && parent.clipContent !== false) {
       x = Math.max(x, parent.x);
       y = Math.max(y, parent.y);
@@ -177,6 +194,7 @@ function visibleBounds(
       if (right <= x || bottom <= y) return null;
     }
   }
+
   return { x, y, width: right - x, height: bottom - y };
 }
 
@@ -184,11 +202,13 @@ function visibleBounds(
 export function marqueeSelection(nodes: readonly CanvasFrame[], rect: FrameRect): string[] {
   const byId = nodeMap(nodes);
   const hits: string[] = [];
+
   for (const node of nodes) {
     if (node.locked || ancestors(node, byId).some((id) => byId.get(id)!.locked)) continue;
     const visible = visibleBounds(node, byId);
     if (visible && containsRect(rect, visible)) hits.push(node.id);
   }
+
   return selectionRoots(nodes, hits);
 }
 
@@ -196,6 +216,7 @@ function paintsAbove(path: readonly number[], previous: readonly number[]) {
   for (let i = 0; i < Math.min(path.length, previous.length); i++) {
     if (path[i] !== previous[i]) return path[i] > previous[i];
   }
+
   return path.length > previous.length;
 }
 
@@ -209,6 +230,7 @@ export function reparentSelection(
   const order = new Map(nodes.map((node, index) => [node.id, index]));
   const roots = new Set(selectionRoots(nodes, ids));
   const excluded = new Set(selectionDescendants(nodes, ids).map((node) => node.id));
+
   const candidates = nodes
     .filter(
       (node) =>
@@ -223,9 +245,12 @@ export function reparentSelection(
       for (let index = parents.length - 1; index >= 0; index--)
         path.push(order.get(parents[index])!);
       path.push(order.get(node.id)!);
+
       return { node, parents, path };
     });
+
   const updates: CanvasFrame[] = [];
+
   for (const node of nodes) {
     if (!roots.has(node.id)) continue;
     // Groups express explicit membership; their bounds grow when an edited child moves.
@@ -233,6 +258,7 @@ export function reparentSelection(
     const center = { x: node.x + node.width / 2, y: node.y + node.height / 2 };
     let parent: CanvasFrame | undefined;
     let path: readonly number[] = [];
+
     for (const candidate of candidates) {
       if (
         !(options.requireContainment
@@ -240,6 +266,7 @@ export function reparentSelection(
           : containsPoint(candidate.node, center)) ||
         candidate.parents.some((id) => {
           const ancestor = byId.get(id)!;
+
           return (
             ancestor.locked ||
             ancestor.hidden ||
@@ -250,13 +277,16 @@ export function reparentSelection(
         })
       )
         continue;
+
       if (!parent || paintsAbove(candidate.path, path)) {
         parent = candidate.node;
         path = candidate.path;
       }
     }
+
     if (node.parentId !== parent?.id) updates.push(withParent(node, parent?.id));
   }
+
   return updates;
 }
 
@@ -264,6 +294,7 @@ export function reparentSelection(
 export function adoptFrameContents(nodes: readonly CanvasFrame[], frameId: string): CanvasFrame[] {
   const frame = nodes.find((node) => node.id === frameId);
   if (!frame || (frame.kind !== undefined && frame.kind !== "frame")) return [];
+
   return nodes
     .filter(
       (node) =>
@@ -286,10 +317,13 @@ export function groupSelection(
   const byId = nodeMap(nodes);
   const rootNodes = roots.map((id) => byId.get(id)!);
   const firstParents = ancestors(rootNodes[0], byId);
+
   const parentId = firstParents.find((id) =>
     rootNodes.every((node) => ancestors(node, byId).includes(id)),
   );
+
   const bounds = selectionBounds(nodes, roots)!;
+
   const container: CanvasFrame = {
     id: group.id,
     name: group.name ?? "Group",
@@ -297,6 +331,7 @@ export function groupSelection(
     ...bounds,
     ...(parentId ? { parentId } : {}),
   };
+
   return {
     upsert: [container, ...rootNodes.map((node) => withParent(node, container.id))],
     remove: [],
@@ -312,6 +347,7 @@ export function ungroupSelection(
   const groups = nodes.filter((node) => roots.has(node.id) && node.kind === "group");
   const groupById = nodeMap(groups);
   const children = nodes.filter((node) => node.parentId && groupById.has(node.parentId));
+
   return {
     upsert: children.map((node) => withParent(node, groupById.get(node.parentId!)?.parentId)),
     remove: groups.map((node) => node.id),
@@ -329,6 +365,7 @@ export function encodeCanvasClipboard(
   const selected = selectionDescendants(nodes, ids);
   if (!selected.length) return null;
   const included = new Set(selected.map((node) => node.id));
+
   return JSON.stringify({
     type: CANVAS_CLIPBOARD_TYPE,
     version: 1,
@@ -356,6 +393,7 @@ export function decodeCanvasClipboard(text: string): CanvasFrame[] | null {
       return null;
     const serialized = JSON.stringify(value.nodes);
     const nodes = loadCanvasFrames({ getItem: () => serialized });
+
     return nodes.length === value.nodes.length ? nodes : null;
   } catch {
     return null;
@@ -370,19 +408,24 @@ export function pasteCanvasClipboard(
 ): { nodes: CanvasFrame[]; selection: string[] } {
   const replacements = new Map<string, string>();
   const generated = new Set<string>();
+
   for (const node of payload) {
     const id = idFactory();
+
     if (!id || generated.has(id) || replacements.has(node.id)) {
       throw new Error("Pasted nodes require unique nonempty IDs.");
     }
+
     replacements.set(node.id, id);
     generated.add(id);
   }
+
   const nodes = payload.map((node) => ({
     ...withParent(node, node.parentId ? replacements.get(node.parentId) : undefined),
     id: replacements.get(node.id)!,
     x: node.x + offset.x,
     y: node.y + offset.y,
   }));
+
   return { nodes, selection: nodes.filter((node) => !node.parentId).map((node) => node.id) };
 }

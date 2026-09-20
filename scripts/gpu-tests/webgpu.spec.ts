@@ -11,6 +11,7 @@ async function mount(page: Page, strict = false) {
 
 async function pixels(page: Page, points: { x: number; y: number }[]) {
   const screenshot = await page.locator("[data-gpu-fixture]").screenshot();
+
   return page.evaluate(
     async ({ png, samples }) => {
       const image = new Image();
@@ -21,6 +22,7 @@ async function pixels(page: Page, points: { x: number; y: number }[]) {
       canvas.height = image.height;
       const context = canvas.getContext("2d")!;
       context.drawImage(image, 0, 0);
+
       return samples.map(({ x, y }) => [...context.getImageData(x, y, 1, 1).data].slice(0, 3));
     },
     { png: screenshot.toString("base64"), samples: points },
@@ -69,10 +71,13 @@ test("real WebGPU draws three artboards with clipping, text, images, and composi
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mount(page);
+
   const adapter = await page.evaluate(async () => {
     const gpu = Reflect.get(navigator, "gpu");
+
     return Boolean(gpu && (await gpu.requestAdapter()));
   });
+
   expect(
     adapter,
     "This suite requires a real WebGPU adapter; a DOM fallback is not a passing GPU test",
@@ -83,6 +88,7 @@ test("real WebGPU draws three artboards with clipping, text, images, and composi
   await expect(page.locator("[data-gpu-fixture] .canvas-frame-position")).toHaveCount(0);
   await expect(page.locator("[data-gpu-fixture] .canvas-frame-label")).toHaveCount(3);
   await expect.poll(async () => (await pixels(page, [{ x: 160, y: 330 }]))[0]).toEqual([0, 0, 255]);
+
   const samples = await pixels(page, [
     { x: 200, y: 120 }, // root fill
     { x: 170, y: 170 }, // rounded rectangle interior
@@ -98,6 +104,7 @@ test("real WebGPU draws three artboards with clipping, text, images, and composi
     { x: 996, y: 280 }, // outer shadow
     { x: 892, y: 280 }, // inset shadow
   ]);
+
   await testInfo.attach("three-artboards-webgpu.png", {
     body: await page.screenshot(),
     contentType: "image/png",
@@ -115,10 +122,12 @@ test("real WebGPU draws three artboards with clipping, text, images, and composi
   nearColor(samples[10], [255, 255, 255]);
   nearColor(samples[11], [0, 0, 0]);
   nearColor(samples[12], [0, 0, 0]);
+
   const textPixels = await pixels(
     page,
     Array.from({ length: 180 }, (_, x) => ({ x: 150 + x, y: 274 })),
   );
+
   expect(textPixels.filter((color) => Math.max(...color) < 100).length).toBeGreaterThan(20);
   expect(errors).toEqual([]);
 });
@@ -157,6 +166,7 @@ test("WebGPU updates document edits and undo, moves its camera, and supports nat
     .poll(() =>
       page.evaluate(() => {
         const frame = Reflect.get(window, "gpuFixture").controls.document.getFrame("red");
+
         return [frame.x, frame.y];
       }),
     )
@@ -209,15 +219,19 @@ test("device loss falls back without losing document edits", async ({ page }) =>
   await page.addInitScript(() => {
     const gpu = Reflect.get(navigator, "gpu");
     const requestAdapter = gpu.requestAdapter.bind(gpu);
+
     gpu.requestAdapter = async (...args: unknown[]) => {
       const adapter = await requestAdapter(...args);
       if (!adapter) return adapter;
       const requestDevice = adapter.requestDevice.bind(adapter);
+
       adapter.requestDevice = async (...options: unknown[]) => {
         const device = await requestDevice(...options);
         Reflect.set(window, "gpuDeviceForTest", device);
+
         return device;
       };
+
       return adapter;
     };
   });
@@ -262,8 +276,10 @@ test("GPU initialization waits for an active DOM text draft before switching art
   await page.addInitScript(() => {
     const gpu = Reflect.get(navigator, "gpu");
     const requestAdapter = gpu.requestAdapter.bind(gpu);
+
     gpu.requestAdapter = async (...args: unknown[]) => {
       await new Promise<void>((resolve) => Reflect.set(window, "releaseGpuAdapter", resolve));
+
       return requestAdapter(...args);
     };
   });
@@ -304,6 +320,7 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
   const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
   await draft.fill("Keep this uncommitted draft");
   await draft.evaluate((element) => Reflect.set(window, "initialDraftElement", element));
+
   async function changeAncestor(clipContent: boolean) {
     await page.evaluate(async (clip) => {
       const { document } = Reflect.get(window, "gpuFixture").controls;
@@ -319,6 +336,7 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
       ),
     ).toBe(true);
   }
+
   await changeAncestor(false);
   await changeAncestor(true);
   await page.evaluate(async () => {
@@ -363,6 +381,7 @@ test("replacing and disposing textured artwork releases shader bindings without 
   await expect.poll(async () => (await pixels(page, [{ x: 160, y: 330 }]))[0]).toEqual([0, 0, 255]);
   await page.evaluate(async () => {
     const { controls } = Reflect.get(window, "gpuFixture");
+
     for (let i = 0; i < 4; i++) {
       const doc = controls.document;
       doc.update({ ...doc.getFrame("board"), width: 320 + i * 4 });
@@ -374,6 +393,7 @@ test("replacing and disposing textured artwork releases shader bindings without 
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       );
     }
+
     controls.document.removeMany(["image"]);
   });
   await expect(

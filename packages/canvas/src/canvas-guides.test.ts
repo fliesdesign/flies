@@ -17,6 +17,7 @@ const target = { id: "target", x: 100, y: 100, width: 200, height: 200 };
 
 describe("visible alignment targets", () => {
   const frame: CanvasFrame = { id: "frame", name: "Frame", x: 0, y: 0, width: 100, height: 100 };
+
   const child: CanvasFrame = {
     id: "child",
     name: "Child",
@@ -28,6 +29,7 @@ describe("visible alignment targets", () => {
     width: 30,
     height: 30,
   };
+
   const viewport = { x: -100, y: -100, width: 1000, height: 1000 };
 
   it("excludes fully clipped and hidden targets instead of snapping to invisible edges", () => {
@@ -72,6 +74,7 @@ describe("visible alignment targets", () => {
       { ...frame, id: "near", x: 100, y: 100 },
       { ...frame, id: "far", x: 1000, y: 100 },
     ]);
+
     const targets = new AlignmentGuideTargets(document, new Set());
     const rect = { x: 1004, y: 400, width: 1, height: 10 };
     const initial = targets.inViewport({ x: 0, y: 0, width: 800, height: 600 });
@@ -82,10 +85,12 @@ describe("visible alignment targets", () => {
 
   it("snapshots gesture geometry and excludes all active descendants", () => {
     const document = new CanvasDocument([frame, { ...child, x: 20, y: 20 }]);
+
     const targets = new AlignmentGuideTargets(
       document,
       new Set(document.getDescendantIds(["frame"])),
     );
+
     const rect = { x: 23, y: 400, width: 1, height: 10 };
     assert.deepEqual(targets.inViewport(viewport).snap(rect, 1), { rect, guides: [] });
   });
@@ -123,12 +128,14 @@ describe("alignment guides", () => {
 
   it("excludes the active object and offscreen objects from snap targets", () => {
     const rect = { id: "moving", x: 104, y: 103, width: 80, height: 90 };
+
     const index = new AlignmentGuideIndex([rect, { ...target, y: 1000 }], rect.id, {
       x: 0,
       y: 0,
       width: 600,
       height: 600,
     });
+
     assert.deepEqual(index.snap(rect, 1).guides, []);
     assert.equal(index.snap(rect, 1).rect.x, 104);
   });
@@ -159,6 +166,7 @@ describe("alignment guides", () => {
 
   it("never snaps a resize below its minimum size", () => {
     const index = new AlignmentGuideIndex([target], "moving");
+
     for (const [handle, rect] of [
       ["e", { x: 64, y: 500, width: 40, height: 80 }],
       ["w", { x: 296, y: 500, width: 40, height: 80 }],
@@ -181,6 +189,7 @@ describe("alignment guides", () => {
       Array.from({ length: 10000 }, (_, i) => ({ ...target, id: String(i), y: 100 + i })),
       "moving",
     );
+
     const result = index.snap({ x: 104, y: 12000, width: 80, height: 90 }, 1);
     assert.deepEqual(result.guides, [{ axis: "x", position: 100, start: 100, end: 12090 }]);
   });
@@ -216,6 +225,7 @@ describe("guide overlay lifecycle", () => {
       configurable: true,
       value: (callback: FrameRequestCallback) => {
         callbacks.set(++id, callback);
+
         return id;
       },
     });
@@ -223,11 +233,13 @@ describe("guide overlay lifecycle", () => {
       configurable: true,
       value: (key: number) => callbacks.delete(key),
     });
+
     const tick = () => {
       const ready = [...callbacks.values()];
       callbacks.clear();
       ready.forEach((callback) => callback(16));
     };
+
     try {
       const overlay = new CanvasGuides();
       let notifications = 0;

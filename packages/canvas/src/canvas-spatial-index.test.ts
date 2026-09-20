@@ -25,8 +25,10 @@ function bruteForce(frames: readonly Frame[], bounds: FrameRect) {
 
 function randomSequence() {
   let seed = 0x56fe7121;
+
   return () => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+
     return seed / 0x100000000;
   };
 }
@@ -45,7 +47,9 @@ describe("canvas spatial index", () => {
       { id: "positive", x: 1024, y: 1024, width: 100, height: 100 },
       { id: "same-cell-miss", x: 500, y: 500, width: 100, height: 100 },
     ];
+
     const index = new CanvasSpatialIndex(frames);
+
     const queries = [
       { x: -1024, y: -1024, width: 24, height: 24 },
       { x: -21, y: -21, width: 42, height: 42 },
@@ -65,6 +69,7 @@ describe("canvas spatial index", () => {
     ]);
 
     assert.deepEqual(index.query({ x: -2000, y: -2000, width: 4000, height: 4000 }), ["spanning"]);
+
     for (const point of [
       { x: -1024, y: 0 },
       { x: 1024, y: 0 },
@@ -74,6 +79,7 @@ describe("canvas spatial index", () => {
     ]) {
       assert.deepEqual(index.query({ ...point, width: 0, height: 0 }), ["spanning"]);
     }
+
     assert.deepEqual(index.query({ x: 1024.001, y: 0, width: 0, height: 0 }), []);
   });
 
@@ -105,6 +111,7 @@ describe("canvas spatial index", () => {
       { id: "origin", x: 0, y: 0, width: 100, height: 100 },
       { id: "distant", x: 1e100, y: 1e100, width: 1e90, height: 1e90 },
     ];
+
     const index = new CanvasSpatialIndex(frames);
 
     assert.deepEqual(
@@ -132,6 +139,7 @@ describe("canvas spatial index", () => {
     const random = randomSequence();
     const frames = new Map<string, Frame>();
     const index = new CanvasSpatialIndex();
+
     const rectangle = (): FrameRect => ({
       x: Math.floor(random() * 100000) - 50000,
       y: Math.floor(random() * 100000) - 50000,
@@ -147,6 +155,7 @@ describe("canvas spatial index", () => {
 
     for (let i = 0; i < 300; i++) {
       const id = `frame-${Math.floor(random() * 1500)}`;
+
       if (i % 3 === 0) {
         frames.delete(id);
         index.remove(id);
@@ -155,6 +164,7 @@ describe("canvas spatial index", () => {
         frames.set(id, frame);
         index.upsert(frame);
       }
+
       const query = rectangle();
       assert.deepEqual(new Set(index.query(query)), bruteForce([...frames.values()], query));
     }
@@ -197,6 +207,7 @@ describe("viewport visibility bounds", () => {
       width: 1,
       height: 1,
     }));
+
     assert.deepEqual(fitViewport(frames, { x: 1000, y: 800 }), {
       x: -9500,
       y: 399.95,

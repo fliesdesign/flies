@@ -18,6 +18,7 @@ class StaticCamera extends CanvasCamera {
   ) {
     super();
   }
+
   override getSnapshot = () => this.snapshot;
 }
 
@@ -29,6 +30,7 @@ const parent: CanvasFrame = {
   width: 400,
   height: 300,
 };
+
 const child: CanvasFrame = {
   id: "child",
   name: "Child",
@@ -68,14 +70,17 @@ describe("hierarchical canvas rendering", () => {
       ],
       ["nested-frame", "nested-group"],
     );
+
     assert.equal(markup.match(/class="canvas-frame-label"/g)?.length, 2);
     assert.equal(markup.match(/data-root-container="true"/g)?.length, 2);
     assert.match(markup, /aria-label="Select Parent"/);
     assert.match(markup, /aria-label="Select Root group"/);
     assert.ok(!markup.includes('aria-label="Select div"'));
+
     for (const id of ["nested-frame", "nested-group"]) {
       assert.match(markup, new RegExp(`data-frame-id="${id}"[^>]*data-selected="true"`));
     }
+
     assert.equal(markup.match(/aria-label="div, 400 by 300" aria-pressed="true"/g)?.length, 2);
   });
 
@@ -89,6 +94,7 @@ describe("hierarchical canvas rendering", () => {
       },
       child,
     ]);
+
     assert.match(markup, /data-root-container="true" data-authored-shadow="true"/);
     assert.ok(markup.indexOf('data-frame-id="child"') < markup.indexOf("data-canvas-appearance"));
     assert.ok(
@@ -105,6 +111,7 @@ describe("hierarchical canvas rendering", () => {
       { ...parent, opacity: 0.5, fill: "#abcdef", cornerRadius: 24 },
       child,
     ]);
+
     assert.equal(markup.match(/opacity:0\.5/g)?.length, 1);
     assert.match(
       markup,
@@ -119,20 +126,24 @@ describe("hierarchical canvas rendering", () => {
     assert.ok(markup.indexOf('class="canvas-frame"') < markup.indexOf('data-frame-id="child"'));
     assert.match(markup, /data-clip-content="true"/);
     assert.match(markup, /translate\(50px, 80px\)/);
+
     // A container translation moves the branch without changing its internal layout.
     const moved = renderFrames([
       { ...parent, x: 250, y: 300 },
       { ...child, x: 300, y: 380 },
     ]);
+
     assert.match(moved, /translate\(50px, 80px\)/);
   });
 
   it("keeps groups transparent and unclipped while nested frames clip by default", () => {
     const group: CanvasFrame = { ...parent, kind: "group" };
+
     const markup = renderFrames([
       group,
       { ...parent, id: "inner", parentId: "parent", x: 120, y: 130 },
     ]);
+
     assert.equal(markup.match(/class="canvas-frame"/g)?.length, 1);
     assert.equal(markup.match(/data-clip-content="true"/g)?.length, 1);
     const unclipped = renderFrames([{ ...parent, clipContent: false }, child]);
@@ -149,8 +160,10 @@ describe("hierarchical canvas rendering", () => {
 
   it("preserves sibling z-order inside a frame after reordering", () => {
     const document = new CanvasDocument([parent, child, { ...child, id: "front", name: "Front" }]);
+
     const render = () =>
       renderToStaticMarkup(<CanvasFrames document={document} camera={new StaticCamera()} />);
+
     assert.ok(
       render().indexOf('data-frame-id="child"') < render().indexOf('data-frame-id="front"'),
     );
@@ -168,6 +181,7 @@ describe("canvas selection overlays", () => {
       { ...parent, x: 0, y: 0, width: 100, height: 100, cornerRadius: 50 },
       { ...child, x: 0, y: 0, width: 5, height: 5 },
     ]);
+
     assert.equal(
       renderToStaticMarkup(
         <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
@@ -187,21 +201,26 @@ describe("canvas selection overlays", () => {
       { ...parent, x: 0, y: 0, width: 100, height: 100, cornerRadius: 50 },
       { ...child, x: 0, y: 0, width: 40, height: 40 },
     ]);
+
     const camera = new StaticCamera({
       viewport: { x: 0, y: 0, zoom: 2 },
       size: { x: 800, y: 600 },
     });
+
     const markup = renderToStaticMarkup(
       <CanvasSelectionOutline document={document} camera={camera} ids={["child"]} />,
     );
+
     assert.deepEqual(
       [...markup.matchAll(/data-handle="([^"]+)"/g)].map((match) => match[1]),
       ["e", "se", "s"],
     );
     assert.match(markup, /clip-path:inset\(0px -120px -120px 0px round 100px\)/);
+
     const hover = renderToStaticMarkup(
       <CanvasOutline document={document} camera={camera} id="child" />,
     );
+
     assert.match(hover, /clip-path:inset\(0px -120px -120px 0px round 100px\)/);
   });
 
@@ -233,9 +252,11 @@ describe("canvas selection overlays", () => {
       { ...parent, id: "inner", parentId: "parent", x: 120, y: 120 },
       { ...child, parentId: "inner", x: 250, y: 220, width: 120, height: 100 },
     ]);
+
     const markup = renderToStaticMarkup(
       <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
     );
+
     assert.deepEqual(
       [...markup.matchAll(/data-handle="([^"]+)"/g)].map((match) => match[1]),
       ["nw"],
@@ -251,6 +272,7 @@ describe("canvas selection overlays", () => {
       { ...child, id: "outside", x: 600 },
       { ...child, id: "partial", x: 450, y: 350, height: 100 },
     ]);
+
     const markup = renderToStaticMarkup(
       <CanvasSelectionOutline
         document={document}
@@ -258,6 +280,7 @@ describe("canvas selection overlays", () => {
         ids={["child", "outside", "partial"]}
       />,
     );
+
     assert.match(markup, /translate3d\(150px, 180px, 0\);width:420px;height:270px/);
     assert.match(markup, /Resize 2 objects/);
     assert.deepEqual(
@@ -272,10 +295,12 @@ describe("canvas selection overlays", () => {
       { ...parent, clipContent: false },
       { ...child, x: 600 },
     ]);
+
     const render = () =>
       renderToStaticMarkup(
         <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
       );
+
     assert.equal(render().match(/data-handle=/g)?.length, 8);
     assert.match(render(), /canvas-dimensions/);
     document.update({ ...document.getFrame("parent")!, hidden: true });
@@ -287,6 +312,7 @@ describe("canvas selection overlays", () => {
       { ...child, parentId: undefined },
       { ...child, id: "second", parentId: undefined, x: 400, y: 300 },
     ]);
+
     const markup = renderToStaticMarkup(
       <CanvasSelectionOutline
         document={document}
@@ -294,6 +320,7 @@ describe("canvas selection overlays", () => {
         ids={["child", "second"]}
       />,
     );
+
     assert.match(markup, /translate3d\(150px, 180px, 0\);width:370px;height:200px/);
     assert.equal(markup.match(/data-handle=/g)?.length, 8);
     assert.match(markup, /Resize 2 objects/);
@@ -302,9 +329,11 @@ describe("canvas selection overlays", () => {
   it("clips descendant hover outlines at each ancestor without adding resize handles", () => {
     const outside = { ...child, x: 450, y: 350, width: 120, height: 100 };
     const document = new CanvasDocument([parent, outside]);
+
     const markup = renderToStaticMarkup(
       <CanvasOutline document={document} camera={new StaticCamera()} id="child" />,
     );
+
     assert.match(markup, /clip-path:inset\(-1px 70px 50px -1px\)/);
     assert.ok(!markup.includes("data-handle"));
   });
@@ -317,9 +346,11 @@ describe("canvas selection overlays", () => {
       ),
       "",
     );
+
     const selection = renderToStaticMarkup(
       <CanvasSelectionOutline document={document} camera={new StaticCamera()} ids={["child"]} />,
     );
+
     assert.ok(!selection.includes("data-handle"));
   });
 
@@ -328,10 +359,13 @@ describe("canvas selection overlays", () => {
       viewport: { x: 10, y: 20, zoom: 2 },
       size: { x: 1000, y: 800 },
     });
+
     const document = new CanvasDocument([parent]);
+
     const markup = renderToStaticMarkup(
       <CanvasSelectionOutline document={document} camera={camera} ids={["parent"]} />,
     );
+
     assert.match(markup, /translate3d\(210px, 220px, 0\);width:800px;height:600px/);
     assert.ok(!markup.includes("scale("));
   });

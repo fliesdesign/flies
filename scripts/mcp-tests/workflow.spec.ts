@@ -4,14 +4,17 @@ test("saved CSS carries typography, colors and variables across incremental impo
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts";
     const documentPath = "/packages/canvas/src/canvas-document.ts";
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
+
     const scene = new CanvasDocument([
       { id: "board", name: "Board", x: 0, y: 0, width: 600, height: 800 },
     ]);
+
     const controls = { document: scene, prepare() {}, select() {} };
     await editorTool(controls, "set_styles", {
       nodeId: "board",
@@ -36,8 +39,10 @@ test("saved CSS carries typography, colors and variables across incremental impo
       targetId: "board",
       html: '<main data-name="Board" style="width:600px;height:264px"></main>',
     });
+
     return { texts, board: fitted, replacementStyles: reopened.getFrame("board").htmlStyles };
   });
+
   expect(result.texts).toHaveLength(2);
   for (const text of result.texts)
     expect(text).toMatchObject({ fontFamily: "Georgia", fontSize: 20, color: "#123456ff" });

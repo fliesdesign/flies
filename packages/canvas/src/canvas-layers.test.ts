@@ -63,6 +63,7 @@ describe("layer movement", () => {
       frame("child", "group"),
       frame("other"),
     ]);
+
     document.moveLayers(["child"], "group", "after");
     assert.equal(document.getFrame("group"), undefined);
     assert.equal(document.getFrame("child")?.parentId, undefined);
@@ -78,6 +79,7 @@ describe("layer movement", () => {
       frame("a", "group"),
       { ...frame("b", "group"), x: 400 },
     ]);
+
     document.moveLayers(["b"], null, "after");
     assert.deepEqual(document.getChildren(), ["b", "group"]);
     assert.equal(document.getFrame("group")?.width, 200);
@@ -92,6 +94,7 @@ describe("layer movement", () => {
       { ...frame("locked"), locked: true },
       { ...frame("leaf"), kind: "rectangle", fill: "#fff" },
     ]);
+
     const before = document.getFrames();
     assert.equal(document.moveLayers(["parent"], "child", "inside"), false);
     assert.equal(document.moveLayers(["child"], "child", "before"), false);
@@ -108,6 +111,7 @@ describe("layer visibility", () => {
       frame("parent"),
       { ...frame("child", "parent"), hidden: true },
     ]);
+
     document.update({ ...document.getFrame("parent")!, hidden: true });
     assert.equal(document.isHidden("child"), true);
     document.undo();
@@ -124,12 +128,14 @@ describe("layer visibility", () => {
 
   it("unmounts hidden subtrees even when pinned and restores them when shown", () => {
     const document = new CanvasDocument([frame("parent"), frame("child", "parent")]);
+
     class TestCamera extends CanvasCamera {
       override getSnapshot = () => ({
         viewport: { x: 0, y: 0, zoom: 1 },
         size: { x: 800, y: 600 },
       });
     }
+
     const camera = new TestCamera();
     const scene = new CanvasScene(document, camera);
     const disconnect = scene.connect();

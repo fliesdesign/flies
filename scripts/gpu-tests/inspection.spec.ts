@@ -25,6 +25,7 @@ async function toggleInspection(page: Page, currentlyEnabled: boolean) {
 async function editorState(page: Page) {
   return page.evaluate(() => {
     const { controls } = Reflect.get(window, "gpuFixture");
+
     return {
       nodes: controls.document.getFrames(),
       revision: controls.document.getSnapshot().revision,

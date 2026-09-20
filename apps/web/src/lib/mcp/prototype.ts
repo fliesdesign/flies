@@ -17,11 +17,14 @@ export async function openPrototype(html: string, css: string, width: number, he
     throw new Error("Preview HTML is limited to 500KB.");
   const template = document.createElement("template");
   template.innerHTML = html;
+
   const tailwind = template.content.querySelector("[class]")
     ? await compileTailwind(template.content)
     : "";
+
   const policy =
     "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
+
   const source = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{font:16px Arial}body{margin:0}${tailwind}${css.replace(/<\/style/gi, "<\\/style")}</style></head><body>${html}</body></html>`;
   closePrototype();
   const dialog = document.createElement("dialog");

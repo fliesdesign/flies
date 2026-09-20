@@ -31,7 +31,8 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@/components/ui/sidebar";
-import type { FileLibrary, FileSummary } from "@/lib/local-files";
+import type { Account } from "@/lib/api";
+import type { FileLibrary, FileSummary } from "@/lib/files";
 import {
   loadWorkspaceSession,
   patchWorkspaceSession,
@@ -54,7 +55,8 @@ type Props = {
   onArchive: (id: string) => Promise<void>;
   onRestore: (id: string) => Promise<void>;
   onRefresh: () => Promise<void>;
-  onBrowser: () => void;
+  account?: Account;
+  onSignOut?: () => Promise<void>;
 };
 
 const SECTIONS: { id: LibrarySection; label: string; icon: LucideIcon }[] = [
@@ -65,7 +67,7 @@ const SECTIONS: { id: LibrarySection; label: string; icon: LucideIcon }[] = [
 ];
 
 function SectionIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return <Icon aria-hidden="true" strokeWidth={1.7} className="text-muted-foreground" />;
+  return <Icon aria-hidden="true" strokeWidth={1.7} className="size-3.5 text-muted-foreground" />;
 }
 
 const relative = (time: number) => formatDistanceToNow(time, { addSuffix: true });
@@ -81,22 +83,28 @@ export function FileLibraryView({
   onArchive,
   onRestore,
   onRefresh,
-  onBrowser,
+  account,
+  onSignOut,
 }: Props) {
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
+
   const [section, setSection] = useState<LibrarySection>(
     () => loadWorkspaceSession().librarySection,
   );
+
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"edited" | "name">("edited");
+
   const files = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const archived = section === "archive";
+
     const matched = (library?.files ?? []).filter(
       (file) => file.archived === archived && (!needle || file.name.toLowerCase().includes(needle)),
     );
+
     const ordered = [...matched];
     // Sorting a copy leaves the library index unchanged.
     // eslint-disable-next-line unicorn/no-array-sort
@@ -105,8 +113,10 @@ export function FileLibraryView({
         ? a.name.localeCompare(b.name)
         : b.updatedAt - a.updatedAt,
     );
+
     return ordered;
   }, [library, query, section, sort]);
+
   const heading = SECTIONS.find((item) => item.id === section)?.label ?? "Recents";
   const showList = section === "recents" || section === "files" || section === "archive";
   const showActions = section === "recents" || section === "files";
@@ -116,6 +126,7 @@ export function FileLibraryView({
     if (creating === null || pending) return;
     setPending(true);
     setFailure("");
+
     try {
       await onCreate(creating.trim());
       setCreating(null);
@@ -130,6 +141,7 @@ export function FileLibraryView({
     if (pending) return;
     setPending(true);
     setFailure("");
+
     try {
       await (archived ? onArchive : onRestore)(file.id);
     } catch (err) {
@@ -141,6 +153,7 @@ export function FileLibraryView({
 
   function fileCard(file: FileSummary) {
     const edited = relative(file.updatedAt);
+
     return (
       <ContextMenu key={file.id}>
         <ContextMenuTrigger className="library-card-hit" render={<div />}>
@@ -186,7 +199,7 @@ export function FileLibraryView({
             <SearchIcon
               aria-hidden="true"
               strokeWidth={1.7}
-              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
             />
             <SidebarInput
               type="search"
@@ -195,7 +208,7 @@ export function FileLibraryView({
               aria-label="Search files"
               autoComplete="off"
               spellCheck={false}
-              className="pl-8"
+              className="h-7 pl-7 text-xs md:text-xs"
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
@@ -203,11 +216,12 @@ export function FileLibraryView({
         <SidebarContent>
           <SidebarGroup className="pt-0">
             <SidebarGroupContent>
-              <SidebarMenu className="gap-1">
+              <SidebarMenu className="gap-0.5">
                 {SECTIONS.map((item) => (
                   <SidebarMenuItem key={item.id}>
                     <SidebarMenuButton
-                      className="h-9"
+                      size="sm"
+                      className="[&_svg]:size-3.5"
                       isActive={section === item.id}
                       aria-current={section === item.id ? "page" : undefined}
                       onClick={() => {
@@ -231,14 +245,14 @@ export function FileLibraryView({
             <h1 className="library-heading">{heading}</h1>
             {showActions && (
               <div className="library-actions">
-                <Button disabled={!desktop || busy} onClick={() => setCreating("Untitled")}>
+                <Button disabled={busy} onClick={() => setCreating("Untitled")}>
                   New file
                 </Button>
                 <Button
                   variant="ghost"
                   aria-label="Import file"
                   title="Import a Flies ZIP or JSON project"
-                  disabled={!desktop || busy}
+                  disabled={busy}
                   onClick={onImport}
                 >
                   Import
@@ -251,76 +265,79 @@ export function FileLibraryView({
               {error || failure} <button onClick={() => void onRefresh()}>Retry</button>
             </p>
           )}
-          {showList &&
-            (!desktop ? (
-              <div className="library-empty">
-                <p>Local files are available in the desktop app.</p>
-                <Button variant="outline" onClick={onBrowser}>
-                  Continue in browser
-                </Button>
-              </div>
-            ) : (
-              <>
-                {!library && !error && <p className="library-empty">Loading files…</p>}
-                {library && !files.length && (
-                  <div className="library-empty">
-                    <p>
-                      {searching
-                        ? "No matching files."
-                        : section === "archive"
-                          ? "Nothing in the archive."
-                          : "No files yet."}
-                    </p>
-                    {!searching && (
-                      <span>
-                        {section === "archive"
-                          ? "Right-click a file and choose Archive."
-                          : "Create a file or import one to get started."}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {files.length > 0 && (
-                  <>
-                    {section === "files" && (
-                      <div className="library-sort">
-                        <button
-                          type="button"
-                          aria-pressed={sort === "name"}
-                          onClick={() => setSort("name")}
-                        >
-                          Name
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={sort === "edited"}
-                          onClick={() => setSort("edited")}
-                        >
-                          Edited
-                        </button>
-                      </div>
-                    )}
-                    <div className="library-grid">{files.map(fileCard)}</div>
-                  </>
-                )}
-                {library?.warnings.map((warning) => (
-                  <p className="file-library-error" key={warning}>
-                    {warning}
+          {showList && (
+            <>
+              {!library && !error && <p className="library-empty">Loading files…</p>}
+              {library && !files.length && (
+                <div className="library-empty">
+                  <p>
+                    {searching
+                      ? "No matching files."
+                      : section === "archive"
+                        ? "Nothing in the archive."
+                        : "No files yet."}
                   </p>
-                ))}
-              </>
-            ))}
+                  {!searching && (
+                    <span>
+                      {section === "archive"
+                        ? "Right-click a file and choose Archive."
+                        : "Create a file or import one to get started."}
+                    </span>
+                  )}
+                </div>
+              )}
+              {files.length > 0 && (
+                <>
+                  {section === "files" && (
+                    <div className="library-sort">
+                      <button
+                        type="button"
+                        aria-pressed={sort === "name"}
+                        onClick={() => setSort("name")}
+                      >
+                        Name
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={sort === "edited"}
+                        onClick={() => setSort("edited")}
+                      >
+                        Edited
+                      </button>
+                    </div>
+                  )}
+                  <div className="library-grid">{files.map(fileCard)}</div>
+                </>
+              )}
+              {library?.warnings.map((warning) => (
+                <p className="file-library-error" key={warning}>
+                  {warning}
+                </p>
+              ))}
+            </>
+          )}
           {section === "settings" && (
             <div className="library-settings">
               <AppearanceSettings />
               <UpdateSettings desktop={desktop} />
               <div className="library-setting-files">
-                <p className="library-setting-label">Local files</p>
-                <p className="library-setting-value">
-                  {desktop
-                    ? (library?.directory ?? "Loading…")
-                    : "Local files are available in the desktop app."}
-                </p>
+                <p className="library-setting-label">Workspace</p>
+                <p className="library-setting-value">{library?.workspace.name ?? "Loading…"}</p>
+                {account && <p className="library-setting-value">{account.user.email}</p>}
+                {onSignOut && (
+                  <Button
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() => {
+                      setPending(true);
+                      void onSignOut()
+                        .catch((cause) => setFailure(String(cause)))
+                        .finally(() => setPending(false));
+                    }}
+                  >
+                    Sign out
+                  </Button>
+                )}
               </div>
             </div>
           )}

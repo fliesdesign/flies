@@ -143,13 +143,16 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
     body: await page.screenshot({ path: testInfo.outputPath("left-theme-sidebar.png") }),
     contentType: "image/png",
   });
+
   const fieldsFit = await properties
     .locator(".canvas-property-field:has(.canvas-token-select)")
     .evaluateAll((fields) =>
       fields.every((field) => {
         const bounds = field.getBoundingClientRect();
+
         return [...field.querySelectorAll("input, select")].every((control) => {
           const child = control.getBoundingClientRect();
+
           return (
             child.height > 0 &&
             child.top >= bounds.top &&
@@ -160,6 +163,7 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
         });
       }),
     );
+
   expect(fieldsFit).toBe(true);
 
   await sidebar.getByRole("tab", { name: "Design", exact: true }).click();
@@ -168,9 +172,11 @@ test("left Design/Theme tabs expose editable tokens in color, font and spacing p
   await expect(properties.getByRole("button", { name: "Fill color picker" })).toBeVisible();
   await sidebar.getByRole("tab", { name: "Theme", exact: true }).click();
   await sidebar.getByRole("button", { name: "Delete token Brand", exact: true }).click();
+
   const deleted = await page.evaluate(() =>
     Reflect.get(window, "themeFixture").controls.document.getFrame("red"),
   );
+
   expect(deleted.fill).toBe("#654321");
   expect(deleted.tokenBindings).toBeUndefined();
   expect(errors).toEqual([]);
@@ -180,6 +186,7 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts";
     const documentPath = "/packages/canvas/src/canvas-document.ts";
@@ -187,16 +194,20 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
     const { packCanvasProject, unpackCanvasProject } = await import(/* @vite-ignore */ projectPath);
+
     const doc = new CanvasDocument([
       { id: "board", name: "Board", x: 0, y: 0, width: 600, height: 400 },
     ]);
+
     const controls = { document: doc, prepare() {}, select() {} };
+
     const tokens = [
       { id: "brand", name: "Brand", type: "color", value: "#123456" },
       { id: "body", name: "Body", type: "fontFamily", value: "Georgia" },
       { id: "space", name: "Space", type: "spacing", value: 24 },
       { id: "heading", name: "Heading", type: "fontSize", value: 48 },
     ];
+
     await editorTool(controls, "set_theme", { tokens });
     await editorTool(controls, "write_html", {
       parentId: "board",
@@ -211,6 +222,7 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
     const bound = doc.getFrame(text.id);
     const before = JSON.stringify({ nodes: doc.getFrames(), theme: doc.getTheme() });
     let rejected = false;
+
     try {
       await editorTool(controls, "apply_tokens", {
         nodeIds: [text.id, "board"],
@@ -219,6 +231,7 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
     } catch {
       rejected = true;
     }
+
     const unchanged = before === JSON.stringify({ nodes: doc.getFrames(), theme: doc.getTheme() });
     await editorTool(controls, "set_theme", { tokens: [{ ...tokens[0], value: "#fedcba" }] });
     const updated = doc.getFrame(text.id);
@@ -227,15 +240,18 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
     const undone = doc.getFrame(text.id);
     doc.redo();
     const info = JSON.parse((await editorTool(controls, "get_theme", {})).content[0].text);
+
     const project = unpackCanvasProject(
       packCanvasProject("Theme", doc.getFrames(), doc.getTheme()),
     );
+
     const reopened = new CanvasDocument(project.nodes, project.theme);
     await editorTool({ ...controls, document: reopened }, "set_theme", {
       tokens: [{ ...tokens[0], value: "#abcdef" }],
     });
     await editorTool(controls, "apply_tokens", { nodeIds: [text.id], bindings: { fill: null } });
     await editorTool(controls, "set_theme", { tokens: [{ ...tokens[0], value: "#ffffff" }] });
+
     return {
       imported,
       bound,
@@ -249,6 +265,7 @@ test("MCP theme tools update linked layers, inherit CSS variables, persist and u
       detached: doc.getFrame(text.id),
     };
   });
+
   expect(result.imported).toEqual({ color: "#123456ff", fontFamily: "Georgia", x: 24 });
   expect(result.bound).toMatchObject({
     fontSize: 48,

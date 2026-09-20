@@ -48,6 +48,7 @@ describe("appearance", () => {
         destructive: "red",
       },
     });
+
     assert.equal(appearance.brightness, 50);
     assert.equal(appearance.contrast, -12);
     assert.deepEqual(appearance.colors, { background: "#111111" });
@@ -59,6 +60,7 @@ describe("appearance", () => {
       brightness: 10,
       colors: { background: "#101010" },
     });
+
     const colors = resolvedUiColors(appearance);
     assert.equal(colors.background, adjustUiColor("#101010", 10, 0));
     assert.equal(colors.foreground, adjustUiColor(DEFAULT_UI_COLORS.foreground, 10, 0));

@@ -24,7 +24,9 @@ function fixture() {
       color: "#000000",
     },
   ]);
+
   let selected: string[] = [];
+
   const controls = {
     document,
     prepare: () => {},
@@ -33,6 +35,7 @@ function fixture() {
     },
     getSelection: () => selected,
   } as unknown as CanvasControls;
+
   return { document, controls };
 }
 
@@ -71,11 +74,13 @@ test("MCP refuses missing IDs and cyclic parents without partial changes", async
 
 test("MCP creates real editable artboards and selection is readable", async () => {
   const { document, controls } = fixture();
+
   const result = await editorTool(controls, "create_artboard", {
     name: "New",
     width: 640,
     height: 480,
   });
+
   const id = JSON.parse((result.content[0] as { text: string }).text).nodeId;
   assert.equal(document.getFrame(id)?.name, "New");
   const selection = await editorTool(controls, "get_selection", {});
@@ -86,6 +91,7 @@ test("MCP creates real editable artboards and selection is readable", async () =
 
 function nestedFixture() {
   const { controls } = fixture();
+
   const document = new CanvasDocument([
     { id: "frame", name: "Page", x: 0, y: 0, width: 400, height: 300 },
     {
@@ -134,6 +140,7 @@ function nestedFixture() {
     },
     { id: "other", name: "Other page", x: 500, y: 60, width: 400, height: 300 },
   ]);
+
   return { document, controls: { ...controls, document } };
 }
 
@@ -147,12 +154,14 @@ for (const nodeId of ["frame", "group"]) {
       nodeId,
       properties: { x: before.x + 120, y: before.y - 45 },
     });
+
     for (const node of original) {
       assert.deepEqual(
         document.getFrame(node.id),
         movedIds.has(node.id) ? { ...node, x: node.x + 120, y: node.y - 45 } : node,
       );
     }
+
     assert.equal(document.getHistoryStats().undoEntries, 1);
     await editorTool(controls, "undo", {});
     assert.deepEqual(document.getFrames(), original);
@@ -190,6 +199,7 @@ test("MCP rejects an invalid container move without moving descendants or changi
 
 test("MCP rejects translated descendant overflow without moving the valid parent", async () => {
   const { controls } = fixture();
+
   const document = new CanvasDocument([
     { id: "frame", name: "Frame", x: 0, y: 0, width: 400, height: 300 },
     {
@@ -202,6 +212,7 @@ test("MCP rejects translated descendant overflow without moving the valid parent
       height: 40,
     },
   ]);
+
   const original = document.getFrames();
   await assert.rejects(
     editorTool({ ...controls, document }, "update_node", {

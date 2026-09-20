@@ -39,6 +39,7 @@ test("Copy as offers four working clipboard exports and disables without a selec
     ]);
     fixture.controls.select("frame");
   });
+
   for (const format of ["Tailwind", "CSS", "React Tailwind", "React CSS"]) {
     await page
       .locator("[data-snapshot-fixture] .design-canvas")
@@ -57,11 +58,14 @@ test("CSS and compiled Tailwind exports render matching selection geometry and a
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const exporterPath = "/src/lib/canvas-code-export.ts",
       compilerPath = "/src/lib/mcp/tailwind.ts";
+
     const { exportCanvasCode } = await import(/* @vite-ignore */ exporterPath);
     const { compileTailwind } = await import(/* @vite-ignore */ compilerPath);
+
     const nodes = [
       {
         id: "frame",
@@ -90,6 +94,7 @@ test("CSS and compiled Tailwind exports render matching selection geometry and a
         fontFamily: "Courier New",
       },
     ];
+
     const measure = async (format: string) => {
       const template = document.createElement("template");
       template.innerHTML = exportCanvasCode(nodes, ["frame"], format);
@@ -105,8 +110,10 @@ test("CSS and compiled Tailwind exports render matching selection geometry and a
       const card = doc.querySelector<HTMLElement>('[data-name="Card"]')!;
       const label = doc.querySelector<HTMLElement>('[data-name="Label"]')!;
       const text = label.querySelector("span")!;
+
       const cardStyle = getComputedStyle(card),
         textStyle = getComputedStyle(text);
+
       const geometry = {
         x: label.getBoundingClientRect().x,
         y: label.getBoundingClientRect().y,
@@ -120,11 +127,15 @@ test("CSS and compiled Tailwind exports render matching selection geometry and a
         whitespace: textStyle.whiteSpace,
         border: getComputedStyle(card.lastElementChild!).borderWidth,
       };
+
       iframe.remove();
+
       return geometry;
     };
+
     return { css: await measure("CSS"), tailwind: await measure("Tailwind") };
   });
+
   expect(result.tailwind).toEqual(result.css);
   expect(result.css).toMatchObject({
     x: 20,

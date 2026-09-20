@@ -82,11 +82,13 @@ export function parseUiHex(value: string): string | null {
       .split("")
       .map((digit) => digit + digit)
       .join("")}`.toLowerCase();
+
   return /^[\da-f]{6}$/i.test(hex) ? `#${hex.toLowerCase()}` : null;
 }
 
 function clampRange(value: number) {
   if (!Number.isFinite(value)) return 0;
+
   return Math.max(APPEARANCE_RANGE.min, Math.min(APPEARANCE_RANGE.max, Math.round(value)));
 }
 
@@ -105,19 +107,24 @@ export function adjustUiColor(hex: string, brightness: number, contrast: number)
   const stretch = (clampRange(contrast) / APPEARANCE_RANGE.max) * 0.55;
   if (lift === 0 && stretch === 0) return parsed;
   let output = "#";
+
   for (let index = 1; index <= 5; index += 2) {
     const channel = Number.parseInt(parsed.slice(index, index + 2), 16);
+
     const next = Math.round(
       Math.max(0, Math.min(255, contrastChannel(mixChannel(channel, lift), stretch))),
     );
+
     output += next.toString(16).padStart(2, "0");
   }
+
   return output;
 }
 
 export function normalizeAppearance(value: unknown): Appearance {
   const source = value && typeof value === "object" ? (value as Partial<Appearance>) : {};
   const colors: Appearance["colors"] = {};
+
   if (source.colors && typeof source.colors === "object") {
     for (const [id, hex] of Object.entries(source.colors)) {
       if (!isUiColorId(id) || typeof hex !== "string") continue;
@@ -125,6 +132,7 @@ export function normalizeAppearance(value: unknown): Appearance {
       if (parsed && parsed !== DEFAULT_UI_COLORS[id]) colors[id] = parsed;
     }
   }
+
   return {
     brightness: clampRange(typeof source.brightness === "number" ? source.brightness : 0),
     contrast: clampRange(typeof source.contrast === "number" ? source.contrast : 0),
@@ -142,10 +150,12 @@ export function isDefaultAppearance(appearance: Appearance) {
 
 export function resolvedUiColors(appearance: Appearance): Record<UiColorId, string> {
   const resolved = { ...DEFAULT_UI_COLORS };
+
   for (const token of UI_COLOR_TOKENS) {
     const base = appearance.colors[token.id] ?? DEFAULT_UI_COLORS[token.id];
     resolved[token.id] = adjustUiColor(base, appearance.brightness, appearance.contrast);
   }
+
   return resolved;
 }
 
@@ -160,6 +170,7 @@ function storage() {
 export function loadAppearance(): Appearance {
   const raw = storage()?.getItem(APPEARANCE_STORAGE_KEY);
   if (!raw) return DEFAULT_APPEARANCE;
+
   try {
     return normalizeAppearance(JSON.parse(raw) as unknown);
   } catch {
@@ -175,10 +186,13 @@ export function applyAppearance(
 ) {
   const root = target ?? globalThis.document?.documentElement;
   if (!root) return;
+
   if (isDefaultAppearance(appearance)) {
     for (const token of UI_COLOR_TOKENS) root.style.removeProperty(`--${token.id}`);
+
     return;
   }
+
   const colors = resolvedUiColors(appearance);
   for (const token of UI_COLOR_TOKENS) root.style.setProperty(`--${token.id}`, colors[token.id]);
 }
@@ -189,12 +203,15 @@ export function applyStoredAppearance() {
 
 export function saveAppearance(appearance: Appearance): Appearance {
   const next = normalizeAppearance(appearance);
+
   try {
     if (isDefaultAppearance(next)) storage()?.removeItem(APPEARANCE_STORAGE_KEY);
     else storage()?.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(next));
   } catch {
     /* private mode still applies the live theme */
   }
+
   applyAppearance(next);
+
   return next;
 }

@@ -10,6 +10,7 @@ export const CanvasAlignmentGuides = memo(function CanvasAlignmentGuides({
   camera: CanvasCamera;
 }) {
   const lines = useSyncExternalStore(guides.subscribe, guides.getSnapshot);
+
   return lines.length ? <VisibleAlignmentGuides lines={lines} camera={camera} /> : null;
 });
 
@@ -21,6 +22,7 @@ function VisibleAlignmentGuides({
   camera: CanvasCamera;
 }) {
   const { viewport } = useSyncExternalStore(camera.subscribe, camera.getSnapshot);
+
   return (
     <svg className="canvas-guides" aria-hidden="true">
       {lines.map((guide) => {
@@ -29,6 +31,7 @@ function VisibleAlignmentGuides({
         const offset = vertical ? viewport.y : viewport.x;
         const start = guide.start * viewport.zoom + offset;
         const end = guide.end * viewport.zoom + offset;
+
         return (
           <g key={guide.axis} data-guide-axis={guide.axis}>
             <line
@@ -39,6 +42,7 @@ function VisibleAlignmentGuides({
             />
             {(["start", "end"] as const).map((edge) => {
               const endpoint = edge === "start" ? start : end;
+
               return (
                 <path
                   key={edge}

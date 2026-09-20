@@ -10,6 +10,7 @@ export function mountActivity() {
   const doc = new CanvasDocument([
     { id: "agent-frame", name: "Frame", x: 100, y: 80, width: 200, height: 100 },
   ]);
+
   const camera = new CanvasCamera();
   camera.setSize({ x: 800, y: 600 });
   camera.flush();
@@ -36,6 +37,7 @@ export function mountActivity() {
   );
   const activity = agentActivity(doc);
   const sequence = activity.begin("update_node", { nodeId: "agent-frame" });
+
   return {
     change: () =>
       activity.capture(doc, () => doc.update({ ...doc.getFrame("agent-frame")!, x: 120 })),

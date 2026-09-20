@@ -33,6 +33,7 @@ const theme: CanvasTheme = {
     { id: "tablet", name: "Tablet", type: "breakpoint", value: 768 },
   ],
 };
+
 const rectangle: CanvasFrame = {
   id: "rect",
   name: "Rectangle",
@@ -44,6 +45,7 @@ const rectangle: CanvasFrame = {
   fill: "#000000",
   tokenBindings: { fill: "brand" },
 };
+
 const recolor = (value: string): CanvasTheme => ({
   tokens: theme.tokens.map((token) => (token.id === "brand" ? { ...token, value } : token)),
 });
@@ -99,6 +101,7 @@ describe("document theme tokens", () => {
       height: 200,
       tokenBindings: { layoutGap: "space", layoutPadding: "space" },
     };
+
     const doc = new CanvasDocument(
       [
         board,
@@ -107,6 +110,7 @@ describe("document theme tokens", () => {
       ],
       theme,
     );
+
     assert.equal(doc.getFrame("rect")!.x, 20);
     assert.equal(doc.getFrame("other")!.x, 140);
     doc.setTheme({
@@ -132,6 +136,7 @@ describe("document theme tokens", () => {
       color: "#000000",
       tokenBindings: { fontSize: "large" },
     };
+
     const doc = new CanvasDocument([text], theme);
     doc.setTheme(
       {
@@ -142,12 +147,14 @@ describe("document theme tokens", () => {
       (node) => node.fontSize * 2,
     );
     assert.equal(doc.getFrame("text")!.height, 80);
+
     const typed = applyTokenBindings(
       text,
       theme,
       { fontWeight: "bold", lineHeight: "leading", letterSpacing: "track" },
       true,
     );
+
     const legacy = applyTokenBindings(text, theme, { letterSpacing: "space" }, true);
     if (typed.kind !== "text" || legacy.kind !== "text") throw new Error("expected text");
     assert.equal(typed.fontWeight, 700);
@@ -201,6 +208,7 @@ describe("document theme tokens", () => {
   it("rejects invalid tokens without changing nodes, theme, or history", () => {
     const doc = new CanvasDocument([rectangle], theme);
     const before = doc.getSnapshot();
+
     for (const invalid of [
       recolor("red"),
       { tokens: [theme.tokens[0], theme.tokens[0]] },
@@ -210,6 +218,7 @@ describe("document theme tokens", () => {
       assert.equal(doc.getSnapshot(), before);
       assert.deepEqual(doc.getTheme(), theme);
     }
+
     assert.throws(() => normalizeTheme({ tokens: [{ ...theme.tokens[0], id: "Bad ID" }] }));
     assert.throws(() =>
       normalizeTheme({ tokens: [{ id: "bad-lead", name: "Bad", type: "lineHeight", value: 5 }] }),

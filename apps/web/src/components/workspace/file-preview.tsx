@@ -1,6 +1,6 @@
 import { memo, useId, useMemo } from "react";
 
-import type { FilePreviewNode } from "@/lib/local-files";
+import type { FilePreviewNode } from "@/lib/files";
 
 import { previewBounds, previewTree, previewViewBox, readPreviewNodes } from "./file-preview-model";
 
@@ -20,11 +20,14 @@ function PreviewShape({
   const kind = node.kind ?? "frame";
   const kids = nested.get(node.id) ?? [];
   const radius = Math.min(node.cornerRadius ?? 0, Math.min(node.width, node.height) / 2);
+
   const clips =
     (kind === "frame" || kind === "text") &&
     node.clipContent !== false &&
     (kind === "text" || kids.length > 0);
+
   const clipId = clips ? clipName(clipPrefix, node.id) : undefined;
+
   const fill =
     kind === "group"
       ? undefined
@@ -34,14 +37,17 @@ function PreviewShape({
           : kind === "image" || kind === "svg"
             ? "#2a2a2a"
             : undefined));
+
   const line = node.text?.split("\n")[0] ?? "";
   const fontSize = node.fontSize ?? 12;
+
   const textX =
     node.textAlign === "center"
       ? node.x + node.width / 2
       : node.textAlign === "right"
         ? node.x + node.width
         : node.x;
+
   const shape =
     kind === "text" ? (
       line ? (
@@ -99,10 +105,12 @@ function PreviewShape({
 
 export const FilePreview = memo(function FilePreview({ nodes }: { nodes: unknown }) {
   const reactId = useId().replace(/:/g, "");
+
   const scene = useMemo(() => {
     const parsed = readPreviewNodes(nodes);
     const bounds = previewBounds(parsed);
     if (!bounds) return null;
+
     return { ...previewTree(parsed), viewBox: previewViewBox(bounds) };
   }, [nodes]);
 
@@ -115,6 +123,7 @@ export const FilePreview = memo(function FilePreview({ nodes }: { nodes: unknown
   }
 
   const box = `${scene.viewBox.x} ${scene.viewBox.y} ${scene.viewBox.width} ${scene.viewBox.height}`;
+
   return (
     <div className="library-preview" aria-hidden="true">
       <svg viewBox={box} focusable="false">

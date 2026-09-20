@@ -18,12 +18,14 @@ export class CanvasHitTester {
     // Reconnecting after an effect cleanup also catches edits made while disconnected.
     this.index = new CanvasSpatialIndex(this.document.getCommittedFrames());
     this.refreshOrder();
+
     return this.document.subscribeChanges((ids) => {
       for (const id of ids) {
         const frame = this.document.getFrame(id);
         if (frame) this.index.upsert(frame);
         else this.index.remove(id);
       }
+
       this.refreshOrder();
     });
   };
@@ -33,6 +35,7 @@ export class CanvasHitTester {
     const previews = new Set(this.document.getPreviewIds());
     let result: string | undefined;
     let topOrder = -1;
+
     const consider = (id: string) => {
       const order = this.order.get(id) ?? -1;
       if (order <= topOrder) return;
@@ -45,9 +48,11 @@ export class CanvasHitTester {
     for (const id of this.index.query({ ...point, width: 0, height: 0 })) {
       if (!previews.has(id)) consider(id);
     }
+
     // Gestures do not publish document changes. Test only their live nodes, keeping
     // stale committed bounds out of the result without reindexing the whole scene.
     for (const id of previews) consider(id);
+
     return result;
   };
 
@@ -67,10 +72,12 @@ export class CanvasHitTester {
     )
       return false;
     let node: CanvasFrame | undefined = frame;
+
     while (node) {
       if (node.hidden || node.locked) return false;
       node = node.parentId ? this.document.getFrame(node.parentId) : undefined;
     }
+
     // Text, groups and pen strokes have rectangular interaction bounds, matching
     // their HTML buttons; rounded frames, images and shapes use their painted body.
     if (
@@ -80,6 +87,7 @@ export class CanvasHitTester {
       !roundedClipsContainPoint([frame], point)
     )
       return false;
+
     return roundedClipsContainPoint(getClippingAncestors(this.document, frame), point);
   }
 }

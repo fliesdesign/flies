@@ -22,6 +22,7 @@ test("three populated artboards preserve mounted content while navigating", asyn
   });
   await session.send("Performance.enable");
   const report = [];
+
   for (const phase of ["pan", "zoom", "culling", "drag"] as const) {
     if (phase === "drag") {
       await page.evaluate(async () => {
@@ -31,13 +32,17 @@ test("three populated artboards preserve mounted content while navigating", asyn
         Reflect.set(window, "canvasPerformance", await mountPerformance({ probe: false }));
       });
     }
+
     const before = await session.send("Performance.getMetrics");
+
     const result = await page.evaluate(
       (name) => Reflect.get(window, "canvasPerformance").measure(name),
       phase,
     );
+
     const after = await session.send("Performance.getMetrics");
     const metrics: Record<string, number> = {};
+
     for (const name of [
       "LayoutCount",
       "RecalcStyleCount",
@@ -50,24 +55,29 @@ test("three populated artboards preserve mounted content while navigating", asyn
       const final = after.metrics.find((metric) => metric.name === name)?.value ?? 0;
       metrics[name] = Math.round((final - initial) * 1000000) / 1000000;
     }
+
     report.push({ ...result, compositorLayers, drawingLayers, metrics });
     expect(result.totalNodes).toBe(723);
     expect(result.remountedNodes).toBe(0);
     expect(result.frameLabelHeight).toBeCloseTo(16, 1);
+
     if (phase === "culling") {
       expect(result.frameContentRenders).toBeLessThan(100);
       expect(result.stableFrameRenders).toBe(0);
     }
+
     if (phase === "drag") {
       expect(result.contentProbe).toBe(false);
       expect(result.sampleMovement.x).toBeCloseTo(15.01, 1);
       expect(result.sampleMovement.y).toBeCloseTo(7.5, 1);
     }
+
     if (phase === "pan" || phase === "zoom") {
       expect(result.frameStyleChanges).toBe(0);
       expect(result.frameContentRenders).toBe(0);
     }
   }
+
   await testInfo.attach("three-artboard-performance.json", {
     body: JSON.stringify(report, null, 2),
     contentType: "application/json",

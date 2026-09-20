@@ -14,9 +14,11 @@ test("presence follows actual MCP edits and remains saving until persistence com
   const document = makeDocument();
   const store = agentActivity(document);
   let finishSave!: () => void;
+
   const saved = new Promise<void>((resolve) => {
     finishSave = resolve;
   });
+
   const task = withAgentActivity(document, "update_node", { nodeId: "frame" }, async (saving) => {
     await editorTool({ document, prepare: () => {} } as CanvasControls, "update_node", {
       nodeId: "frame",
@@ -25,6 +27,7 @@ test("presence follows actual MCP edits and remains saving until persistence com
     saving();
     await saved;
   });
+
   await Promise.resolve();
   assert.equal(store.getSnapshot()?.phase, "saving");
   assert.deepEqual(store.getSnapshot()?.changedIds, ["frame"]);

@@ -16,6 +16,7 @@ function ExportNode({
 }) {
   if (node.hidden) return null;
   const frame = !node.kind || node.kind === "frame";
+
   return (
     <div
       style={{
@@ -67,6 +68,7 @@ export function CanvasExportScene({
   const nodes = ids.map((id) => document.getFrame(id)!).filter(Boolean);
   const bounds = selectionBounds(nodes, ids);
   if (!bounds) return null;
+
   return (
     <div
       style={{
@@ -117,11 +119,13 @@ export async function exportCanvasPng(
   });
   document.body.append(host);
   const root = createRoot(host);
+
   try {
     flushSync(() => root.render(<CanvasExportScene document={snapshot} ids={roots} />));
     await document.fonts.ready;
     await Promise.all(Array.from(host.querySelectorAll("img"), (image) => image.decode()));
     const { toBlob } = await import("html-to-image");
+
     const blob = await toBlob(host.firstElementChild as HTMLElement, {
       width,
       height,
@@ -129,7 +133,9 @@ export async function exportCanvasPng(
       skipFonts: false,
       cacheBust: false,
     });
+
     if (!blob) throw new Error("PNG export could not finish. Try a smaller selection.");
+
     return blob;
   } finally {
     root.unmount();

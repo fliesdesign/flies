@@ -38,13 +38,16 @@ const RootLabel = memo(function RootLabel({
   const element = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!frame) return;
+
     const update = () => {
       if (!element.current) return;
       const { viewport } = camera.getSnapshot();
       element.current.style.transform = `translate3d(${viewport.x + frame.x * viewport.zoom}px, ${viewport.y + frame.y * viewport.zoom}px, 0)`;
       element.current.style.width = `${frame.width * viewport.zoom}px`;
     };
+
     update();
+
     return camera.subscribe(update);
   }, [camera, frame]);
 
@@ -55,6 +58,7 @@ const RootLabel = memo(function RootLabel({
     (frame.kind !== undefined && frame.kind !== "frame" && frame.kind !== "group")
   )
     return null;
+
   return (
     <div
       ref={element}
@@ -89,31 +93,38 @@ class EditorPathStore {
   getSnapshot = () => {
     const path: CanvasFrame[] = [];
     let frame = this.document.getFrame(this.id);
+
     while (frame) {
       path.push(frame);
       frame = frame.parentId ? this.document.getFrame(frame.parentId) : undefined;
     }
+
     if (
       path.length !== this.snapshot.length ||
       path.some((node, index) => node !== this.snapshot[index])
     )
       this.snapshot = path;
+
     return this.snapshot;
   };
 
   subscribe = (listener: () => void) => {
     let subscriptions: (() => void)[] = [];
+
     const subscribePath = () => {
       subscriptions.forEach((unsubscribe) => unsubscribe());
       subscriptions = this.getSnapshot().map((frame) =>
         this.document.subscribeFrame(frame.id, listener),
       );
     };
+
     subscribePath();
+
     const unsubscribeDocument = this.document.subscribe(() => {
       subscribePath();
       listener();
     });
+
     return () => {
       unsubscribeDocument();
       subscriptions.forEach((unsubscribe) => unsubscribe());
@@ -135,29 +146,36 @@ const ActiveEditor = memo(function ActiveEditor({
   const element = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!frame || !editable) return;
+
     const update = () => {
       if (!element.current) return;
       const { viewport } = camera.getSnapshot();
       element.current.style.transform = `translate3d(${viewport.x + frame.x * viewport.zoom}px, ${viewport.y + frame.y * viewport.zoom}px, 0) scale(${viewport.zoom})`;
       element.current.style.setProperty("--canvas-inverse-zoom", String(1 / viewport.zoom));
     };
+
     update();
+
     return camera.subscribe(update);
   }, [camera, frame, editable]);
 
   if (frame?.kind !== "text" || !editable) return null;
   const opacity = path.reduce((value, node) => value * (node.opacity ?? 1), 1);
+
   let editor: ReactNode = (
     <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
   );
+
   for (let depth = 1; depth < path.length; depth++) {
     const ancestor = path[depth];
     const clips = (!ancestor.kind || ancestor.kind === "frame") && ancestor.clipContent !== false;
+
     const style: CSSProperties = {
       clipPath: clips
         ? `inset(${ancestor.y - frame.y}px ${frame.x + frame.width - ancestor.x - ancestor.width}px ${frame.y + frame.height - ancestor.y - ancestor.height}px ${ancestor.x - frame.x}px round ${clippingRadius(ancestor)}px)`
         : undefined,
     };
+
     // Keep ancestor slots mounted when clipping toggles or a parent changes at the
     // same depth. Replacing a wrapper would also replace the textarea's live draft.
     editor = (
@@ -166,6 +184,7 @@ const ActiveEditor = memo(function ActiveEditor({
       </div>
     );
   }
+
   return (
     <div
       ref={element}
@@ -190,10 +209,12 @@ export const CanvasGpuChrome = memo(function CanvasGpuChrome({
 }: CanvasGpuChromeProps) {
   const getRoots = useCallback(() => scene.getVisibleChildren(), [scene]);
   const roots = useSyncExternalStore(scene.subscribe, getRoots, getRoots);
+
   const selected = useMemo(
     () => new Set(selectedIds ?? (selectedId ? [selectedId] : [])),
     [selectedId, selectedIds],
   );
+
   return (
     <div className="canvas-gpu-chrome">
       {roots.map((id) => (

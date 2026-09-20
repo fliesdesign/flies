@@ -11,6 +11,7 @@ function populatedFrames(): CanvasFrame[] {
   const context = image.getContext("2d")!;
   context.fillStyle = "#0000ff";
   context.fillRect(0, 0, 16, 16);
+
   return [
     {
       id: "board",
@@ -166,6 +167,7 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
   });
   document.body.append(host);
   const root = createRoot(host);
+
   const controls = await new Promise<CanvasControls>((resolve) => {
     const editor = (
       <DesignCanvas
@@ -176,8 +178,10 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
         }}
       />
     );
+
     flushSync(() => root.render(strict ? <StrictMode>{editor}</StrictMode> : editor));
   });
+
   controls.setPanelsOpen(false);
   // Let the editor's initial ResizeObserver fit finish before fixing test coordinates.
   await new Promise<void>((resolve) =>
@@ -185,6 +189,7 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
   );
   controls.camera.setViewport({ x: 0, y: 0, zoom: 1 });
   controls.camera.flush();
+
   return {
     controls,
     dispose: () => {

@@ -49,6 +49,7 @@ describe("canvas tool geometry", () => {
 
   it("ignores an invalid or nonpositive minimum", () => {
     const point = { x: 0, y: 0 };
+
     for (const min of [-4, 0, NaN, Infinity]) {
       assert.deepEqual(rectFromPoints(point, point, min), { x: 0, y: 0, width: 1, height: 1 });
     }
@@ -60,6 +61,7 @@ describe("canvas tool geometry", () => {
       { x: -10, y: 35 },
       { x: 15, y: -5 },
     ];
+
     const geometry = penFromPoints(points)!;
     assert.deepEqual(geometry, {
       x: -12,

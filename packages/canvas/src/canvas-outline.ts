@@ -7,23 +7,27 @@ export function getClippingAncestors(document: CanvasDocument, frame: CanvasFram
   const ancestors: CanvasFrame[] = [];
   const visited = new Set([frame.id]);
   let parent = frame.parentId ? document.getFrame(frame.parentId) : undefined;
+
   while (parent && !visited.has(parent.id)) {
     visited.add(parent.id);
     if ((!parent.kind || parent.kind === "frame") && parent.clipContent !== false)
       ancestors.push(parent);
     parent = parent.parentId ? document.getFrame(parent.parentId) : undefined;
   }
+
   return ancestors;
 }
 
 export function getClipBounds(ancestors: readonly CanvasFrame[]): CanvasClipBounds {
   const bounds = { left: -Infinity, top: -Infinity, right: Infinity, bottom: Infinity };
+
   for (const ancestor of ancestors) {
     bounds.left = Math.max(bounds.left, ancestor.x);
     bounds.top = Math.max(bounds.top, ancestor.y);
     bounds.right = Math.min(bounds.right, ancestor.x + ancestor.width);
     bounds.bottom = Math.min(bounds.bottom, ancestor.y + ancestor.height);
   }
+
   return bounds;
 }
 
@@ -52,6 +56,7 @@ function pointInRoundedClip(frame: CanvasFrame, point: Point, strict = false) {
   const centerX = Math.min(Math.max(point.x, frame.x + radius), right - radius);
   const centerY = Math.min(Math.max(point.y, frame.y + radius), bottom - radius);
   const distance = Math.hypot(point.x - centerX, point.y - centerY);
+
   return strict ? distance < radius : distance <= radius + 1e-8;
 }
 
@@ -75,6 +80,7 @@ export function getVisibleBoundsInRoundedClips(
   const rounded = ancestors.filter((ancestor) => clippingRadius(ancestor) > 0);
   if (!rounded.length) return { x: left, y: top, width: right - left, height: bottom - top };
   const candidates: Point[] = [];
+
   const add = (x: number, y: number) => {
     const point = { x, y };
     if (
@@ -86,20 +92,24 @@ export function getVisibleBoundsInRoundedClips(
     )
       candidates.push(point);
   };
+
   add((left + right) / 2, (top + bottom) / 2);
   for (const x of [left, right]) for (const y of [top, bottom]) add(x, y);
   const circles: Circle[] = [];
+
   for (const ancestor of rounded) {
     const radius = clippingRadius(ancestor);
     for (const x of [ancestor.x + radius, ancestor.x + ancestor.width - radius])
       for (const y of [ancestor.y + radius, ancestor.y + ancestor.height - radius])
         circles.push({ x, y, radius });
   }
+
   for (const circle of circles) {
     add(circle.x - circle.radius, circle.y);
     add(circle.x + circle.radius, circle.y);
     add(circle.x, circle.y - circle.radius);
     add(circle.x, circle.y + circle.radius);
+
     for (const x of [left, right]) {
       const square = circle.radius ** 2 - (x - circle.x) ** 2;
       if (square < 0) continue;
@@ -107,6 +117,7 @@ export function getVisibleBoundsInRoundedClips(
       add(x, circle.y - delta);
       add(x, circle.y + delta);
     }
+
     for (const y of [top, bottom]) {
       const square = circle.radius ** 2 - (y - circle.y) ** 2;
       if (square < 0) continue;
@@ -115,8 +126,10 @@ export function getVisibleBoundsInRoundedClips(
       add(circle.x + delta, y);
     }
   }
+
   for (let index = 0; index < circles.length; index++) {
     const a = circles[index];
+
     for (let other = index + 1; other < circles.length; other++) {
       const b = circles[other];
       const dx = b.x - a.x;
@@ -132,13 +145,16 @@ export function getVisibleBoundsInRoundedClips(
       add(x + (dy * across) / distance, y - (dx * across) / distance);
     }
   }
+
   if (!candidates.length) return;
+
   // Averaging feasible points stays inside every convex clip. Strict containment
   // distinguishes an actual visible area from a boundary-only touch.
   const center = candidates.reduce(
     (point, next) => ({ x: point.x + next.x, y: point.y + next.y }),
     { x: 0, y: 0 },
   );
+
   center.x /= candidates.length;
   center.y /= candidates.length;
   if (center.x <= left || center.x >= right || center.y <= top || center.y >= bottom) return;
@@ -147,12 +163,14 @@ export function getVisibleBoundsInRoundedClips(
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
+
   for (const point of candidates) {
     minX = Math.min(minX, point.x);
     minY = Math.min(minY, point.y);
     maxX = Math.max(maxX, point.x);
     maxY = Math.max(maxY, point.y);
   }
+
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 

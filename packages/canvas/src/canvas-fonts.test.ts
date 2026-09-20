@@ -30,6 +30,7 @@ describe("font families", () => {
         fontWeight: 300,
       },
     ]);
+
     const node = document.getFrame("text");
     assert.equal(node?.kind, "text");
     if (node?.kind !== "text") throw new Error("Missing text");

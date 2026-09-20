@@ -52,12 +52,15 @@ function editorElement(controls: CanvasControls) {
 
 function visiblePanels(controls: CanvasControls) {
   const editor = editorElement(controls);
+
   const visible = (selector: string) => {
     const panel = editor.querySelector(selector);
+
     return Boolean(
       panel && panel.getBoundingClientRect().width && getComputedStyle(panel).display !== "none",
     );
   };
+
   return { layers: visible(".canvas-layers"), properties: visible(".canvas-properties") };
 }
 
@@ -69,6 +72,7 @@ async function measurePhase(
 ): Promise<PhaseResult> {
   let frameStyleChanges = 0;
   let cameraStyleChanges = 0;
+
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       const element = mutation.target as Element;
@@ -76,6 +80,7 @@ async function measurePhase(
       if (element.classList.contains("canvas-world")) cameraStyleChanges++;
     }
   });
+
   observer.observe(controls.surface, {
     attributes: true,
     attributeFilter: ["style"],
@@ -83,6 +88,7 @@ async function measurePhase(
   });
   const intervals: number[] = [];
   let last = await nextFrame();
+
   try {
     for (let i = 0; i < 120; i++) {
       if (stopped() || document.visibilityState !== "visible")
@@ -92,24 +98,29 @@ async function measurePhase(
       if (i >= 20) intervals.push(now - last);
       last = now;
     }
+
     controls.flushPreview();
     controls.camera.flush();
     await settle(1);
   } finally {
     observer.disconnect();
   }
+
   intervals.sort((a, b) => a - b);
   const editor = editorElement(controls);
   const mounted = [...controls.surface.querySelectorAll<HTMLElement>(".canvas-frame-position")];
   const current = controls.camera.getCurrent();
   const view = viewportBounds(current.viewport, current.size, 0);
+
   const visibleNodes = mounted.filter((element) => {
     const node = controls.document.getFrame(element.dataset.frameId ?? "");
     if (!node || controls.document.isHidden(node.id)) return false;
+
     const bounds = getVisibleBoundsInRoundedClips(
       node,
       getClippingAncestors(controls.document, node),
     );
+
     return (
       bounds &&
       bounds.x < view.x + view.width &&
@@ -118,6 +129,7 @@ async function measurePhase(
       bounds.y + bounds.height > view.y
     );
   }).length;
+
   return {
     phase,
     meanFrameMs: round(intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length),
@@ -146,13 +158,16 @@ export default function CanvasBenchmark() {
   const readyRef = useRef<((controls: CanvasControls) => void) | null>(null);
   const controlsRef = useRef<CanvasControls | null>(null);
   const stoppedRef = useRef(false);
+
   const onReady = useCallback((controls: CanvasControls | null) => {
     controlsRef.current = controls;
+
     if (controls && readyRef.current) {
       readyRef.current(controls);
       readyRef.current = null;
     }
   }, []);
+
   useEffect(
     () => () => {
       stoppedRef.current = true;
@@ -166,10 +181,12 @@ export default function CanvasBenchmark() {
     setResults([]);
     setReport("");
     const samples: SceneResult[] = [];
+
     try {
       for (const count of countChoice === "all" ? COUNTS : [Number(countChoice)]) {
         setStatus(`Loading ${count.toLocaleString()} nodes…`);
         const start = performance.now();
+
         const controls = await new Promise<CanvasControls>((resolve) => {
           readyRef.current = resolve;
           setScene((previous) => ({
@@ -177,6 +194,7 @@ export default function CanvasBenchmark() {
             key: previous.key + 1,
           }));
         });
+
         controls.setPanelsOpen(true);
         controls.select("mixed-0-title");
         await settle();
@@ -199,10 +217,12 @@ export default function CanvasBenchmark() {
         for (const node of nodes)
           nodesByKind[node.kind ?? "frame"] = (nodesByKind[node.kind ?? "frame"] ?? 0) + 1;
         const phases: PhaseResult[] = [];
+
         const phase = async (name: string, update: (index: number) => void) => {
           setStatus(`${count.toLocaleString()} nodes · ${name}`);
           phases.push(await measurePhase(controls, name, update, () => stoppedRef.current));
         };
+
         await phase("pan-100%-text-selected", (i) => {
           for (let sample = 0; sample < 4; sample++)
             controls.camera.setViewport({ x: 80 - (i + sample / 4) * 5, y: 60 - i * 2, zoom: 1 });
@@ -213,9 +233,11 @@ export default function CanvasBenchmark() {
         controls.camera.setViewport({ x: 80, y: 60, zoom: 1 });
         controls.camera.flush();
         const root = controls.document.getFrame("mixed-0-frame")!;
+
         const subtree = controls.document
           .getDescendantIds([root.id])
           .map((id) => controls.document.getFrame(id)!);
+
         controls.select(root.id);
         controls.document.beginGesture(subtree.map((node) => node.id));
         await settle();
@@ -230,9 +252,11 @@ export default function CanvasBenchmark() {
         controls.document.undo();
 
         const layout = controls.document.getFrame("mixed-0-layout")!;
+
         const layoutTree = controls.document
           .getDescendantIds([layout.id])
           .map((id) => controls.document.getFrame(id)!);
+
         controls.select(layout.id);
         controls.document.beginGesture(layoutTree.map((node) => node.id));
         await settle();
@@ -263,8 +287,10 @@ export default function CanvasBenchmark() {
         });
         controls.flushPreview();
         controls.document.endGesture(true);
+
         const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } })
           .memory;
+
         const result: SceneResult = {
           totalNodes: nodes.length,
           rootBoards: nodes.filter((node) => !node.parentId).length,
@@ -278,9 +304,11 @@ export default function CanvasBenchmark() {
           heapMB: memory ? round(memory.usedJSHeapSize / 1024 / 1024) : null,
           history: controls.document.getHistoryStats(),
         };
+
         samples.push(result);
         setResults([...samples]);
       }
+
       const controls = controlsRef.current;
       setReport(
         JSON.stringify(

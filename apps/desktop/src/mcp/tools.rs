@@ -74,20 +74,20 @@ fn node_properties() -> Value {
 pub fn catalog() -> Vec<Value> {
     let string = json!({"type":"string"});
     let ids = json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1000});
-    vec![
+    let mut tools = vec![
         tool("get_guide", "Read Flies incremental page-building workflow, supported HTML/CSS and coordinates before editing.", json!({}), &[], true),
-        tool("list_files", "List local files, without loading document contents.", json!({}), &[], true),
-        tool("create_file", "Create and open a local Flies file.", json!({"name":string}), &["name"], false),
-        tool("open_file", "Open an existing local file by id.", json!({"fileId":string}), &["fileId"], false),
-        tool("archive_file", "Archive a local file by id. It leaves Recents/Files and can be restored later.", json!({"fileId":string}), &["fileId"], false),
-        tool("restore_file", "Restore an archived local file by id so it appears in Recents and Files again.", json!({"fileId":string}), &["fileId"], false),
-        tool("get_basic_info", "Get the active file, root nodes, node count and viewport. Open a file first.", json!({}), &[], true),
+        tool("list_files", "List workspace files, without loading document contents.", json!({}), &[], true),
+        tool("create_file", "Create and open a workspace Flies file.", json!({"name":string}), &["name"], false),
+        tool("open_file", "Open an existing workspace file by id.", json!({"fileId":string}), &["fileId"], false),
+        tool("archive_file", "Archive a workspace file by id. It leaves Recents/Files and can be restored later.", json!({"fileId":string}), &["fileId"], false),
+        tool("restore_file", "Restore an archived workspace file by id so it appears in Recents and Files again.", json!({"fileId":string}), &["fileId"], false),
+        tool("get_basic_info", "Get a file's roots, node count and viewport. Defaults to this MCP session's last create_file/open_file. Pass fileId to target another open file.", json!({}), &[], true),
         tool("get_theme", "Read the file's theme tokens, CSS variable names and layer usage counts.", json!({}), &[], true),
         tool("set_theme", "Create or update theme tokens by stable ID. Existing IDs merge by default; replace:true replaces the full theme. deleteTokenIds removes tokens, preserving current values on linked layers. Bound layers update atomically with undo and save. Types: color (hex), fontFamily, fontWeight (1–1000), lineHeight (0.5–4 unitless), letterSpacing/spacing/radius/fontSize/container/breakpoint (pixels). Container and breakpoint tokens are CSS variables for write_html/preview_html. Every token is available as CSS var(--id); use apply_tokens to retain live links on native layers.", json!({"tokens":{"type":"array","maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["id","name","type","value"],"properties":{"id":{"type":"string","pattern":"^[a-z][a-z0-9-]{0,79}$"},"name":{"type":"string","minLength":1,"maxLength":120},"type":{"enum":["color","radius","spacing","container","breakpoint","fontFamily","fontWeight","fontSize","lineHeight","letterSpacing"]},"value":{"type":["string","number"]}}}},"replace":{"type":"boolean"},"deleteTokenIds":{"type":"array","items":{"type":"string"}}}), &["tokens"], false),
         tool("apply_tokens", "Bind selected node properties to theme token IDs. Changes to a token update all bound layers. null detaches a binding while keeping the current literal value. Properties must match token types and node kinds; fill maps to text color or pen stroke when appropriate. Literal property edits detach their corresponding token.", json!({"nodeIds":ids,"bindings":{"type":"object","additionalProperties":false,"properties":{"fill":{"type":["string","null"]},"color":{"type":["string","null"]},"stroke":{"type":["string","null"]},"borderColor":{"type":["string","null"]},"fontFamily":{"type":["string","null"]},"fontWeight":{"type":["string","null"]},"fontSize":{"type":["string","null"]},"lineHeight":{"type":["string","null"]},"letterSpacing":{"type":["string","null"]},"cornerRadius":{"type":["string","null"]},"layoutGap":{"type":["string","null"]},"layoutPadding":{"type":["string","null"]},"borderWidth":{"type":["string","null"]},"strokeWidth":{"type":["string","null"]}}}}), &["nodeIds","bindings"], false),
-        tool("get_selection", "Get selected node IDs in the active file.", json!({}), &[], true),
+        tool("get_selection", "Get selected node IDs in a file. Defaults to this MCP session's file.", json!({}), &[], true),
         tool("get_node_info", "Get a node's saved properties and direct child IDs.", json!({"nodeId":string}), &["nodeId"], true),
-        tool("get_tree", "Get the active file's node tree, optionally rooted at nodeId. Depth defaults to 5 (max 20).", json!({"nodeId":string,"depth":{"type":"integer","minimum":0,"maximum":20}}), &[], true),
+        tool("get_tree", "Get a file's node tree, optionally rooted at nodeId. Depth defaults to 5 (max 20).", json!({"nodeId":string,"depth":{"type":"integer","minimum":0,"maximum":20}}), &[], true),
         tool("create_artboard", "Create a page shell or section frame using world coordinates. Returns its node ID for later write_html calls.", json!({"name":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40},"height":{"type":"number","minimum":40},"fill":string}), &["name","width","height"], false),
         tool("write_html", "Build one small section per call as editable layers. Tailwind CSS v4 class utilities compile automatically, offline; inline CSS also works. Read get_guide first. parentId appends inside a frame/group; replace:true replaces only its children. targetId replaces one node/subtree with one HTML root, preserving its ID, parent and order; cannot combine with parentId or replace. x/y offset the parent or target origin, or use world coordinates without either. Returns root/container IDs, names and bounds for later calls. validateOnly previews without editing or returning IDs. Use scoped edits, never resend the whole page for a local change.", json!({"html":string,"parentId":string,"targetId":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40,"maximum":8192},"replace":{"type":"boolean"},"height":{"type":"number","minimum":1,"maximum":8192},"validateOnly":{"type":"boolean"}}), &["html"], false),
         tool("set_styles", "Save shared CSS on a frame/artboard. Future write_html calls inside it or descendants inherit these rules and CSS variables. Survives save/reopen and undo. Existing measured layers are unchanged. Empty css clears defaults. Use :root for typography/tokens and classes for reusable sections.", json!({"nodeId":string,"css":{"type":"string","maxLength":50000}}), &["nodeId","css"], false),
@@ -98,13 +98,46 @@ pub fn catalog() -> Vec<Value> {
         tool("delete_nodes", "Delete nodes and their descendants as one undoable operation.", json!({"nodeIds":ids}), &["nodeIds"], false),
         tool("set_selection", "Select a node (or clear selection when nodeId is omitted).", json!({"nodeId":string}), &[], false),
         tool("get_screenshot", "Return a PNG image of nodeId and descendants, or all visible root nodes. Includes offscreen content; excludes editor chrome. Max 8192px per side, 32 megapixels.", json!({"nodeId":string}), &[], true),
-        tool("save_file", "Flush the active file to local compressed JSON storage.", json!({}), &[], false),
-        tool("undo", "Undo the active document's last edit, including MCP edits.", json!({}), &[], false),
-        tool("redo", "Redo the active document's last undone edit.", json!({}), &[], false),
-    ]
+        tool("save_file", "Flush a file to local compressed JSON storage.", json!({}), &[], false),
+        tool("undo", "Undo a document's last edit, including MCP edits.", json!({}), &[], false),
+        tool("redo", "Redo a document's last undone edit.", json!({}), &[], false),
+    ];
+    let file_id = json!({
+        "type":"string",
+        "description":"Target file. Defaults to this MCP session's last create_file/open_file. Pass it when several agents edit different files."
+    });
+    for tool in &mut tools {
+        let name = tool["name"].as_str().unwrap_or_default();
+        if matches!(
+            name,
+            "get_basic_info"
+                | "get_theme"
+                | "set_theme"
+                | "apply_tokens"
+                | "get_selection"
+                | "get_node_info"
+                | "get_tree"
+                | "create_artboard"
+                | "write_html"
+                | "set_styles"
+                | "fit_node"
+                | "preview_html"
+                | "close_preview"
+                | "update_node"
+                | "delete_nodes"
+                | "set_selection"
+                | "get_screenshot"
+                | "save_file"
+                | "undo"
+                | "redo"
+        ) {
+            tool["inputSchema"]["properties"]["fileId"] = file_id.clone();
+        }
+    }
+    tools
 }
 
-pub const GUIDE: &str = r##"Flies edits the active desktop file. Start with list_files/open_file or create_file, then get_basic_info. Mutations share the UI's document, undo history and local storage. Inspect returned IDs; never invent them.
+pub const GUIDE: &str = r##"Flies lets several MCP agents edit different workspace files at the same time. Start with list_files/open_file or create_file, then get_basic_info. Each session remembers its last opened file; later tools can pass fileId to target that file without switching the visible tab. Mutations share that file's document, undo history and API revision storage. Inspect returned IDs; never invent them.
 Build pages incrementally across separate tool calls:
 1. Create the page shell with create_artboard. Add small named or semantic section placeholders with write_html, using explicit width/height of at least 40px per side. Empty sections remain editable frames. Use data-name, for example Header, Search, Footer.
 2. Read roots and containers in the response to get each section's actual ID. Populate sections one at a time using parentId. Each call becomes visible and saves independently; no full-page HTML call is needed.
@@ -121,4 +154,4 @@ Node sizing: update_node has a typed property schema. width/height are fixed siz
 Interactive prototypes: preview_html({nodeId:PAGE_ID,html:"<button class='bg-blue-600 hover:bg-blue-700 transition p-4 text-white'>Try me</button>"}) opens a live preview using shared CSS and Tailwind. Gradients, hover/focus, animations and inline JavaScript work there; it cannot access the editor or Tauri; form submission, fetch and external assets are blocked except Google Fonts. The preview does not modify native layers and is not saved with the canvas. Use Download HTML to keep it; close_preview returns to editing. get_screenshot captures the static native canvas, not the live preview.
 Unsupported: scripts/events, custom elements, stylesheets, external resources, CSS gradients, CSS transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage corner radii, cropped images, or clipped containers smaller than 40px. For pill controls use border-radius:999px. Failures occur before editing. Limits: 500 HTML elements, 30 nesting levels, 200KB HTML, 3000 generated layers per insertion. Keep each call section-sized.
 Native node kinds: frame,group,rectangle,text,image,svg,pen. update_node supports native properties including borderWidth,borderColor,shadows (array of offsetX,offsetY,blur,spread,color,inset), text fontStyle and textDecoration. SVG src uses a base64 data:image/svg+xml URL. Changing id/kind is forbidden.
-No active file produces an actionable error. Requests execute in FIFO order. Up to 16 overlapping requests wait automatically; a write followed by a screenshot no longer needs busy retries. Await write completion when strict ordering across concurrent clients matters. Queue waits time out separately without dispatch; execution timeouts may have applied. If a request times out after dispatch, inspect before retrying a mutation: it may already have applied. Server lifetime matches the desktop process."##;
+No open file produces an actionable error. Tools on different files run in parallel; calls that target the same file stay in FIFO order. Up to 16 overlapping requests wait automatically. Await write completion when a later screenshot of the same file must follow it. Queue waits time out separately without dispatch; execution timeouts may have applied. If a request times out after dispatch, inspect before retrying a mutation: it may already have applied. Server lifetime matches the desktop process."##;

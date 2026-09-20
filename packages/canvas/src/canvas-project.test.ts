@@ -43,6 +43,7 @@ describe("portable projects", () => {
         opacity: 0.5,
       },
     ];
+
     assert.deepEqual(parseCanvasProject(serializeCanvasProject("My project", nodes)), {
       name: "My project",
       nodes,
@@ -60,6 +61,7 @@ describe("portable projects", () => {
     const project = parseCanvasProject(
       JSON.stringify({ type: "lra-design", version: 1, name: "Legacy", nodes: [] }),
     );
+
     assert.deepEqual(project, { name: "Legacy", nodes: [], theme: { tokens: [] } });
   });
   it("rejects malformed, future, invalid, and cyclic documents without partial imports", () => {
@@ -92,6 +94,7 @@ describe("portable projects", () => {
         src: `data:image/png;base64,${png}`,
       },
     ];
+
     const packed = packCanvasProject("Pics", nodes);
     assert.equal(packed[0], 0x50);
     assert.equal(packed[1], 0x4b);

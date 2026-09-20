@@ -36,14 +36,17 @@ export async function readCanvasImage(file: File): Promise<CanvasImage> {
     return readCanvasSvg(await file.text(), file.name.replace(/\.[^.]+$/, "") || "SVG");
 
   const objectUrl = URL.createObjectURL(file);
+
   try {
     const image = new Image();
     image.src = objectUrl;
+
     try {
       await image.decode();
     } catch {
       throw new Error("This image could not be decoded. Try a PNG, JPEG, or WebP file.");
     }
+
     if (image.naturalWidth === 0 || image.naturalHeight === 0)
       throw new Error("This image has no readable dimensions.");
 
@@ -51,9 +54,11 @@ export async function readCanvasImage(file: File): Promise<CanvasImage> {
       1,
       MAX_IMAGE_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
     );
+
     const width = Math.max(1, Math.round(image.naturalWidth * scale));
     const height = Math.max(1, Math.round(image.naturalHeight * scale));
     let src: string;
+
     if (
       scale === 1 &&
       file.size <= PRESERVE_FILE_BYTES &&
@@ -71,6 +76,7 @@ export async function readCanvasImage(file: File): Promise<CanvasImage> {
       src = canvas.toDataURL("image/webp", 0.85);
       if (src === "data:,") throw new Error("This image could not be prepared.");
     }
+
     return {
       kind: "image",
       src,

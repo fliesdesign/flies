@@ -23,29 +23,35 @@ export function CanvasFontPicker({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [previousValue, setPreviousValue] = useState(value);
+
   if (previousValue !== value) {
     setPreviousValue(value);
     setDraft(value ?? "");
   }
+
   useEffect(() => {
     let active = true;
     void listCanvasFonts()
       .then((fonts) => {
         if (active) setFamilies(fonts);
+
         return fonts;
       })
       .catch((reason: unknown) => {
         if (active) setError(String(reason));
       });
+
     return () => {
       active = false;
     };
   }, []);
+
   async function commit() {
     const family = draft.trim();
     if (!family || family === value || loading) return;
     setLoading(true);
     setError("");
+
     try {
       await ensureCanvasFonts(
         nodes
@@ -64,6 +70,7 @@ export function CanvasFontPicker({
       setLoading(false);
     }
   }
+
   return (
     <div className="canvas-font-picker">
       <CanvasTokenSelect
@@ -84,10 +91,12 @@ export function CanvasFontPicker({
         onBlur={() => void commit()}
         onKeyDown={(event) => {
           event.stopPropagation();
+
           if (event.key === "Enter") {
             event.preventDefault();
             void commit();
           }
+
           if (event.key === "Escape") setDraft(value ?? "");
         }}
       />

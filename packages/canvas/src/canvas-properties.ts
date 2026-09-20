@@ -37,11 +37,13 @@ export type CanvasPropertyOptions = { preserveAspect?: boolean };
 function isLocked(node: CanvasFrame, byId: ReadonlyMap<string, CanvasFrame>): boolean {
   const visited = new Set<string>();
   let current: CanvasFrame | undefined = node;
+
   while (current && !visited.has(current.id)) {
     if (current.locked) return true;
     visited.add(current.id);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
+
   return false;
 }
 
@@ -52,6 +54,7 @@ function styleChange(
 ): CanvasFrame {
   const numeric = typeof value === "number" && Number.isFinite(value);
   const frame = !node.kind || node.kind === "frame";
+
   switch (property) {
     case "hidden":
     case "locked":
@@ -64,6 +67,7 @@ function styleChange(
         (frame || node.kind === "rectangle" || node.kind === "image" || node.kind === "svg")
         ? { ...node, cornerRadius: value }
         : node;
+
     case "fill": {
       if (
         typeof value !== "string" ||
@@ -72,23 +76,31 @@ function styleChange(
         return node;
       if (node.kind === "text") return { ...node, color: value };
       if (node.kind === "pen") return { ...node, stroke: value };
+
       return frame || node.kind === "rectangle" ? { ...node, fill: value } : node;
     }
+
     case "clipContent":
       return frame && typeof value === "boolean" ? { ...node, clipContent: value } : node;
+
     case "layoutMode": {
       if (node.kind && node.kind !== "frame") return node;
+
       if (value === "none") {
         const { layout: _layout, ...withoutLayout } = node;
+
         return withoutLayout;
       }
+
       return value === "row" || value === "column"
         ? { ...node, layout: { ...(node.layout ?? DEFAULT_CANVAS_LAYOUT), direction: value } }
         : node;
     }
+
     case "layoutGap":
     case "layoutPadding":
     case "layoutAlign":
+
     case "layoutJustify": {
       if ((node.kind && node.kind !== "frame") || !node.layout) return node;
       if ((property === "layoutGap" || property === "layoutPadding") && numeric && value >= 0)
@@ -106,8 +118,10 @@ function styleChange(
         (value === "start" || value === "center" || value === "end" || value === "space-between")
       )
         return { ...node, layout: { ...node.layout, justify: value } };
+
       return node;
     }
+
     case "strokeWidth":
       return node.kind === "pen" && numeric && value > 0 ? { ...node, strokeWidth: value } : node;
     case "fontFamily":
@@ -162,41 +176,51 @@ export function changeCanvasProperty(
     return [];
   const bounds = selectionBounds(nodes, roots)!;
   const single = selected.length === 1 ? selected[0] : undefined;
+
   if (property === "x" || property === "y") {
     if (typeof value !== "number" || !Number.isFinite(value)) return [];
     const parent = single?.parentId ? byId.get(single.parentId) : undefined;
     const next = value + (parent?.[property] ?? 0);
+
     return moveSelection(nodes, roots, {
       x: property === "x" ? next - bounds.x : 0,
       y: property === "y" ? next - bounds.y : 0,
     });
   }
+
   if (property === "width" || property === "height") {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return [];
     const minimum = single && (!single.kind || single.kind === "frame") ? 40 : 1;
     const dimension = Math.max(minimum, value);
     const next = { ...bounds, [property]: dimension };
+
     if (options.preserveAspect) {
       const other = property === "width" ? "height" : "width";
       const scale = Math.max(dimension / bounds[property], minimum / bounds[other]);
       next.width = bounds.width * scale;
       next.height = bounds.height * scale;
     }
+
     const updates = resizeSelection(nodes, roots, bounds, next);
+
     if (single?.kind === "text" && property === "width" && !options.preserveAspect) {
       for (let index = 0; index < updates.length; index++) {
         const node = updates[index];
         if (node.kind === "text") updates[index] = { ...node, height: measureText(node) };
       }
     }
+
     return updates;
   }
+
   const reflow = ["fontFamily", "fontWeight", "fontSize", "lineHeight", "letterSpacing"].includes(
     property,
   );
+
   return selected.flatMap((node) => {
     const updated = styleChange(node, property, value);
     if (updated === node) return [];
+
     return [
       reflow && updated.kind === "text" ? { ...updated, height: measureText(updated) } : updated,
     ];

@@ -32,6 +32,7 @@ function withScene(
   camera.flush();
   const scene = new CanvasScene(document, camera);
   const disconnect = scene.connect();
+
   try {
     run(scene, document, camera);
   } finally {
@@ -50,14 +51,18 @@ describe("canvas scene visibility", () => {
       const initial = scene.getSnapshot();
       const getFrame = document.getFrame;
       let frameReads = 0;
+
       document.getFrame = (id) => {
         frameReads++;
+
         return getFrame(id);
       };
+
       for (let x = 1; x <= 180; x++) {
         camera.setViewport({ x: -x, y: 0, zoom: 1 });
         camera.flush();
       }
+
       camera.setViewport({ x: -100, y: 0, zoom: 0.95 });
       camera.flush();
       assert.equal(frameReads, 0);
@@ -349,6 +354,7 @@ describe("canvas scene visibility", () => {
         justify: "start" as const,
       },
     };
+
     const first = { ...frame("first"), width: 5000, parentId: "root" };
     const second = { ...frame("second", 5000), parentId: "root" };
     withScene([root, first, second], (scene, document) => {

@@ -46,11 +46,13 @@ function addAnchor(anchors: Map<number, Anchor>, position: number, start: number
 function lowerBound(anchors: readonly Anchor[], position: number) {
   let low = 0;
   let high = anchors.length;
+
   while (low < high) {
     const middle = (low + high) >>> 1;
     if (anchors[middle].position < position) low = middle + 1;
     else high = middle;
   }
+
   return low;
 }
 
@@ -62,8 +64,10 @@ function closest(
   maximum = Infinity,
 ): Match | undefined {
   let match: Match | undefined;
+
   for (const position of positions) {
     const index = lowerBound(anchors, Math.max(minimum, Math.min(maximum, position)));
+
     for (const candidate of [index - 1, index]) {
       const anchor = anchors[candidate];
       if (!anchor || anchor.position < minimum || anchor.position > maximum) continue;
@@ -72,6 +76,7 @@ function closest(
         match = { anchor, delta };
     }
   }
+
   return match;
 }
 
@@ -87,6 +92,7 @@ export class AlignmentGuideIndex {
   ) {
     const x = new Map<number, Anchor>();
     const y = new Map<number, Anchor>();
+
     for (const frame of frames) {
       if (typeof excludedId === "string" ? frame.id === excludedId : excludedId.has(frame.id))
         continue;
@@ -105,6 +111,7 @@ export class AlignmentGuideIndex {
       for (const position of [frame.y, frame.y + frame.height / 2, bottom])
         addAnchor(y, position, frame.x, right);
     }
+
     this.x = [...x.values()];
     this.y = [...y.values()];
     this.x.sort((a, b) => a.position - b.position);
@@ -119,6 +126,7 @@ export class AlignmentGuideIndex {
     const east = handle?.includes("e");
     const north = handle?.includes("n");
     const south = handle?.includes("s");
+
     const x = closest(
       this.x,
       !handle ? [rect.x, rect.x + rect.width / 2, right] : west ? [rect.x] : east ? [right] : [],
@@ -126,6 +134,7 @@ export class AlignmentGuideIndex {
       east ? rect.x + minSize : -Infinity,
       west ? right - minSize : Infinity,
     );
+
     const y = closest(
       this.y,
       !handle
@@ -139,14 +148,17 @@ export class AlignmentGuideIndex {
       south ? rect.y + minSize : -Infinity,
       north ? bottom - minSize : Infinity,
     );
+
     const dx = x?.delta ?? 0;
     const dy = y?.delta ?? 0;
+
     const snapped: FrameRect = {
       x: rect.x + (!handle || west ? dx : 0),
       y: rect.y + (!handle || north ? dy : 0),
       width: rect.width + (east ? dx : west ? -dx : 0),
       height: rect.height + (south ? dy : north ? -dy : 0),
     };
+
     const guides: AlignmentGuide[] = [];
     if (x)
       guides.push({
@@ -162,6 +174,7 @@ export class AlignmentGuideIndex {
         start: Math.min(y.anchor.start, snapped.x),
         end: Math.max(y.anchor.end, snapped.x + snapped.width),
       });
+
     return { rect: snapped, guides };
   }
 }
@@ -176,6 +189,7 @@ export class CanvasGuides {
   getSnapshot = () => this.published;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -199,6 +213,7 @@ export class CanvasGuides {
       this.current.length === this.published.length &&
       this.current.every((guide, index) => {
         const previous = this.published[index];
+
         return (
           guide.axis === previous.axis &&
           guide.position === previous.position &&

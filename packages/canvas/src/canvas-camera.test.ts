@@ -10,12 +10,14 @@ function animationFrames() {
   let nextId = 1;
   const callbacks = new Map<number, FrameRequestCallback>();
   const cancelled: number[] = [];
+
   return {
     callbacks,
     cancelled,
     request: (callback: FrameRequestCallback) => {
       const id = nextId++;
       callbacks.set(id, callback);
+
       return id;
     },
     cancel: (id: number) => {
@@ -42,6 +44,7 @@ function withAnimationFrames(run: (frames: ReturnType<typeof animationFrames>) =
     configurable: true,
     value: frames.cancel,
   });
+
   try {
     run(frames);
   } finally {
@@ -57,6 +60,7 @@ describe("animation frame batching", () => {
     const frames = animationFrames();
     let sample = 0;
     const published: number[] = [];
+
     const batch = new AnimationFrameBatch(
       () => published.push(sample),
       frames.request,
@@ -67,6 +71,7 @@ describe("animation frame batching", () => {
       sample = i;
       batch.schedule();
     }
+
     assert.equal(frames.callbacks.size, 1);
     assert.deepEqual(published, []);
     frames.tick();
@@ -114,6 +119,7 @@ describe("animation frame batching", () => {
   it("allows a running callback to schedule the next frame", () => {
     const frames = animationFrames();
     let runs = 0;
+
     const batch = new AnimationFrameBatch(
       () => {
         runs++;
@@ -136,6 +142,7 @@ describe("latest-value animation frame batching", () => {
   it("publishes only the most recent value from a burst of input samples", () => {
     const frames = animationFrames();
     const published: number[] = [];
+
     const batch = new LatestValueFrameBatch<number>(
       (value) => published.push(value),
       frames.request,
@@ -153,6 +160,7 @@ describe("latest-value animation frame batching", () => {
   it("flushes the final value before gesture commit without a later duplicate", () => {
     const frames = animationFrames();
     const events: string[] = [];
+
     const batch = new LatestValueFrameBatch<number>(
       (value) => events.push(`preview:${value}`),
       frames.request,
@@ -171,6 +179,7 @@ describe("latest-value animation frame batching", () => {
   it("discards cancelled input and accepts a fresh sample including undefined", () => {
     const frames = animationFrames();
     const published: (number | undefined)[] = [];
+
     const batch = new LatestValueFrameBatch<number | undefined>(
       (value) => published.push(value),
       frames.request,

@@ -12,3 +12,7 @@ test-results
 playwright-report
 **/*.md
 AGENTS.md
+
+.env
+.env.*
+!.env.example

@@ -1,4 +1,4 @@
-import type { FilePreviewNode } from "@/lib/local-files";
+import type { FilePreviewNode } from "@/lib/files";
 
 export const PREVIEW_NODE_LIMIT = 80;
 const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i;
@@ -21,6 +21,7 @@ function hex(value: unknown): string | undefined {
 export function readPreviewNodes(input: unknown): FilePreviewNode[] {
   if (!Array.isArray(input)) return [];
   const nodes: FilePreviewNode[] = [];
+
   for (const item of input) {
     if (nodes.length >= PREVIEW_NODE_LIMIT) break;
     if (typeof item !== "object" || item === null) continue;
@@ -30,15 +31,18 @@ export function readPreviewNodes(input: unknown): FilePreviewNode[] {
     const y = finite(node.y);
     const width = finite(node.width);
     const height = finite(node.height);
+
     if (!id || x === undefined || y === undefined || width === undefined || height === undefined) {
       continue;
     }
+
     if (width <= 0 || height <= 0) continue;
     const opacity = finite(node.opacity);
     if (opacity === 0) continue;
     const fontSize = finite(node.fontSize);
     const fontWeight = finite(node.fontWeight);
     const cornerRadius = finite(node.cornerRadius);
+
     const preview: FilePreviewNode = {
       id,
       x,
@@ -61,8 +65,10 @@ export function readPreviewNodes(input: unknown): FilePreviewNode[] {
       ...(typeof node.clipContent === "boolean" ? { clipContent: node.clipContent } : {}),
       ...(typeof node.text === "string" && node.text ? { text: node.text } : {}),
     };
+
     nodes.push(preview);
   }
+
   return nodes;
 }
 
@@ -72,18 +78,22 @@ export function previewBounds(nodes: readonly FilePreviewNode[]): PreviewRect | 
   let y = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
+
   for (const node of nodes) {
     x = Math.min(x, node.x);
     y = Math.min(y, node.y);
     right = Math.max(right, node.x + node.width);
     bottom = Math.max(bottom, node.y + node.height);
   }
+
   if (!Number.isFinite(x) || right <= x || bottom <= y) return null;
+
   return { x, y, width: right - x, height: bottom - y };
 }
 
 export function previewViewBox(bounds: PreviewRect, paddingRatio = 0.08): PreviewRect {
   const pad = Math.max(bounds.width, bounds.height, 1) * paddingRatio;
+
   return {
     x: bounds.x - pad,
     y: bounds.y - pad,
@@ -99,6 +109,7 @@ export function previewTree(nodes: readonly FilePreviewNode[]): {
   const ids = new Set(nodes.map((node) => node.id));
   const nested = new Map<string, FilePreviewNode[]>();
   const roots: FilePreviewNode[] = [];
+
   for (const node of nodes) {
     if (node.parentId && ids.has(node.parentId)) {
       const siblings = nested.get(node.parentId);
@@ -108,5 +119,6 @@ export function previewTree(nodes: readonly FilePreviewNode[]): {
       roots.push(node);
     }
   }
+
   return { roots, nested };
 }

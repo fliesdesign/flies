@@ -1,11 +1,7 @@
 mod clipboard;
-mod files;
 mod fonts;
 mod mcp;
 mod snapshot;
-
-use std::sync::{Arc, Mutex};
-use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -25,11 +21,6 @@ pub fn run() {
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
             }
-            let data_dir = app.path().app_data_dir()?;
-            files::migrate_legacy_app_data(&data_dir);
-            let store =
-                files::FileStore::new(data_dir.join("files")).map_err(std::io::Error::other)?;
-            app.manage(files::LocalFiles(Arc::new(Mutex::new(store))));
             if let Err(error) = mcp::start(app.handle()) {
                 eprintln!("Flies MCP could not start: {error}");
             }
@@ -41,13 +32,6 @@ pub fn run() {
             clipboard::read_canvas_clipboard,
             mcp::mcp_next_request,
             mcp::mcp_reply,
-            files::list_files,
-            files::create_file,
-            files::open_file,
-            files::save_file,
-            files::archive_file,
-            files::restore_file,
-            files::choose_project_json,
             snapshot::read_snapshot_image
         ])
         .run(tauri::generate_context!())

@@ -37,21 +37,26 @@ export class AgentActivityStore {
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
   };
+
   private publish(next: AgentActivity | null) {
     this.snapshot = next;
     this.listeners.forEach((listener) => listener());
   }
+
   begin(tool: string, args: Record<string, unknown>) {
     clearTimeout(this.timer);
+
     const nodeIds = Array.isArray(args.nodeIds)
       ? args.nodeIds.filter((id): id is string => typeof id === "string")
       : [args.nodeId ?? args.targetId ?? args.parentId].filter(
           (id): id is string => typeof id === "string",
         );
+
     const sequence = ++this.sequence;
     this.publish({
       sequence,
@@ -65,17 +70,22 @@ export class AgentActivityStore {
       changedIds: [],
       changedAt: 0,
     });
+
     return sequence;
   }
+
   /** Capture only the synchronous MCP transaction, never concurrent human edits while awaiting HTML or saving. */
   capture<T>(document: CanvasDocument, action: () => T): T {
     if (!this.snapshot || this.snapshot.phase !== "working") return action();
     const before = new Map(document.getFrames().map((node) => [node.id, node]));
+
     const unlisten = document.subscribeChanges((ids) => {
       if (!this.snapshot) return;
+
       const removed = ids
         .filter((id) => !document.getFrame(id))
         .flatMap((id) => (before.get(id) ? [before.get(id)!] : []));
+
       this.publish({
         ...this.snapshot,
         nodeIds: ids,
@@ -84,16 +94,19 @@ export class AgentActivityStore {
         changedAt: Date.now(),
       });
     });
+
     try {
       return action();
     } finally {
       unlisten();
     }
   }
+
   saving(sequence: number) {
     if (this.snapshot?.sequence === sequence)
       this.publish({ ...this.snapshot, phase: "saving", label: "Saving" });
   }
+
   finish(sequence: number, failed = false) {
     if (this.snapshot?.sequence !== sequence) return;
     this.publish({
@@ -111,12 +124,15 @@ export class AgentActivityStore {
   }
 }
 const stores = new WeakMap<CanvasDocument, AgentActivityStore>();
+
 export function agentActivity(document: CanvasDocument) {
   let store = stores.get(document);
+
   if (!store) {
     store = new AgentActivityStore();
     stores.set(document, store);
   }
+
   return store;
 }
 
@@ -128,9 +144,11 @@ export async function withAgentActivity<T>(
 ): Promise<T> {
   const store = agentActivity(document);
   const sequence = store.begin(tool, args);
+
   try {
     const result = await action(() => store.saving(sequence));
     store.finish(sequence);
+
     return result;
   } catch (error) {
     store.finish(sequence, true);

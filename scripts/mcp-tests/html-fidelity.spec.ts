@@ -13,10 +13,12 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async (html) => {
     const htmlPath = "/src/lib/mcp/html.ts",
       docPath = "/packages/canvas/src/canvas-document.ts",
       exportPath = "/src/components/canvas/canvas-export.tsx";
+
     const { importHtml } = await import(/* @vite-ignore */ htmlPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exportPath);
@@ -25,11 +27,14 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
     const png = await exportCanvasPng(doc.getFrames(), doc.getChildren());
     const logo = nodes.find((node: { name: string }) => node.name === "Google");
     const letters = doc.getChildren(logo.id).map((id: string) => doc.getFrame(id));
+
     const input = nodes.find(
       (node: { kind: string; text: string }) =>
         node.kind === "text" && node.text === "Search Google or type a URL",
     );
+
     const search = nodes.find((node: { name: string }) => node.name === "Search");
+
     return {
       root: nodes[0],
       count: nodes.length,
@@ -42,6 +47,7 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
       footerBorder: nodes.find((node: { name: string }) => node.name === "Top border"),
     };
   }, google);
+
   expect(result.root).toMatchObject({ name: "Google Home", x: 50, y: 60, width: 960, height: 600 });
   expect(result.count).toBeLessThan(40);
   expect(result.blankNames).toBe(0);
@@ -67,20 +73,26 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
 
 test("validateOnly reports layers without changing document or undo history", async ({ page }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts",
       docPath = "/packages/canvas/src/canvas-document.ts";
+
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
+
     const document = new CanvasDocument([
       { id: "frame", name: "Test", x: 0, y: 0, width: 800, height: 600 },
     ]);
+
     const before = document.getSnapshot().revision;
+
     const response = await editorTool({ document, prepare: () => {} }, "write_html", {
       parentId: "frame",
       validateOnly: true,
       html: '<p style="font-size:24px">Preview only</p>',
     });
+
     return {
       result: JSON.parse(response.content[0].text),
       count: document.getIds().length,
@@ -88,6 +100,7 @@ test("validateOnly reports layers without changing document or undo history", as
       after: document.getSnapshot().revision,
     };
   });
+
   expect(result.result).toMatchObject({
     applied: false,
     nodeIds: [],
@@ -101,26 +114,32 @@ test("line breaks and side borders survive import without disconnected layers", 
   page,
 }) => {
   await page.goto("/");
+
   const result = await page.evaluate(async () => {
     const path = "/src/lib/mcp/html.ts";
     const { importHtml } = await import(/* @vite-ignore */ path);
     const lines = await importHtml("<p>Hello<br>world</p>", { x: 0, y: 0, width: 200 });
+
     const divider = await importHtml(
       '<div style="width:200px;height:40px;opacity:.3;border-bottom:1px solid #ddd"></div>',
       { x: 0, y: 0, width: 200 },
     );
+
     const png =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=";
+
     const image = await importHtml(
       `<img src="${png}" style="width:80px;height:80px;border-radius:20px;border:1px solid #ddd">`,
       { x: 0, y: 0, width: 200 },
     );
+
     return {
       text: lines[0].text,
       divider,
       image: image.find((node: { kind: string }) => node.kind === "image"),
     };
   });
+
   expect(result.text).toBe("Hello\nworld");
   expect(result.divider[0].opacity).toBe(0.3);
   expect(

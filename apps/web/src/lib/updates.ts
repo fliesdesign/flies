@@ -29,18 +29,21 @@ export function shouldAutoCheckUpdates(desktop: boolean, production: boolean): b
 
 export function updateProgressPercent(received: number, total: number): number | null {
   if (total <= 0) return null;
+
   return Math.min(100, Math.round((received / total) * 100));
 }
 
 export function updateDownloadLabel(received: number, total: number): string {
   const percent = updateProgressPercent(received, total);
   if (percent === null) return "Downloading update…";
+
   return `Downloading update… ${percent}%`;
 }
 
 export function formatUpdateError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   const trimmed = raw.replace(/^Error:\s*/i, "").trim();
+
   return trimmed || "Could not check for updates.";
 }
 
@@ -64,17 +67,21 @@ export function updateStatusText(status: UpdateStatus): string {
 export async function desktopAppVersion(): Promise<string | null> {
   if (!isTauri()) return null;
   const { getVersion } = await import("@tauri-apps/api/app");
+
   return getVersion();
 }
 
 export async function checkForDesktopUpdate(): Promise<DesktopUpdate | null> {
   if (!isTauri()) return null;
   const { check } = await import("@tauri-apps/plugin-updater");
+
   const update = await check({
     timeout: UPDATE_CHECK_TIMEOUT_MS,
     headers: { Accept: "application/octet-stream" },
   });
+
   if (!update) return null;
+
   return wrapUpdate(update);
 }
 
@@ -93,6 +100,7 @@ function wrapUpdate(update: Update): DesktopUpdate {
         } else if (event.event === "Progress") {
           received += event.data.chunkLength;
         }
+
         onProgress({ received, total });
       });
       const { relaunch } = await import("@tauri-apps/plugin-process");

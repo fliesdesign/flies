@@ -4,6 +4,7 @@ import { memo } from "react";
 const THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#e9e6e0"/><circle cx="115" cy="28" r="13" fill="#e6b98b"/><path d="M0 100V75L48 27l43 44 27-30 42 42v17Z" fill="#759084"/><path d="m0 100 58-39 30 23 21-16 51 32Z" fill="#345d50"/></svg>',
 )}`;
+
 const TEAMS = ["Product studio", "Design systems", "Research team"];
 const TRACKS = ["Design", "Prototype", "Review"];
 
@@ -14,6 +15,7 @@ export const BenchmarkFrameContent = memo(function BenchmarkFrameContent({
   frame: CanvasFrame;
 }) {
   const index = Number(frame.id.slice("bench-".length)) || 0;
+
   return (
     <div
       style={{

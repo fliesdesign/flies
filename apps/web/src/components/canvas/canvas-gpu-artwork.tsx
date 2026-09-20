@@ -35,9 +35,11 @@ export function CanvasGpuArtwork({
     const canvas = element.ownerDocument.createElement("canvas");
     canvas.className = "canvas-gpu-surface";
     canvas.setAttribute("aria-hidden", "true");
+
     const fallback = (error: unknown) => {
       if (cancelled || failed) return;
       failed = true;
+
       // Commit an active draft before the fallback remounts its editing overlay.
       if (canvas.dataset.renderer === "webgpu") {
         element
@@ -45,6 +47,7 @@ export function CanvasGpuArtwork({
           ?.querySelector<HTMLTextAreaElement>(".canvas-text-editor")
           ?.blur();
       }
+
       renderer.current = null;
       instance?.destroy();
       canvas.remove();
@@ -58,11 +61,14 @@ export function CanvasGpuArtwork({
         if (cancelled) return;
         element.append(canvas);
         instance = await CanvasGpuRenderer.create({ canvas, document, camera, onError: fallback });
+
         if (cancelled || failed) {
           instance.destroy();
           canvas.remove();
+
           return;
         }
+
         renderer.current = instance;
         instance.setEditingId(editing.current);
         canvas.dataset.renderer = "webgpu";

@@ -126,6 +126,7 @@ function AlignIcon({ action }: { action: CanvasArrangeAction }) {
       </>
     ),
   };
+
   return (
     <svg
       width="16"
@@ -202,7 +203,9 @@ function PropertySelect({
       <ChevronDownIcon size={13} aria-hidden="true" />
     </label>
   );
+
   if (!tokens?.length || !onToken) return select;
+
   return (
     <div className="canvas-property-select-stack">
       <CanvasTokenSelect
@@ -223,6 +226,7 @@ function commonValue<T>(
 ): T | undefined {
   if (!nodes.length) return undefined;
   const first = read(nodes[0]);
+
   return nodes.every((node) => read(node) === first) ? first : undefined;
 }
 
@@ -250,6 +254,7 @@ const ALIGN_ACTIONS = [
   { action: "middle", label: "Align vertical centers" },
   { action: "bottom", label: "Align bottom" },
 ] as const;
+
 const WEIGHT_CHOICES = [
   { value: 100, label: "Thin" },
   { value: 200, label: "Extra light" },
@@ -264,11 +269,14 @@ const WEIGHT_CHOICES = [
 
 function createSelectionSnapshot(document: CanvasDocument, selectedIds: readonly string[]) {
   let cached: { revision: number; nodes: CanvasFrame[] } | undefined;
+
   return () => {
     const nodes = selectedIds
       .map((id) => document.getFrame(id))
       .filter((node): node is CanvasFrame => !!node);
+
     const revision = document.getSnapshot().revision;
+
     if (
       !cached ||
       cached.revision !== revision ||
@@ -277,6 +285,7 @@ function createSelectionSnapshot(document: CanvasDocument, selectedIds: readonly
     ) {
       cached = { revision, nodes };
     }
+
     return cached;
   };
 }
@@ -286,16 +295,19 @@ function useSelectedNodes(document: CanvasDocument, selectedIds: readonly string
     () => createSelectionSnapshot(document, selectedIds),
     [document, selectedIds],
   );
+
   const subscribe = useCallback(
     (listener: () => void) => {
       const unsubscribe = [
         document.subscribe(listener),
         ...selectedIds.map((id) => document.subscribeFrame(id, listener)),
       ];
+
       return () => unsubscribe.forEach((stop) => stop());
     },
     [document, selectedIds],
   );
+
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot).nodes;
 }
 
@@ -313,6 +325,7 @@ export const CanvasProperties = memo(function CanvasProperties({
   const nodes = useSelectedNodes(document, selectedIds);
   const theme = useSyncExternalStore(document.subscribe, document.getTheme, document.getTheme);
   const [tokenError, setTokenError] = useState("");
+
   const tokenChoice = (property: ThemeProperty) => ({
     tokens: theme.tokens
       .filter((token) => tokenMatchesProperty(token, property))
@@ -328,12 +341,15 @@ export const CanvasProperties = memo(function CanvasProperties({
       setTokenError("");
       void (async () => {
         const before = nodes.map((node) => document.getFrame(node.id)!);
+
         const updates = before.map((node) => {
           const bindings = { ...node.tokenBindings };
           if (id) bindings[property] = id;
           else delete bindings[property];
+
           return applyTokenBindings(node, theme, bindings, true);
         });
+
         await prepareTokenUpdates(updates, before);
         if (
           document.getTheme() !== theme ||
@@ -350,28 +366,37 @@ export const CanvasProperties = memo(function CanvasProperties({
       );
     },
   });
+
   const [preserveAspect, setPreserveAspect] = useState(false);
   const single = nodes.length === 1 ? nodes[0] : undefined;
   const selectedKey = nodes.map((node) => node.id).join(":");
+
   const anyLocked = nodes.some((node) => {
     let ancestor: CanvasFrame | undefined = node;
+
     while (ancestor) {
       if (ancestor.locked) return true;
       ancestor = ancestor.parentId ? document.getFrame(ancestor.parentId) : undefined;
     }
+
     return false;
   });
+
   const managedPosition = nodes.some((node) => {
     const parent = node.parentId ? document.getFrame(node.parentId) : undefined;
+
     return parent && (!parent.kind || parent.kind === "frame") && !!parent.layout;
   });
+
   const ownLocked = nodes.some((node) => node.locked);
   const allHidden = nodes.length > 0 && nodes.every((node) => node.hidden);
   const allText = nodes.length > 0 && nodes.every((node) => node.kind === "text");
   const hasFill = nodes.length > 0 && nodes.every((node) => fillFor(node) !== undefined);
+
   const hasRadius =
     nodes.length > 0 &&
     nodes.every((node) => !node.kind || ["frame", "rectangle", "image", "svg"].includes(node.kind));
+
   const allFrames = nodes.length > 0 && nodes.every((node) => !node.kind || node.kind === "frame");
   const allPens = nodes.length > 0 && nodes.every((node) => node.kind === "pen");
   const parent = single?.parentId ? document.getFrame(single.parentId) : undefined;
@@ -382,8 +407,10 @@ export const CanvasProperties = memo(function CanvasProperties({
   const fill = commonValue(nodes, fillFor);
   const opacity = commonValue(nodes, (node) => node.opacity ?? 1);
   const radius = commonValue(nodes, (node) => node.cornerRadius ?? 0);
+
   const numberChange = (property: CanvasProperty) => (value: string) =>
     onChange(property, Number(value));
+
   const numberPreview = (
     property: CanvasProperty,
     scale = 1,
@@ -393,6 +420,7 @@ export const CanvasProperties = memo(function CanvasProperties({
     onPreview: (value) => onPreview(property, value * scale, options),
     onEnd: onPreviewEnd,
   });
+
   const layoutValue = <T,>(
     read: (layout: NonNullable<Extract<CanvasFrame, { kind?: "frame" }>["layout"]>) => T,
     fallback: T,
@@ -400,11 +428,14 @@ export const CanvasProperties = memo(function CanvasProperties({
     commonValue(nodes, (node) =>
       (!node.kind || node.kind === "frame") && node.layout ? read(node.layout) : fallback,
     );
+
   const layoutMode = layoutValue((layout) => layout.direction as string, "none");
+
   const changeFill = (value: string) => {
     const hex = normalizeCanvasHex(value);
     if (hex) onChange("fill", hex);
   };
+
   const textValue = <T,>(read: (node: Extract<CanvasFrame, { kind: "text" }>) => T) =>
     commonValue(nodes, (node) => (node.kind === "text" ? read(node) : undefined));
 

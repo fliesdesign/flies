@@ -94,12 +94,14 @@ describe("copy as code", () => {
 
   it.each(CANVAS_CODE_FORMATS)("produces valid %s syntax and safely escaped content", (format) => {
     const code = exportCanvasCode(nodes, ["frame"], format);
+
     if (format.startsWith("React")) {
       const compiled = ts.transpileModule(code, {
         reportDiagnostics: true,
         compilerOptions: { jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS },
         fileName: "selection.tsx",
       });
+
       expect(compiled.diagnostics).toEqual([]);
       const exports: { default?: React.ComponentType } = {};
       // Execute only our generated fixture code, never user input or arbitrary source.
@@ -112,6 +114,7 @@ describe("copy as code", () => {
     } else {
       expect(code).toContain('stroke-width="2"');
     }
+
     if (format.includes("Tailwind")) {
       expect(code).toContain("w-[300px]");
       expect(code).toContain("[font-family:Arial,_Helvetica,_sans-serif]");

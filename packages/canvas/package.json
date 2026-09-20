@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./document": "./src/canvas-document.ts",
+    "./theme": "./src/canvas-theme.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
