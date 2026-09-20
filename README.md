@@ -118,7 +118,18 @@ supports Up/Down and Home/End navigation, with Enter or Space to activate a tool
 
 Copy, cut, paste, and duplicate preserve complete selected subtrees and give copies new IDs.
 Paste also accepts plain text and local images; copying or pasting while editing text keeps
-normal text-editing behavior. Moving, resizing, grouping, or deleting a selection and its
+normal text-editing behavior. **Paper Snapshot** captures can be pasted with Ctrl/Cmd + V or
+the canvas context menu. Flies reads their `text/html` clipboard representation (`x-paper-html`)
+and imports the captured layout as a selected group of editable layers, with one-step undo.
+Keyboard paste centers the capture in the viewport; context-menu paste places it at the click.
+Inline SVG icons and backgrounds with uneven corner radii become embedded images; supported text,
+colors, and geometry remain editable. Captured image URLs are downloaded once and embedded in the
+document. The desktop app can also load images from servers that block browser CORS requests;
+unavailable images use placeholders. Unsupported effects produce an import notice. This uses the
+canvas's supported fonts and layer types, so it is not a full browser rendering of every CSS feature.
+Browsers that deny rich clipboard reads from the context menu can still paste with Ctrl/Cmd + V.
+
+Moving, resizing, grouping, or deleting a selection and its
 descendants each undo as one operation. The context menu also provides rename, locking, stacking
 order, alignment, and distribution. Locked objects remain visible and can be inspected from
 Layers; their geometry and styling cannot be edited until unlocked. **Unlock all** restores access.

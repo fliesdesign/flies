@@ -25,7 +25,22 @@ export async function importHtml(
     throw new Error("HTML layout width must be between 40 and 8192px.");
   if (options.height !== undefined && (options.height < 1 || options.height > 8192))
     throw new Error("HTML layout height must be between 1 and 8192px.");
-  const fragment = sanitizeHtml(source);
+  return importHtmlFragment(sanitizeHtml(source), options);
+}
+
+/** Internal measurement entry point for already sanitized, passive capture fragments. */
+export async function importHtmlFragment(
+  fragment: DocumentFragment,
+  options: {
+    parentId?: string;
+    x: number;
+    y: number;
+    width: number;
+    height?: number;
+    prepare?: (layout: HTMLElement) => Promise<void>;
+    onUnsupportedClip?: (message: string) => void;
+  },
+): Promise<CanvasFrame[]> {
   const host = document.createElement("div");
   Object.assign(host.style, {
     position: "fixed",
@@ -51,8 +66,12 @@ export async function importHtml(
   shadow.append(reset, layout);
   document.body.append(host);
   try {
-    await document.fonts.ready;
-    await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
+    if (options.prepare) {
+      await options.prepare(layout);
+    } else {
+      await document.fonts.ready;
+      await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
+    }
     const origin = layout.getBoundingClientRect();
     const nodes: CanvasFrame[] = [];
     let textFragments = 0;
@@ -156,9 +175,15 @@ export async function importHtml(
       ];
       const separateBorders = !effects.borderWidth && borderWidths.some((width) => width > 0);
       const decorated = hasFill || hasEffects || separateBorders;
-      const clipped = [style.overflowX, style.overflowY].some((v) =>
-        ["hidden", "clip"].includes(v),
-      );
+      let clipped = [style.overflowX, style.overflowY].some((v) => ["hidden", "clip"].includes(v));
+      if (clipped && (rect.width < 40 || rect.height < 40) && options.onUnsupportedClip) {
+        clipped = false;
+        if (
+          element.scrollWidth > element.clientWidth + 1 ||
+          element.scrollHeight > element.clientHeight + 1
+        )
+          options.onUnsupportedClip("Clipping in containers smaller than 40px was omitted.");
+      }
       const children = Array.from(element.children);
       const hasChildren = children.some((child) => child.localName !== "br");
       // Keep section slots available for subsequent tool calls, including empty ones.

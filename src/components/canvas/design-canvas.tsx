@@ -34,6 +34,11 @@ import {
 import { arrangeSelection, type CanvasArrangeAction } from "@/lib/canvas-arrange";
 import { CanvasAutoPan, pointerWorldDelta } from "@/lib/canvas-auto-pan";
 import { CanvasCamera, LatestValueFrameBatch } from "@/lib/canvas-camera";
+import {
+  readCanvasClipboard,
+  usesNativeCanvasClipboard,
+  type CanvasClipboard,
+} from "@/lib/canvas-clipboard";
 import type { CanvasDocument } from "@/lib/canvas-document";
 import {
   fitViewport,
@@ -77,6 +82,7 @@ import {
 } from "@/lib/canvas-properties";
 import { viewportBounds } from "@/lib/canvas-spatial-index";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@/lib/canvas-tools";
+import { importPaperSnapshot, isPaperSnapshot } from "@/lib/paper-snapshot";
 
 import { CanvasAgentActivity } from "./canvas-agent-activity";
 import { CanvasFileMenu, type CanvasFileActions } from "./canvas-file-menu";
@@ -201,6 +207,7 @@ export function DesignCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
+  const pendingImportsRef = useRef(0);
   const [layersOpen, setLayersOpen] = useState(true);
   const [propertiesOpen, setPropertiesOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 760,
@@ -266,6 +273,7 @@ export function DesignCanvas({
   const [rename, setRename] = useState<{ id: string; name: string } | null>(null);
   const clipboardRef = useRef<string | null>(null);
   const pasteRef = useRef({ payload: "", count: 0 });
+  const readingClipboardRef = useRef(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -814,6 +822,7 @@ export function DesignCanvas({
 
   async function importImages(files: File[], point?: Point) {
     if (!files.length) return;
+    pendingImportsRef.current++;
     setImporting(true);
     setNotice("");
     try {
@@ -862,7 +871,8 @@ export function DesignCanvas({
       setTool("select");
       surfaceRef.current?.focus({ preventScroll: true });
     } finally {
-      if (mountedRef.current) setImporting(false);
+      pendingImportsRef.current--;
+      if (mountedRef.current) setImporting(pendingImportsRef.current > 0);
     }
   }
 
@@ -993,16 +1003,79 @@ export function DesignCanvas({
     createText(point ?? screenToWorld({ x: size.x / 2, y: size.y / 2 }, viewport), text, false);
   }
 
-  async function pasteFromMenu(inPlace = false) {
+  async function pasteSnapshot(html: string, point?: Point) {
+    finishInteraction(true);
+    const { viewport, size } = camera.getCurrent();
+    const center = screenToWorld({ x: size.x / 2, y: size.y / 2 }, viewport);
+    pendingImportsRef.current++;
+    setImporting(true);
+    setNotice("");
     try {
-      const text = await navigator.clipboard.readText();
-      if (!pasteObjects(text, inPlace ? undefined : menuPointRef.current, inPlace))
-        pasteText(text, menuPointRef.current);
-    } catch {
-      if (clipboardRef.current)
-        pasteObjects(clipboardRef.current, inPlace ? undefined : menuPointRef.current, inPlace);
-      else setNotice("Use Ctrl/Cmd + V to paste from the clipboard.");
+      const { nodes, warnings } = await importPaperSnapshot(html);
+      if (!mountedRef.current) return;
+      const roots = nodes.filter((node) => !node.parentId).map((node) => node.id);
+      const bounds = selectionBounds(nodes, roots);
+      if (!bounds) throw new Error("This Paper snapshot has no visible content.");
+      const offset = {
+        x: (point?.x ?? center.x - bounds.width / 2) - bounds.x,
+        y: (point?.y ?? center.y - bounds.height / 2) - bounds.y,
+      };
+      finishInteraction(true);
+      document.addMany(
+        nodes.map((node) => Object.assign(node, { x: node.x + offset.x, y: node.y + offset.y })),
+      );
+      setSelection(roots);
+      setHoveredId(null);
+      setTool("select");
+      setNotice(warnings.length ? `Snapshot pasted. ${warnings.join(" ")}` : "");
+      focusCanvas();
+    } catch (error) {
+      if (mountedRef.current)
+        setNotice(error instanceof Error ? error.message : "Could not paste this Paper snapshot.");
+    } finally {
+      pendingImportsRef.current--;
+      if (mountedRef.current) setImporting(pendingImportsRef.current > 0);
     }
+  }
+
+  async function pasteClipboard(data: CanvasClipboard, point?: Point, inPlace = false) {
+    const payload = data.internal || data.text;
+    if (payload && pasteObjects(payload, inPlace ? undefined : point, inPlace)) return;
+    if (isPaperSnapshot(data.html)) {
+      await pasteSnapshot(data.html, point);
+      return;
+    }
+    if (data.images.length) {
+      await importImages(data.images, point);
+      return;
+    }
+    if (data.text.trim()) pasteText(data.text, point);
+    else setNotice("The clipboard has no supported content. Copy the snapshot again, then paste.");
+  }
+
+  async function pasteFromClipboard(point?: Point, inPlace = false) {
+    if (readingClipboardRef.current) return;
+    readingClipboardRef.current = true;
+    setNotice("");
+    try {
+      const data = await readCanvasClipboard();
+      if (mountedRef.current) await pasteClipboard(data, point, inPlace);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (usesNativeCanvasClipboard())
+        setNotice(
+          `Could not read the clipboard. ${error instanceof Error ? error.message : String(error)}`,
+        );
+      else if (clipboardRef.current)
+        pasteObjects(clipboardRef.current, inPlace ? undefined : point, inPlace);
+      else setNotice("Use Ctrl/Cmd + V to paste from the clipboard.");
+    } finally {
+      readingClipboardRef.current = false;
+    }
+  }
+
+  function pasteFromMenu(inPlace = false) {
+    return pasteFromClipboard({ ...menuPointRef.current }, inPlace);
   }
 
   function groupObjects(asFrame = false) {
@@ -1431,8 +1504,8 @@ export function DesignCanvas({
       );
     } else if (key === "f2" && selected) {
       setRename({ id: selected.id, name: selected.name });
-    } else if (command && event.shiftKey && key === "v") {
-      void pasteFromMenu(true);
+    } else if (command && key === "v" && (usesNativeCanvasClipboard() || event.shiftKey)) {
+      if (!event.repeat) void pasteFromClipboard(undefined, event.shiftKey);
     } else if (key === "delete" || key === "backspace") {
       deleteFrame();
     } else if (
@@ -1557,20 +1630,23 @@ export function DesignCanvas({
       onCut={(event) => copySelection(event, true)}
       onPaste={(event) => {
         if (isEditingTarget(event.target)) return;
-        const files = Array.from(event.clipboardData.files).filter((file) =>
-          file.type.startsWith("image/"),
-        );
-        if (files.length) {
+        if (usesNativeCanvasClipboard()) {
+          // macOS Edit > Paste may deliver an empty/filtered WebKit event instead of keydown.
           event.preventDefault();
-          void importImages(files);
+          void pasteFromClipboard();
           return;
         }
-        const text =
-          event.clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
-          event.clipboardData.getData("text/plain");
-        if (text) {
+        const data: CanvasClipboard = {
+          internal: event.clipboardData.getData(CANVAS_CLIPBOARD_MIME),
+          html: event.clipboardData.getData("text/html"),
+          text: event.clipboardData.getData("text/plain"),
+          images: Array.from(event.clipboardData.files).filter((file) =>
+            file.type.startsWith("image/"),
+          ),
+        };
+        if (data.internal || data.text || data.images.length || isPaperSnapshot(data.html)) {
           event.preventDefault();
-          if (!pasteObjects(text)) pasteText(text);
+          void pasteClipboard(data);
         }
       }}
     >
@@ -2008,9 +2084,7 @@ export function DesignCanvas({
           void importImages(files);
         }}
       />
-      {(notice || importing) && (
-        <output className="canvas-notice">{notice || "Opening image…"}</output>
-      )}
+      {(notice || importing) && <output className="canvas-notice">{notice || "Importing…"}</output>}
     </main>
   );
 }

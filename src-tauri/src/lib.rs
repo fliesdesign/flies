@@ -1,5 +1,7 @@
+mod clipboard;
 mod files;
 mod mcp;
+mod snapshot;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -26,13 +28,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            clipboard::read_canvas_clipboard,
             mcp::mcp_next_request,
             mcp::mcp_reply,
             files::list_files,
             files::create_file,
             files::open_file,
             files::save_file,
-            files::choose_project_json
+            files::choose_project_json,
+            snapshot::read_snapshot_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
