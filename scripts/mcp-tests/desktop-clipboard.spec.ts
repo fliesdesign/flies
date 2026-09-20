@@ -7,7 +7,7 @@ const surface = "[data-snapshot-fixture] .design-canvas";
 async function mountDesktopClipboard(page: Page, fail = false) {
   await page.goto("/");
   await page.evaluate(
-    async ({ html, fail }) => {
+    async ({ html: clipboardHtml, fail: shouldFail }) => {
       const harnessPath = "/scripts/mcp-tests/paper-snapshot-harness.tsx";
       const { mountSnapshotFixture } = await import(/* @vite-ignore */ harnessPath);
       Reflect.set(window, "snapshotFixture", await mountSnapshotFixture());
@@ -34,8 +34,8 @@ async function mountDesktopClipboard(page: Page, fail = false) {
           Reflect.get(window, "nativeClipboardReads") + 1,
         );
         await new Promise((resolve) => setTimeout(resolve, 40));
-        if (fail) throw new Error("Clipboard is unavailable");
-        return { html, text: "Wrong plain fallback", imageBase64: null };
+        if (shouldFail) throw new Error("Clipboard is unavailable");
+        return { html: clipboardHtml, text: "Wrong plain fallback", imageBase64: null };
       });
     },
     { html, fail },
@@ -53,7 +53,7 @@ test("desktop context-menu Paste bypasses WebKit and imports native HTML at the 
 }) => {
   await mountDesktopClipboard(page);
   await page.locator(surface).click({ button: "right", position: { x: 320, y: 220 } });
-  await page.getByRole("menuitem", { name: /^Paste⌘/ }).click();
+  await page.getByRole("menuitem", { name: /^Paste\s+⌘/ }).click();
   await expect
     .poll(() => importedRoot(page))
     .toMatchObject({ name: "Paper snapshot", x: 320, y: 220 });

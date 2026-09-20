@@ -54,11 +54,10 @@ mod macos {
 
     fn image(board: &NSPasteboard) -> Result<Option<String>, String> {
         // SAFETY: These are immutable AppKit pasteboard type constants.
-        let data = unsafe {
-            board
-                .dataForType(NSPasteboardTypePNG)
-                .or_else(|| board.dataForType(NSPasteboardTypeTIFF))
-        };
+        let png = unsafe { board.dataForType(NSPasteboardTypePNG) };
+        let is_png = png.is_some();
+        // SAFETY: This is an immutable AppKit pasteboard type constant.
+        let data = png.or_else(|| unsafe { board.dataForType(NSPasteboardTypeTIFF) });
         let Some(data) = data else { return Ok(None) };
         if data.len() > MAX_IMAGE_BYTES {
             return Err("Clipboard image is too large.".into());
@@ -68,6 +67,9 @@ mod macos {
         let (width, height) = (bitmap.pixelsWide(), bitmap.pixelsHigh());
         if width <= 0 || height <= 0 || width.saturating_mul(height) > 16_000_000 {
             return Err("Clipboard image is too large.".into());
+        }
+        if is_png {
+            return Ok(Some(STANDARD.encode(data.to_vec())));
         }
         // SAFETY: An empty typed properties dictionary is valid for PNG encoding.
         let png = unsafe {
@@ -114,6 +116,8 @@ mod macos {
     mod tests {
         use super::*;
 
+        const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGP4z8DwH4QZYAwAR8oH+WdZbrcAAAAASUVORK5CYII=";
+
         #[test]
         fn native_pasteboard_preserves_the_exact_paper_html_without_plain_text() {
             objc2::rc::autoreleasepool(|_| {
@@ -150,7 +154,7 @@ mod macos {
         fn native_pasteboard_keeps_an_image_with_unrelated_html() {
             objc2::rc::autoreleasepool(|_| {
                 let board = NSPasteboard::pasteboardWithUniqueName();
-                let png = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=").unwrap();
+                let png = STANDARD.decode(PNG).unwrap();
                 assert!(board
                     .setData_forType(Some(&objc2_foundation::NSData::with_bytes(&png)), unsafe {
                         NSPasteboardTypePNG
@@ -160,7 +164,33 @@ mod macos {
                     unsafe { NSPasteboardTypeHTML }
                 ));
                 let result = read(&board).unwrap();
-                assert!(result.image_base64.is_some());
+                assert_eq!(result.image_base64.as_deref(), Some(PNG));
+                board.clearContents();
+            });
+        }
+
+        #[test]
+        fn native_pasteboard_converts_tiff_images_to_png() {
+            objc2::rc::autoreleasepool(|_| {
+                let board = NSPasteboard::pasteboardWithUniqueName();
+                let png = objc2_foundation::NSData::with_bytes(&STANDARD.decode(PNG).unwrap());
+                let bitmap = NSBitmapImageRep::imageRepWithData(&png).unwrap();
+                // SAFETY: An empty typed properties dictionary is valid for TIFF encoding.
+                let tiff = unsafe {
+                    bitmap.representationUsingType_properties(
+                        NSBitmapImageFileType::TIFF,
+                        &NSDictionary::new(),
+                    )
+                }
+                .unwrap();
+                assert!(board.setData_forType(Some(&tiff), unsafe { NSPasteboardTypeTIFF }));
+                let result = read(&board).unwrap();
+                let png = STANDARD.decode(result.image_base64.unwrap()).unwrap();
+                assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+                let decoded =
+                    NSBitmapImageRep::imageRepWithData(&objc2_foundation::NSData::with_bytes(&png))
+                        .unwrap();
+                assert_eq!((decoded.pixelsWide(), decoded.pixelsHigh()), (2, 2));
                 board.clearContents();
             });
         }

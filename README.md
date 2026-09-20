@@ -127,7 +127,10 @@ colors, and geometry remain editable. Captured image URLs are downloaded once an
 document. The desktop app can also load images from servers that block browser CORS requests;
 unavailable images use placeholders. Unsupported effects produce an import notice. This uses the
 canvas's supported fonts and layer types, so it is not a full browser rendering of every CSS feature.
-Browsers that deny rich clipboard reads from the context menu can still paste with Ctrl/Cmd + V.
+On macOS, desktop menu paste and Cmd + V read the native pasteboard through Rust, preserving
+capture HTML without WebKit's clipboard prompt or filtering. Ordinary image and text paste
+remain supported. Browsers that deny rich clipboard reads from the context menu can still paste
+with Ctrl/Cmd + V.
 
 Moving, resizing, grouping, or deleting a selection and its
 descendants each undo as one operation. The context menu also provides rename, locking, stacking
