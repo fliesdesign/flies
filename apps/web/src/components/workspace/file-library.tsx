@@ -42,6 +42,7 @@ import {
 import { AppearanceSettings } from "./appearance-settings";
 import { FilePreview } from "./file-preview";
 import { UpdateSettings } from "./update-settings";
+import { WorkspaceBilling } from "./workspace-billing";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import "./file-library.css";
 
@@ -254,6 +255,7 @@ export function FileLibraryView({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+        {account && <WorkspaceBilling key={account.workspace.id} desktop={desktop} />}
       </Sidebar>
       <SidebarInset className="library-home">
         <div className="library-pane">
