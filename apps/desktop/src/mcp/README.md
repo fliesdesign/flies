@@ -27,7 +27,7 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 
 | Tool                                         | Purpose                                                     |
 | -------------------------------------------- | ----------------------------------------------------------- |
-| `get_guide`                                  | Usage and supported HTML/CSS                                |
+| `get_guide`                                  | Required first call: design workflow and supported HTML/CSS |
 | `list_files`, `create_file`, `open_file`     | Discover or open local documents                            |
 | `get_basic_info`                             | Active document, root nodes and camera                      |
 | `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                                |
@@ -42,7 +42,32 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 | `get_screenshot`                             | PNG of a node subtree or the whole document                 |
 | `undo`, `redo`, `save_file`                  | Document history and persistence                            |
 
-Start with `get_guide`, then `create_file` or `open_file`. Each MCP session remembers that file. Later editor tools target it, or take `fileId` so several agents can edit different files at once without stealing the visible tab. Mutation responses wait for the existing autosave queue to flush to compressed JSON. They use the same CanvasDocument transactions and undo history as manual edits. All documents remain local.
+**Call `get_guide` before any other tool**, including `list_files`. Initialization and
+tool discovery explain this requirement; every tool's description repeats it. Until
+that client's guide session is ready, other tools return an actionable tool error and
+dispatch nothing to the editor. Reading the guide in another session does not unlock
+your session.
+
+For clients sending `Mcp-Session-Id`, the guide status belongs to that transport session.
+For stateless clients, including MCP 2026-07-28, `get_guide` returns a `guideSessionId`
+in its text instructions and structured content. Pass it in every later tool's
+arguments. Reuse it when rereading the guide to preserve the opened file. This receipt
+is workflow state, not authentication; it expires when the desktop server restarts.
+
+```js
+get_guide({}); // Read the guide and copy its returned guideSessionId.
+list_files({ guideSessionId: GUIDE_SESSION_ID });
+open_file({ fileId: FILE_ID, guideSessionId: GUIDE_SESSION_ID });
+get_basic_info({ guideSessionId: GUIDE_SESSION_ID });
+```
+
+After reading the guide, use `list_files`/`open_file` or `create_file`, then inspect
+`get_basic_info`, `get_tree` and `get_theme`. Each guide session remembers its file.
+Later editor tools target it, or take `fileId` so several agents can edit different
+files at once without stealing the visible tab. Mutation responses wait for the
+existing autosave queue to flush to compressed JSON. They use the same CanvasDocument
+transactions and undo history as manual edits. All documents remain local. The
+examples below omit `guideSessionId` for readability; stateless clients must include it.
 
 ### Theme tokens
 
@@ -82,6 +107,13 @@ Tokens are available as `var(--brand)`, `var(--body-font)`, and `var(--space-md)
 ### Build a page across calls
 
 Create the page shell first, then build one semantic section per `write_html` call. Every successful call appears in the editor and saves independently. Use `data-name` and explicit dimensions for section placeholders; named or semantic containers at least 40px wide and high remain frames even when empty.
+
+Plan typography, line heights, container widths and spacing before importing. Desktop
+and mobile designs need separate artboards and imports at their actual viewport widths.
+Native layers are a measured snapshot: resizing an imported frame does not rerun
+responsive CSS. Keep complete copy and fix its layout when text is clipped; do not
+remove words or pad text with spaces to compensate. Check screenshots for missing
+words, overlap, wrapping, clipping, alignment and readability after each section.
 
 For example, call `create_artboard` with `{"name":"Home","width":960,"height":600}`. Use its returned ID as `PAGE_ID` in a shell call:
 
@@ -190,7 +222,20 @@ Styles are stored with the frame and survive undo, copying and save/reopen. They
 
 `width` and `height` override the containing block for any scope. `update_node` coordinates are always world coordinates; moving a frame or group translates all of its descendants with it.
 
-Normal `write_html` results include `applied`, `nodeIds`, `roots`, `containers` and layer counts. Each `containers` entry describes an imported frame/group with its `id`, `name`, `kind`, `parentId` and world `x`, `y`, `width`, `height`, making nested sections easy to target on later calls. `validateOnly:true` measures and validates without changing layers, saves or history; root/container previews omit IDs and parent references because those nodes have not been created. Check `get_screenshot` after applying a section.
+Normal `write_html` results include `applied`, `nodeIds`, `roots`, `containers`, layer
+counts and `warnings`. Each `containers` entry describes an imported frame/group with
+its `id`, `name`, `kind`, `parentId` and world `x`, `y`, `width`, `height`, making nested
+sections easy to target on later calls. `validateOnly:true` measures and validates
+without changing layers, saves or history; previews and warnings omit generated IDs
+and parent references because those nodes have not been created.
+
+Inspect every warning before considering a section complete. `text_overflow` includes
+the text's `requiredHeight`; `clipped_text` identifies text outside a clipping ancestor,
+including an existing artboard. Fix unintended clipping by adjusting the text or
+container size, using `fit_node` when appropriate, and inspecting `get_screenshot`
+again. Validation and successful insertion alone do not prove the rendered design is
+correct. Check both desktop and mobile native screenshots; `preview_html` renders a
+separate browser prototype.
 
 ### Request handling
 

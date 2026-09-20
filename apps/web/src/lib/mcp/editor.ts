@@ -6,13 +6,14 @@ import {
   canonicalThemeProperty,
   type ThemeProperty,
 } from "@flies/canvas";
-import { ensureCanvasFont } from "@flies/canvas";
+import { ensureCanvasFont, ensureCanvasFonts } from "@flies/canvas";
 import { CanvasDocument, type CanvasFrame, agentActivity } from "@flies/canvas";
 
 import type { CanvasControls } from "@/components/canvas/design-canvas";
 import { updateDocumentTheme, prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 
 import { importHtml } from "./html";
+import { htmlWarnings } from "./html-diagnostics";
 import { inheritedStyles, validateSharedCss } from "./styles";
 
 export type McpResult = {
@@ -345,6 +346,9 @@ export async function editorTool(
         height: args.height === undefined ? anchor?.height : numberArg(args, "height", 600),
       });
 
+      // Isolated HTML measurement loads fonts into its iframe; native diagnostics use this document.
+      await ensureCanvasFonts(nodes.filter((node) => node.kind === "text"));
+
       // Do not overwrite human edits that happened while fonts/images were measured.
       if (
         (anchor && doc.getFrame(anchor.id) !== anchor) ||
@@ -412,6 +416,7 @@ export async function editorTool(
         containers: nodes
           .filter((node) => !node.kind || node.kind === "frame" || node.kind === "group")
           .map(describe),
+        warnings: htmlWarnings(resultDoc, nodes, Boolean(args.validateOnly)),
         summary: {
           layers: nodes.length,
           textLayers: nodes.filter((node) => node.kind === "text").length,

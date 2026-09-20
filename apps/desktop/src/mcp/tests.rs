@@ -20,6 +20,26 @@ fn request(method: &str, params: Value) -> Request<Body> {
 fn app(bridge: Arc<Bridge>) -> Router {
     router("127.0.0.1:43123".into(), bridge)
 }
+fn with_session(mut request: Request<Body>, session: &str) -> Request<Body> {
+    request
+        .headers_mut()
+        .insert("mcp-session-id", session.parse().unwrap());
+    request
+}
+async fn read_guide(service: &Router) -> String {
+    let body = json(
+        service
+            .clone()
+            .oneshot(request("tools/call", json!({"name":"get_guide"})))
+            .await
+            .unwrap(),
+    )
+    .await;
+    body["result"]["structuredContent"]["guideSessionId"]
+        .as_str()
+        .expect("stateless clients receive a guide session")
+        .to_owned()
+}
 async fn json(response: Response) -> Value {
     assert_eq!(response.status(), StatusCode::OK);
     serde_json::from_slice(
@@ -35,6 +55,10 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     let service = app(Bridge::new());
     let initialize = json(service.clone().oneshot(request("initialize", json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}))).await.unwrap()).await;
     assert_eq!(initialize["result"]["protocolVersion"], "2025-11-25");
+    assert!(initialize["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .starts_with("Your FIRST Flies tool call must be get_guide."));
     let list = json(
         service
             .oneshot(request("tools/list", json!({})))
@@ -46,6 +70,14 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     assert_eq!(tools.len(), 26);
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
+    assert_eq!(tools[0]["name"], "get_guide");
+    for tool in tools {
+        assert!(tool["description"].as_str().unwrap().contains("get_guide"));
+        assert_eq!(
+            tool["inputSchema"]["properties"]["guideSessionId"]["type"],
+            "string"
+        );
+    }
 }
 
 #[tokio::test]
@@ -73,14 +105,304 @@ async fn discovery_exposes_incremental_html_scopes() {
 }
 
 #[tokio::test]
+async fn initialize_and_discovery_do_not_unlock_editor_tools() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    for (method, params) in [
+        (
+            "initialize",
+            json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}),
+        ),
+        ("tools/list", json!({})),
+    ] {
+        json(
+            service
+                .clone()
+                .oneshot(request(method, params))
+                .await
+                .unwrap(),
+        )
+        .await;
+    }
+    for (name, arguments) in [
+        ("list_files", json!({})),
+        ("get_basic_info", json!({})),
+        ("create_file", json!({"name":"Home"})),
+        ("write_html", json!({"html":"<p>Hello</p>"})),
+    ] {
+        let body = json(
+            service
+                .clone()
+                .oneshot(request(
+                    "tools/call",
+                    json!({"name":name,"arguments":arguments}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(body["result"]["isError"], true, "{name}: {body}");
+        assert!(body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Call get_guide first"));
+    }
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+    assert!(bridge.pending.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn guide_receipts_do_not_unlock_unrelated_or_malformed_sessions() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    let guide = read_guide(&service).await;
+    let other_guide = read_guide(&service).await;
+    assert_ne!(guide, other_guide);
+    for arguments in [
+        json!({}),
+        json!({"guideSessionId":null}),
+        json!({"guideSessionId":42}),
+        json!({"guideSessionId":""}),
+        json!({"guideSessionId":"invented"}),
+        json!({"guideSessionId":uuid::Uuid::new_v4().to_string()}),
+    ] {
+        let body = json(
+            service
+                .clone()
+                .oneshot(request(
+                    "tools/call",
+                    json!({"name":"list_files","arguments":arguments}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(body["result"]["isError"], true, "{body}");
+        assert!(body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("get_guide"));
+    }
+    let other_transport = json(
+        service
+            .oneshot(with_session(
+                request(
+                    "tools/call",
+                    json!({"name":"list_files","arguments":{"guideSessionId":guide}}),
+                ),
+                "unread-transport",
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(other_transport["result"]["isError"], true);
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn repeated_guide_reads_preserve_the_stateless_clients_open_file() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    let guide = read_guide(&service).await;
+    let opener = service.clone();
+    let receipt = guide.clone();
+    let open = tokio::spawn(async move {
+        opener
+            .oneshot(request("tools/call", json!({"name":"open_file","arguments":{"fileId":"poster","guideSessionId":receipt}})))
+            .await
+            .unwrap()
+    });
+    let forwarded = bridge.next().await.unwrap();
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&forwarded.id)
+        .unwrap()
+        .send(json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\"}"}]}))
+        .unwrap();
+    json(open.await.unwrap()).await;
+    let reread = json(
+        service
+            .clone()
+            .oneshot(request(
+                "tools/call",
+                json!({"name":"get_guide","arguments":{"guideSessionId":guide}}),
+            ))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        reread["result"]["structuredContent"]["guideSessionId"],
+        guide
+    );
+    let next = tokio::spawn(async move {
+        service
+            .oneshot(request(
+                "tools/call",
+                json!({"name":"get_basic_info","arguments":{"guideSessionId":guide}}),
+            ))
+            .await
+            .unwrap()
+    });
+    let forwarded = bridge.next().await.unwrap();
+    assert_eq!(forwarded.arguments, json!({"fileId":"poster"}));
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&forwarded.id)
+        .unwrap()
+        .send(json!({"content":[]}))
+        .unwrap();
+    json(next.await.unwrap()).await;
+}
+
+#[tokio::test]
+async fn stateless_guide_sessions_keep_separate_open_files() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    let alpha = read_guide(&service).await;
+    let beta = read_guide(&service).await;
+    for (guide, file) in [(&alpha, "alpha"), (&beta, "beta")] {
+        let request = request(
+            "tools/call",
+            json!({"name":"open_file","arguments":{"fileId":file,"guideSessionId":guide}}),
+        );
+        let client = service.clone();
+        let open = tokio::spawn(async move { client.oneshot(request).await.unwrap() });
+        let forwarded = bridge.next().await.unwrap();
+        bridge
+            .pending
+            .lock()
+            .await
+            .remove(&forwarded.id)
+            .unwrap()
+            .send(json!({"content":[{"type":"text","text":json!({"fileId":file}).to_string()}]}))
+            .unwrap();
+        json(open.await.unwrap()).await;
+    }
+    for (guide, file) in [(alpha, "alpha"), (beta, "beta")] {
+        let request = request(
+            "tools/call",
+            json!({"name":"get_basic_info","arguments":{"guideSessionId":guide}}),
+        );
+        let client = service.clone();
+        let inspect = tokio::spawn(async move { client.oneshot(request).await.unwrap() });
+        let forwarded = bridge.next().await.unwrap();
+        assert_eq!(forwarded.arguments, json!({"fileId":file}));
+        bridge
+            .pending
+            .lock()
+            .await
+            .remove(&forwarded.id)
+            .unwrap()
+            .send(json!({"content":[]}))
+            .unwrap();
+        json(inspect.await.unwrap()).await;
+    }
+}
+
+#[tokio::test]
+async fn transport_guide_status_is_isolated_from_other_clients() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    for _ in 0..2 {
+        let guide = json(
+            service
+                .clone()
+                .oneshot(with_session(
+                    request("tools/call", json!({"name":"get_guide"})),
+                    "agent-a",
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(guide["result"]["structuredContent"]["guideRead"], true);
+        assert!(guide["result"]["structuredContent"]["guideSessionId"].is_null());
+    }
+    for session in ["agent-b", "guide:agent-a"] {
+        let blocked = json(
+            service
+                .clone()
+                .oneshot(with_session(
+                    request("tools/call", json!({"name":"list_files"})),
+                    session,
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(blocked["result"]["isError"], true);
+    }
+    let next = tokio::spawn(async move {
+        service
+            .oneshot(with_session(
+                request("tools/call", json!({"name":"list_files"})),
+                "agent-a",
+            ))
+            .await
+            .unwrap()
+    });
+    let forwarded = bridge.next().await.unwrap();
+    assert_eq!(forwarded.name, "list_files");
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&forwarded.id)
+        .unwrap()
+        .send(json!({"content":[]}))
+        .unwrap();
+    json(next.await.unwrap()).await;
+}
+
+#[tokio::test]
+async fn modern_stateless_guide_and_gate_responses_are_complete() {
+    let bridge = Bridge::new();
+    let service = app(bridge.clone());
+    for name in ["list_files", "get_guide"] {
+        let mut req = request(
+            "tools/call",
+            json!({"name":name,"_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                "io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},
+                "io.modelcontextprotocol/clientCapabilities":{}
+            }}),
+        );
+        req.headers_mut()
+            .insert("mcp-protocol-version", "2026-07-28".parse().unwrap());
+        req.headers_mut()
+            .insert("mcp-method", "tools/call".parse().unwrap());
+        req.headers_mut().insert("mcp-name", name.parse().unwrap());
+        let body = json(service.clone().oneshot(req).await.unwrap()).await;
+        assert_eq!(body["result"]["resultType"], "complete");
+        if name == "get_guide" {
+            assert!(body["result"]["structuredContent"]["guideSessionId"].is_string());
+            assert!(body["result"]["content"][1]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("FIRST CALL"));
+        } else {
+            assert_eq!(body["result"]["isError"], true);
+        }
+    }
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn sdk_roundtrips_live_editor_request_and_image() {
     let bridge = Bridge::new();
     let service = app(bridge.clone());
+    let guide = read_guide(&service).await;
     let response = tokio::spawn(async move {
         service
             .oneshot(request(
                 "tools/call",
-                json!({"name":"get_screenshot","arguments":{"nodeId":"frame"}}),
+                json!({"name":"get_screenshot","arguments":{"nodeId":"frame","guideSessionId":guide}}),
             ))
             .await
             .unwrap()
@@ -88,6 +410,7 @@ async fn sdk_roundtrips_live_editor_request_and_image() {
     let request = bridge.next().await.unwrap();
     assert_eq!(request.name, "get_screenshot");
     assert_eq!(request.arguments["nodeId"], "frame");
+    assert!(request.arguments.get("guideSessionId").is_none());
     let result = json!({"content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]});
     bridge
         .pending
@@ -140,9 +463,13 @@ async fn accepts_local_requests_without_auth_but_blocks_browser_origins_and_rebi
 async fn tool_failures_are_returned_as_tool_errors() {
     let bridge = Bridge::new();
     let service = app(bridge.clone());
+    let guide = read_guide(&service).await;
     let response = tokio::spawn(async move {
         service
-            .oneshot(request("tools/call", json!({"name":"get_selection"})))
+            .oneshot(request(
+                "tools/call",
+                json!({"name":"get_selection","arguments":{"guideSessionId":guide}}),
+            ))
             .await
             .unwrap()
     });
@@ -208,7 +535,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
 
 #[tokio::test]
 async fn modern_tool_calls_mark_text_images_and_errors_complete() {
-    for (name, arguments, payload) in [
+    for (name, mut arguments, payload) in [
         (
             "list_files",
             json!({}),
@@ -227,6 +554,8 @@ async fn modern_tool_calls_mark_text_images_and_errors_complete() {
     ] {
         let bridge = Bridge::new();
         let service = app(bridge.clone());
+        let guide = read_guide(&service).await;
+        arguments["guideSessionId"] = json!(guide);
         let mut req = request(
             "tools/call",
             json!({"name":name,"arguments":arguments,"_meta":{

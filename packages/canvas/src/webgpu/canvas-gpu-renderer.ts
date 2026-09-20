@@ -143,7 +143,9 @@ function textStyle(frame: CanvasText) {
     letterSpacing: frame.letterSpacing ?? 0,
     align: frame.textAlign ?? "left",
     wordWrap: true,
-    wordWrapWidth: frame.width,
+    // DOM widths include trailing letter spacing. Pixi adds spacing to its wrap
+    // boundary, which otherwise wraps tightly measured negative-tracking text.
+    wordWrapWidth: frame.width - Math.min(0, frame.letterSpacing ?? 0),
     breakWords: true,
     whiteSpace: "pre",
     trim: false,

@@ -13,7 +13,12 @@ use rmcp::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 use tauri::Manager;
 use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 
@@ -32,6 +37,7 @@ pub struct Bridge {
     receiver: Mutex<mpsc::Receiver<EditorRequest>>,
     pending: Mutex<HashMap<String, Reply>>,
     sessions: Mutex<HashMap<String, String>>,
+    guided_sessions: Mutex<HashSet<String>>,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     capacity: Semaphore,
 }
@@ -44,6 +50,7 @@ impl Bridge {
             receiver: Mutex::new(receiver),
             pending: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
+            guided_sessions: Mutex::new(HashSet::new()),
             locks: Mutex::new(HashMap::new()),
             capacity: Semaphore::new(17),
         })
@@ -226,7 +233,7 @@ impl ServerHandler for FliesServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("flies", env!("CARGO_PKG_VERSION")))
-            .with_instructions(tools::GUIDE)
+            .with_instructions(tools::INSTRUCTIONS)
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
@@ -263,16 +270,69 @@ impl ServerHandler for FliesServer {
         {
             return Err(ErrorData::invalid_params("Unknown tool", None));
         }
+        let transport_session = mcp_session(&context);
+        let mut arguments = request.arguments.unwrap_or_default();
+        let receipt = arguments.remove("guideSessionId");
+        let receipt = match receipt.as_ref() {
+            None => None,
+            Some(Value::String(value)) if uuid::Uuid::parse_str(value).is_ok() => {
+                Some(value.as_str())
+            }
+            _ => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    "guideSessionId must be the string returned by get_guide. Call get_guide with no arguments to start a new guide session.",
+                )])
+                .into());
+            }
+        };
+        let mut guided_sessions = self.bridge.guided_sessions.lock().await;
+        let session = transport_session
+            .as_ref()
+            .map(|id| format!("transport:{id}"))
+            .or_else(|| receipt.map(|id| format!("guide:{id}")));
         if request.name == "get_guide" {
-            return Ok(CallToolResult::success(vec![ContentBlock::text(tools::GUIDE)]).into());
+            let (session, guide_session_id) = match transport_session.as_deref() {
+                Some(id) => (format!("transport:{id}"), None),
+                None => {
+                    let id = receipt
+                        .filter(|_| {
+                            session
+                                .as_ref()
+                                .is_some_and(|session| guided_sessions.contains(session))
+                        })
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                    (format!("guide:{id}"), Some(id))
+                }
+            };
+            guided_sessions.insert(session);
+            let session_instructions = match &guide_session_id {
+                Some(id) => format!("Guide session ready. Pass guideSessionId: \"{id}\" in every subsequent Flies tool call, including repeated get_guide reads. It preserves this client's opened file. This is workflow state, not authentication."),
+                None => "Guide read for this MCP transport session. Keep using the same Mcp-Session-Id; other sessions must call get_guide independently.".to_owned(),
+            };
+            let mut result = CallToolResult::success(vec![
+                ContentBlock::text(session_instructions),
+                ContentBlock::text(tools::GUIDE),
+            ]);
+            result.structured_content = Some(json!({
+                "guideSessionId": guide_session_id,
+                "guideRead": true
+            }));
+            return Ok(result.into());
         }
-        let session = mcp_session(&context);
+        let Some(session) = session.filter(|session| guided_sessions.contains(session)) else {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "Call get_guide first, read its HTML/CSS rendering and design workflow, then retry. No editor operation was dispatched. If get_guide returned a guideSessionId, include it in every tool's arguments; a guide read in another MCP session does not unlock this one.",
+            )])
+            .into());
+        };
+        drop(guided_sessions);
         let value = self
             .bridge
             .call_on(
                 request.name.into_owned(),
-                Value::Object(request.arguments.unwrap_or_default()),
-                session.as_deref(),
+                Value::Object(arguments),
+                Some(&session),
             )
             .await;
         let mut result: CallToolResult = serde_json::from_value(value)
