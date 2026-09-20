@@ -20,7 +20,12 @@ const sessionCookie = "flies_session";
 const flowCookie = "flies_login";
 const proofSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/));
 export type AuthEnv = {
-  Variables: { user: Identity; workspace: { id: string; name: string }; sessionHash: string };
+  Variables: {
+    user: Identity;
+    workspace: { id: string; name: string; ownerId?: string };
+    selectedWorkspaceId: string | null;
+    sessionHash: string;
+  };
 };
 export interface AuthProvider extends OrganizationProvider {
   authorizationUrl(state: string, verifier: string): string;
@@ -32,11 +37,13 @@ export interface AuthProvider extends OrganizationProvider {
 const identity = (user: {
   id: string;
   email: string;
+  emailVerified: boolean;
   firstName: string | null;
   lastName: string | null;
 }): Identity => ({
   id: user.id,
   email: user.email,
+  emailVerified: user.emailVerified,
   name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
 });
 
@@ -152,12 +159,13 @@ export function authService(db: Database, config: Config, provider: AuthProvider
           .set({ sealedSession: result.sealedSession })
           .where(eq(sessions.tokenHash, tokenHash));
 
-      return result;
+      return { ...result, workspaceId: row.workspaceId };
     });
 
     if (!auth) throw new HTTPException(401, { message: "Your session expired. Sign in again." });
     c.set("user", auth.user);
     c.set("sessionHash", tokenHash);
+    c.set("selectedWorkspaceId", auth.workspaceId);
     c.set("workspace", await ensureWorkspace(db, auth.user, provider));
   }
 

@@ -123,7 +123,7 @@ requires its own token, webhook secret, organization, and product IDs. Run
 | Maximum decoded size per image                       | 30 MB                      | 250 MB               |
 | MCP tool calls per workspace per UTC week            | 300                        | 500,000              |
 | Public MCP access                                    | No                         | Yes                  |
-| Workspace type                                       | Personal, single workspace | Team entitlement     |
+| Workspace type                                       | Personal, single workspace | Team workspace       |
 | License                                              | Personal use               | Commercial use       |
 | Share links                                          | No                         | Yes                  |
 
@@ -160,9 +160,36 @@ The API provides atomic weekly MCP accounting (Monday 00:00 UTC) and checks the
 public-access entitlement through `billing.consumeMcp(workspaceId, true)` for future
 server-side MCP dispatchers. The existing desktop MCP bridge reserves a local
 call through `/api/billing/mcp/consume` before running a tool. Public MCP transport,
-team membership/invitation flows, and share-link creation are separate features;
+and share-link creation are separate features;
 this integration exposes their entitlements, not those feature implementations.
 
 Billing tests use an injected provider and signed fixtures. They never charge a
 card or create a real customer. A sandbox checkout and deployed webhook delivery
 still need verification after credentials and deployment are configured.
+
+## Workspace members and seats
+
+Settings has Appearance, Billing, Members, Updates, and Account tabs. The sidebar
+keeps the Upgrade to Pro action for Free workspace owners. Checkout lets the owner
+choose seats; existing subscribers manage seats in the Polar billing portal.
+
+The Members tab sends seven-day WorkOS email invitations. The owner occupies one
+seat, and each unexpired pending invitation reserves one. Invitation creation and
+acceptance force a Polar refresh and lock the workspace row before checking capacity,
+so concurrent requests cannot overbook seats. Seat quantity comes from the active
+Polar subscription, never client input. Free workspaces have one seat. When billing
+is disabled, seat limits are disabled too.
+
+Invitees sign in with their verified invited email and accept under Settings → Members.
+Joined workspaces appear in the workspace switcher; selection is stored per session.
+Members can edit shared files. Only the owner can invite, revoke invitations, remove
+members, start checkout, or open the billing portal. A downgrade leaves the owner
+and oldest members within the paid capacity active; excess members lose access until
+seats are restored. Existing invitations cannot be accepted beyond the new capacity.
+Normal access uses the billing cache (up to 60 seconds, invalidated by webhooks).
+
+Run `bun run db:migrate` before deploying this change (migration `0002_real_madripoor`).
+WorkOS uses the existing API credentials and its configured invitation email/AuthKit
+flow; no additional environment variables are required. Integration tests mock email
+delivery and Polar. Actual email delivery still needs verification in the deployed
+WorkOS environment.

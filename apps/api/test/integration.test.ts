@@ -485,3 +485,168 @@ describe("Polar billing boundaries", () => {
     ).toBeNull();
   }, 30_000);
 });
+
+describe("workspace seats and invitations", () => {
+  test("reserves the final seat atomically and enforces membership, ownership, and downgrades", async () => {
+    available = true;
+
+    const people = ["owner", "member", "other"].map((name) => ({
+      id: `test_team_${ulid()}`,
+      name,
+      email: `${ulid()}@example.invalid`,
+      emailVerified: true,
+    }));
+
+    identities.push(...people);
+    let seats = 2;
+    let deliveryFails = false;
+    let deliveries = 0;
+
+    const billingConfig = {
+      ...config,
+      POLAR_ACCESS_TOKEN: "test",
+      POLAR_WEBHOOK_SECRET: "test",
+      POLAR_PRO_PRODUCT_ID: "14e2d2c3-fa2d-4b26-a686-30efbebbcf1b",
+      POLAR_ORGANIZATION_ID: "be8119a2-23a8-4edf-ab4c-5edd1ba71ccf",
+    };
+
+    const instance = createApp(
+      db,
+      storage,
+      billingConfig,
+      {
+        ...provider,
+        async invite() {
+          if (deliveryFails) throw new Error("Delivery failed");
+          deliveries++;
+
+          return { id: ulid(), expiresAt: new Date(Date.now() + 86400_000) };
+        },
+        async acceptInvite() {},
+        async revokeInvite() {},
+        async removeMember() {},
+      },
+      {
+        async state(workspaceId) {
+          return {
+            id: "customer",
+            organizationId: "be8119a2-23a8-4edf-ab4c-5edd1ba71ccf",
+            externalId: workspaceId,
+            activeSubscriptions: seats
+              ? [
+                  {
+                    id: "sub",
+                    productId: "14e2d2c3-fa2d-4b26-a686-30efbebbcf1b",
+                    status: "active",
+                    seats,
+                    endsAt: null,
+                    currentPeriodEnd: new Date(Date.now() + 86400_000),
+                  },
+                ]
+              : [],
+          };
+        },
+        async checkout() {
+          return "https://polar.sh/checkout/test";
+        },
+        async portal() {
+          return "https://polar.sh/portal/test";
+        },
+      },
+    );
+
+    const teamTokens = await Promise.all(
+      people.map((person) => instance.auth.createSession(person, person.id)),
+    );
+
+    const call = (path: string, person = 0, body?: unknown) =>
+      instance.app.request(path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Authorization: `Bearer ${teamTokens[person]}`,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+
+    const ownerWorkspace = (await (await call("/api/me")).json()).workspace.id;
+    expect((await call("/api/workspaces/switch", 1, { id: ownerWorkspace })).status).toBe(403);
+    deliveryFails = true;
+    expect((await call("/api/workspaces/invitations", 0, { email: people[1].email })).status).toBe(
+      500,
+    );
+    expect((await (await call("/api/workspaces/members")).json()).reserved).toBe(0);
+    deliveryFails = false;
+
+    const invites = await Promise.all(
+      [1, 2].map((index) => call("/api/workspaces/invitations", 0, { email: people[index].email })),
+    );
+
+    expect(invites.map((response) => response.status).toSorted()).toEqual([201, 409]);
+    expect(deliveries).toBe(1);
+    const invitedIndex = invites[0].status === 201 ? 1 : 2;
+    const otherIndex = invitedIndex === 1 ? 2 : 1;
+    const invitation = await invites[invitedIndex - 1].json();
+    const acceptPath = `/api/workspaces/invitations/${invitation.id}/accept`;
+    expect((await call(acceptPath, otherIndex, {})).status).toBe(404);
+    people[invitedIndex].emailVerified = false;
+    expect((await call(acceptPath, invitedIndex, {})).status).toBe(403);
+    people[invitedIndex].emailVerified = true;
+    expect((await (await call("/api/workspaces", invitedIndex)).json()).invitations).toHaveLength(
+      1,
+    );
+    seats = 1;
+    expect((await call(acceptPath, invitedIndex, {})).status).toBe(409);
+    seats = 2;
+    expect((await call(acceptPath, invitedIndex, {})).status).toBe(200);
+    expect((await call(acceptPath, invitedIndex, {})).status).toBe(404);
+    expect(
+      (await call("/api/workspaces/switch", invitedIndex, { id: ownerWorkspace })).status,
+    ).toBe(200);
+    expect((await (await call("/api/files", invitedIndex)).json()).workspace.id).toBe(
+      ownerWorkspace,
+    );
+    expect((await call("/api/billing/portal", invitedIndex, {})).status).toBe(403);
+    expect((await call("/api/billing/checkout", invitedIndex, { seats: 3 })).status).toBe(403);
+    expect(
+      (await call("/api/workspaces/invitations", invitedIndex, { email: people[otherIndex].email }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await call("/api/workspaces/members/remove", invitedIndex, { userId: people[0].id })).status,
+    ).toBe(403);
+    expect((await call("/api/workspaces/members/remove", 0, { userId: people[0].id })).status).toBe(
+      400,
+    );
+    seats = 0;
+    await call("/api/billing/refresh", 0, {});
+    expect(
+      (await call("/api/workspaces/switch", invitedIndex, { id: ownerWorkspace })).status,
+    ).toBe(403);
+    expect((await call("/api/files", invitedIndex)).status).toBe(403);
+    expect((await (await call("/api/me", invitedIndex)).json()).workspace.id).not.toBe(
+      ownerWorkspace,
+    );
+    expect(
+      (await call("/api/workspaces/invitations", 0, { email: people[otherIndex].email })).status,
+    ).toBe(409);
+    seats = 2;
+    await call("/api/billing/refresh", 0, {});
+    expect(
+      (await call("/api/workspaces/members/remove", 0, { userId: people[invitedIndex].id })).status,
+    ).toBe(200);
+    expect(
+      (await call("/api/workspaces/switch", invitedIndex, { id: ownerWorkspace })).status,
+    ).toBe(403);
+
+    const next = await (
+      await call("/api/workspaces/invitations", 0, { email: people[otherIndex].email })
+    ).json();
+
+    expect((await call(`/api/workspaces/invitations/${next.id}/revoke`, 0, {})).status).toBe(200);
+    expect(
+      (await call(`/api/workspaces/invitations/${next.id}/accept`, otherIndex, {})).status,
+    ).toBe(404);
+    expect((await (await call("/api/workspaces/members")).json()).reserved).toBe(0);
+  }, 60_000);
+});

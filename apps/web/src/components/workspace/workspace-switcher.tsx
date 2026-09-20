@@ -1,4 +1,5 @@
 import { CheckIcon, ChevronsUpDownIcon, SettingsIcon } from "lucide-react";
+import { useState } from "react";
 
 import {
   DropdownMenu,
@@ -9,6 +10,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { api } from "@/lib/api";
+
+import { switchWorkspace, type WorkspaceList } from "./workspace-members";
 
 export function WorkspaceSwitcher({
   workspace,
@@ -17,10 +21,25 @@ export function WorkspaceSwitcher({
   workspace: { id: string; name: string } | null;
   onSettings: () => void;
 }) {
+  const [list, setList] = useState<WorkspaceList | null>(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
   const name = workspace?.name ?? "Loading workspace…";
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open)
+          void api<WorkspaceList>("/api/workspaces")
+            .then((value) => {
+              setList(value);
+              setError("");
+
+              return value;
+            })
+            .catch(() => setError("Could not load workspaces. Reopen to retry."));
+      }}
+    >
       <DropdownMenuTrigger
         disabled={!workspace}
         aria-label={`Switch workspace: ${name}`}
@@ -41,10 +60,39 @@ export function WorkspaceSwitcher({
       <DropdownMenuContent align="start" sideOffset={6} className="min-w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-          <DropdownMenuItem aria-current="true">
-            <span className="flex-1 truncate">{name}</span>
-            <CheckIcon aria-label="Current workspace" className="size-3.5 text-muted-foreground" />
-          </DropdownMenuItem>
+          {(list?.workspaces ?? (workspace ? [workspace] : [])).map((item) => (
+            <DropdownMenuItem
+              key={item.id}
+              aria-current={item.id === workspace?.id ? "true" : undefined}
+              disabled={pending}
+              onClick={() => {
+                if (item.id === workspace?.id) return;
+                setPending(true);
+                void switchWorkspace(item.id).catch((cause: unknown) => {
+                  setError(cause instanceof Error ? cause.message : "Could not switch workspace.");
+                  setPending(false);
+                });
+              }}
+            >
+              <span className="flex-1 truncate">{item.name}</span>
+              {item.id === workspace?.id && (
+                <CheckIcon
+                  aria-label="Current workspace"
+                  className="size-3.5 text-muted-foreground"
+                />
+              )}
+            </DropdownMenuItem>
+          ))}
+          {!!list?.invitations.length && (
+            <DropdownMenuItem onClick={onSettings}>
+              {list.invitations.length} pending invitations · Settings → Members
+            </DropdownMenuItem>
+          )}
+          {error && (
+            <p role="alert" className="max-w-64 px-2 py-1 text-xs text-destructive">
+              {error}
+            </p>
+          )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onSettings}>

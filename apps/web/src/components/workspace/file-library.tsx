@@ -39,10 +39,9 @@ import {
   type LibrarySection,
 } from "@/lib/workspace-session";
 
-import { AppearanceSettings } from "./appearance-settings";
 import { FilePreview } from "./file-preview";
-import { UpdateSettings } from "./update-settings";
-import { WorkspaceBilling } from "./workspace-billing";
+import { WorkspaceBilling, WorkspaceBillingProvider } from "./workspace-billing";
+import { WorkspaceSettings } from "./workspace-settings";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import "./file-library.css";
 
@@ -197,213 +196,204 @@ export function FileLibraryView({
   }
 
   return (
-    <SidebarProvider
-      className="library-shell"
-      style={{ "--sidebar-width": "14rem" } as CSSProperties}
+    <WorkspaceBillingProvider
+      key={account?.workspace.id ?? "anonymous"}
+      desktop={desktop}
+      enabled={!!account}
+      canManage={!account?.workspace.ownerId || account.workspace.ownerId === account.user.id}
     >
-      <Sidebar collapsible="none" className="library-sidebar">
-        <SidebarHeader>
-          <WorkspaceSwitcher
-            workspace={library?.workspace ?? account?.workspace ?? null}
-            onSettings={() => {
-              setSection("settings");
-              onSectionChange?.("settings");
-              patchWorkspaceSession({ librarySection: "settings" });
-            }}
-          />
-          <div className="relative">
-            <SearchIcon
-              aria-hidden="true"
-              strokeWidth={1.7}
-              className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+      <SidebarProvider
+        className="library-shell"
+        style={{ "--sidebar-width": "14rem" } as CSSProperties}
+      >
+        <Sidebar collapsible="none" className="library-sidebar">
+          <SidebarHeader>
+            <WorkspaceSwitcher
+              workspace={library?.workspace ?? account?.workspace ?? null}
+              onSettings={() => {
+                setSection("settings");
+                onSectionChange?.("settings");
+                patchWorkspaceSession({ librarySection: "settings" });
+              }}
             />
-            <SidebarInput
-              type="search"
-              value={query}
-              placeholder="Search"
-              aria-label="Search files"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-7 pl-7 text-xs md:text-xs"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup className="pt-0">
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {SECTIONS.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      size="sm"
-                      className="[&_svg]:size-3.5"
-                      isActive={section === item.id}
-                      aria-current={section === item.id ? "page" : undefined}
-                      onClick={() => {
-                        setSection(item.id);
-                        onSectionChange?.(item.id);
-                        patchWorkspaceSession({ librarySection: item.id });
-                      }}
-                    >
-                      <SectionIcon icon={item.icon} />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        {account && <WorkspaceBilling key={account.workspace.id} desktop={desktop} />}
-      </Sidebar>
-      <SidebarInset className="library-home">
-        <div className="library-pane">
-          <header className="library-header">
-            <h1 className="library-heading">{heading}</h1>
-            {showActions && (
-              <div className="library-actions">
-                <Button disabled={busy} onClick={() => setCreating("Untitled")}>
-                  New file
-                </Button>
-                <Button
-                  variant="ghost"
-                  aria-label="Import file"
-                  title="Import a Flies ZIP or JSON project"
-                  disabled={busy}
-                  onClick={onImport}
-                >
-                  Import
-                </Button>
-              </div>
-            )}
-          </header>
-          {(error || failure) && creating === null && (
-            <p className="file-library-error" role="alert">
-              {error || failure} <button onClick={() => void onRefresh()}>Retry</button>
-            </p>
-          )}
-          {showList && (
-            <>
-              {!library && !error && <p className="library-empty">Loading files…</p>}
-              {library && !files.length && (
-                <div className="library-empty">
-                  <p>
-                    {searching
-                      ? "No matching files."
-                      : section === "archive"
-                        ? "Nothing in the archive."
-                        : "No files yet."}
-                  </p>
-                  {!searching && (
-                    <span>
-                      {section === "archive"
-                        ? "Right-click a file and choose Archive."
-                        : "Create a file or import one to get started."}
-                    </span>
-                  )}
+            <div className="relative">
+              <SearchIcon
+                aria-hidden="true"
+                strokeWidth={1.7}
+                className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <SidebarInput
+                type="search"
+                value={query}
+                placeholder="Search"
+                aria-label="Search files"
+                autoComplete="off"
+                spellCheck={false}
+                className="h-7 pl-7 text-xs md:text-xs"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup className="pt-0">
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-0.5">
+                  {SECTIONS.map((item) => (
+                    <SidebarMenuItem key={item.id}>
+                      <SidebarMenuButton
+                        size="sm"
+                        className="[&_svg]:size-3.5"
+                        isActive={section === item.id}
+                        aria-current={section === item.id ? "page" : undefined}
+                        onClick={() => {
+                          setSection(item.id);
+                          onSectionChange?.(item.id);
+                          patchWorkspaceSession({ librarySection: item.id });
+                        }}
+                      >
+                        <SectionIcon icon={item.icon} />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          {account && <WorkspaceBilling />}
+        </Sidebar>
+        <SidebarInset className="library-home">
+          <div className="library-pane">
+            <header className="library-header">
+              <h1 className="library-heading">{heading}</h1>
+              {showActions && (
+                <div className="library-actions">
+                  <Button disabled={busy} onClick={() => setCreating("Untitled")}>
+                    New file
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    aria-label="Import file"
+                    title="Import a Flies ZIP or JSON project"
+                    disabled={busy}
+                    onClick={onImport}
+                  >
+                    Import
+                  </Button>
                 </div>
               )}
-              {files.length > 0 && (
-                <>
-                  {section === "files" && (
-                    <div className="library-sort">
-                      <button
-                        type="button"
-                        aria-pressed={sort === "name"}
-                        onClick={() => setSort("name")}
-                      >
-                        Name
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={sort === "edited"}
-                        onClick={() => setSort("edited")}
-                      >
-                        Edited
-                      </button>
-                    </div>
-                  )}
-                  <div className="library-grid">{files.map(fileCard)}</div>
-                </>
-              )}
-              {library?.warnings.map((warning) => (
-                <p className="file-library-error" key={warning}>
-                  {warning}
-                </p>
-              ))}
-            </>
-          )}
-          {section === "settings" && (
-            <div className="library-settings">
-              <AppearanceSettings />
-              <UpdateSettings desktop={desktop} />
-              <div className="library-setting-files">
-                <p className="library-setting-label">Workspace</p>
-                <p className="library-setting-value">{library?.workspace.name ?? "Loading…"}</p>
-                {account && <p className="library-setting-value">{account.user.email}</p>}
-                {onSignOut && (
+            </header>
+            {(error || failure) && creating === null && (
+              <p className="file-library-error" role="alert">
+                {error || failure} <button onClick={() => void onRefresh()}>Retry</button>
+              </p>
+            )}
+            {showList && (
+              <>
+                {!library && !error && <p className="library-empty">Loading files…</p>}
+                {library && !files.length && (
+                  <div className="library-empty">
+                    <p>
+                      {searching
+                        ? "No matching files."
+                        : section === "archive"
+                          ? "Nothing in the archive."
+                          : "No files yet."}
+                    </p>
+                    {!searching && (
+                      <span>
+                        {section === "archive"
+                          ? "Right-click a file and choose Archive."
+                          : "Create a file or import one to get started."}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {files.length > 0 && (
+                  <>
+                    {section === "files" && (
+                      <div className="library-sort">
+                        <button
+                          type="button"
+                          aria-pressed={sort === "name"}
+                          onClick={() => setSort("name")}
+                        >
+                          Name
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={sort === "edited"}
+                          onClick={() => setSort("edited")}
+                        >
+                          Edited
+                        </button>
+                      </div>
+                    )}
+                    <div className="library-grid">{files.map(fileCard)}</div>
+                  </>
+                )}
+                {library?.warnings.map((warning) => (
+                  <p className="file-library-error" key={warning}>
+                    {warning}
+                  </p>
+                ))}
+              </>
+            )}
+            {section === "settings" && (
+              <WorkspaceSettings
+                desktop={desktop}
+                account={account}
+                workspaceName={library?.workspace.name}
+                fileCount={library?.files.length ?? 0}
+                onSignOut={onSignOut}
+              />
+            )}
+          </div>
+          <Dialog
+            open={creating !== null}
+            onOpenChange={(open) => {
+              if (!open && !pending) setCreating(null);
+            }}
+          >
+            <DialogContent>
+              <DialogTitle>New file</DialogTitle>
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
+                }}
+              >
+                <Input
+                  aria-label="Name"
+                  maxLength={120}
+                  value={creating ?? ""}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => setCreating(event.target.value)}
+                />
+                {failure && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {failure}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
                   <Button
+                    type="button"
                     variant="outline"
                     disabled={pending}
-                    onClick={() => {
-                      setPending(true);
-                      void onSignOut()
-                        .catch((cause) => setFailure(String(cause)))
-                        .finally(() => setPending(false));
-                    }}
+                    onClick={() => setCreating(null)}
                   >
-                    Sign out
+                    Cancel
                   </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        <Dialog
-          open={creating !== null}
-          onOpenChange={(open) => {
-            if (!open && !pending) setCreating(null);
-          }}
-        >
-          <DialogContent>
-            <DialogTitle>New file</DialogTitle>
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <Input
-                aria-label="Name"
-                maxLength={120}
-                value={creating ?? ""}
-                onFocus={(event) => event.currentTarget.select()}
-                onChange={(event) => setCreating(event.target.value)}
-              />
-              {failure && (
-                <p role="alert" className="text-sm text-destructive">
-                  {failure}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={pending}
-                  onClick={() => setCreating(null)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={pending || !creating?.trim()}>
-                  {pending ? "Saving…" : "Create"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </SidebarInset>
-    </SidebarProvider>
+                  <Button type="submit" disabled={pending || !creating?.trim()}>
+                    {pending ? "Saving…" : "Create"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </SidebarInset>
+      </SidebarProvider>
+    </WorkspaceBillingProvider>
   );
 }

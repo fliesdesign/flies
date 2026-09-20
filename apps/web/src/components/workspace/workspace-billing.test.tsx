@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { WorkspaceBilling } from "./workspace-billing";
+import { WorkspaceBilling, WorkspaceBillingProvider } from "./workspace-billing";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), post: vi.fn(), openUrl: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: mocks.api, post: mocks.post }));
@@ -35,7 +35,13 @@ afterEach(async () => {
 });
 
 async function mount() {
-  await act(async () => root.render(<WorkspaceBilling desktop />));
+  await act(async () =>
+    root.render(
+      <WorkspaceBillingProvider desktop>
+        <WorkspaceBilling />
+      </WorkspaceBillingProvider>,
+    ),
+  );
 }
 
 async function click(text: string) {

@@ -33,7 +33,7 @@ export function parseSnapshot(input: unknown) {
 }
 
 export type Snapshot = ReturnType<typeof parseSnapshot>;
-export type Identity = { id: string; email: string; name: string };
+export type Identity = { id: string; email: string; name: string; emailVerified?: boolean };
 
 export async function ensureWorkspace(
   db: Database,

@@ -15,6 +15,13 @@
       "when": 1789941548019,
       "tag": "0001_wealthy_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789944054170,
+      "tag": "0002_real_madripoor",
+      "breakpoints": true
     }
   ]
 }

@@ -33,7 +33,7 @@ export const PLANS = {
 export type Plan = keyof typeof PLANS;
 export type Entitlements =
   | { enabled: false; plan: null; limits: null }
-  | { enabled: true; plan: Plan; limits: (typeof PLANS)[Plan] };
+  | { enabled: true; plan: Plan; limits: (typeof PLANS)[Plan]; seats?: number };
 export const BILLING_DISABLED: Entitlements = { enabled: false, plan: null, limits: null };
 
 export type BillingState = {
@@ -46,6 +46,7 @@ export type BillingState = {
     status: string;
     currentPeriodEnd: Date;
     endsAt: Date | null;
+    seats?: number | null;
   }[];
 };
 export interface BillingProvider {
@@ -63,10 +64,25 @@ export function polarProvider(
   return {
     async state(workspaceId) {
       try {
-        return await polar.customers.getStateExternal(
+        const state = await polar.customers.getStateExternal(
           { externalId: workspaceId },
           { timeoutMs: 8000 },
         );
+
+        const sub = proSubscription(state, config.productId);
+
+        if (sub) {
+          const detail = await polar.subscriptions.get({ id: sub.id }, { timeoutMs: 8000 });
+
+          return {
+            ...state,
+            activeSubscriptions: state.activeSubscriptions.map((item) =>
+              item.id === sub.id ? { ...item, seats: detail.seats } : item,
+            ),
+          };
+        }
+
+        return state;
       } catch (error) {
         if (error instanceof ResourceNotFound) return null;
         throw error;
@@ -210,6 +226,7 @@ export function billingService(db: Database, config: Config, injected?: BillingP
           workspaceId,
           customerId: state?.id ?? null,
           subscriptionId: sub?.id ?? null,
+          seats: sub && Number.isSafeInteger(sub.seats) && sub.seats! > 0 ? sub.seats! : 1,
           proUntil: sub
             ? new Date(Math.min(sub.currentPeriodEnd.getTime(), sub.endsAt?.getTime() ?? Infinity))
             : null,
@@ -225,7 +242,7 @@ export function billingService(db: Database, config: Config, injected?: BillingP
 
       const plan = cached.proUntil && cached.proUntil.getTime() > Date.now() ? "pro" : "free";
 
-      return { enabled: true, plan, limits: PLANS[plan] };
+      return { enabled: true, plan, limits: PLANS[plan], seats: plan === "pro" ? cached.seats : 1 };
     });
   }
 

@@ -74,7 +74,7 @@ export const post = <T>(path: string, body: unknown) =>
   api<T>(path, { method: "POST", body: JSON.stringify(body) });
 export type Account = {
   user: { id: string; name: string; email: string };
-  workspace: { id: string; name: string };
+  workspace: { id: string; name: string; ownerId?: string };
 };
 
 export async function signIn(preserveEditor = false) {

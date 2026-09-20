@@ -80,6 +80,7 @@ export const sessions = pgTable("sessions", {
   userId: text()
     .notNull()
     .references(() => users.id),
+  workspaceId: text().references(() => workspaces.id, { onDelete: "set null" }),
   sealedSession: text().notNull(),
   expiresAt: timestamp({ withTimezone: true }).notNull(),
 });
@@ -99,6 +100,7 @@ export const workspaceBilling = pgTable("workspace_billing", {
     .references(() => workspaces.id, { onDelete: "cascade" }),
   customerId: text(),
   subscriptionId: text(),
+  seats: integer().notNull().default(1),
   proUntil: timestamp({ withTimezone: true }),
   checkedAt: timestamp({ withTimezone: true }).notNull(),
 });
@@ -110,3 +112,33 @@ export const mcpUsage = pgTable("mcp_usage", {
   week: timestamp({ withTimezone: true }).notNull(),
   calls: integer().notNull().default(0),
 });
+
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("workspace_member_user").on(t.workspaceId, t.userId)],
+);
+
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text().notNull(),
+    providerId: text().notNull(),
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("workspace_invitation_email").on(t.workspaceId, t.email)],
+);

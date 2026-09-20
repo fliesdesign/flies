@@ -12,6 +12,7 @@ import type { Database } from "./db/client";
 import { fileService, parseSnapshot } from "./files";
 import { idSchema } from "./ids";
 import type { RevisionStorage } from "./storage";
+import { teamService } from "./teams";
 
 export const MAX_BODY = 100 * 1024 * 1024;
 export const BILLING_MAX_BODY = 350 * 1024 * 1024;
@@ -27,6 +28,7 @@ export function createApp(
   const auth = authService(db, config, provider);
   const files = fileService(db, storage, config.S3_PREFIX);
   const billing = billingService(db, config, billingProvider);
+  const teams = teamService(db, billing, provider);
 
   const origins = new Set([
     new URL(config.WEB_URL).origin,
@@ -79,6 +81,24 @@ export function createApp(
   });
   app.use("/api/*", async (c, next) => {
     await auth.authenticate(c);
+    const selected = c.get("selectedWorkspaceId");
+
+    if (selected && selected !== c.get("workspace").id) {
+      const workspace = await teams.access(selected, c.get("user").id);
+
+      if (workspace) c.set("workspace", workspace);
+      else if (c.req.path === "/api/me") {
+        await teams.switch(c.get("workspace").id, c.get("user").id, c.get("sessionHash"));
+      } else if (
+        !["/api/me", "/api/workspaces", "/api/workspaces/switch"].includes(c.req.path) &&
+        !c.req.path.endsWith("/accept")
+      ) {
+        throw new HTTPException(403, {
+          message: "Workspace access is unavailable. Switch to another workspace.",
+        });
+      }
+    }
+
     await next();
   });
   app.get("/api/me", (c) => c.json({ user: c.get("user"), workspace: c.get("workspace") }));
@@ -87,6 +107,8 @@ export function createApp(
     c.json(await billing.entitlements(c.get("workspace").id, true)),
   );
   app.post("/api/billing/checkout", async (c) => {
+    await teams.owner(c.get("workspace").id, c.get("user").id);
+
     const { seats } = v.parse(
       v.object({
         seats: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), 1),
@@ -96,9 +118,52 @@ export function createApp(
 
     return c.json({ url: await billing.checkout(c.get("workspace").id, c.get("user"), seats) });
   });
-  app.post("/api/billing/portal", async (c) =>
-    c.json({ url: await billing.portal(c.get("workspace").id) }),
+  app.post("/api/billing/portal", async (c) => {
+    await teams.owner(c.get("workspace").id, c.get("user").id);
+
+    return c.json({ url: await billing.portal(c.get("workspace").id) });
+  });
+  app.get("/api/workspaces", async (c) => c.json(await teams.list(c.get("user"))));
+  app.post("/api/workspaces/switch", async (c) => {
+    const { id } = v.parse(v.object({ id: idSchema }), await c.req.json());
+
+    return c.json(await teams.switch(id, c.get("user").id, c.get("sessionHash")));
+  });
+  app.get("/api/workspaces/members", async (c) =>
+    c.json(await teams.details(c.get("workspace").id, c.get("user").id)),
   );
+  app.post("/api/workspaces/invitations", async (c) => {
+    const { email } = v.parse(
+      v.object({
+        email: v.pipe(v.string(), v.trim(), v.toLowerCase(), v.email(), v.maxLength(254)),
+      }),
+      await c.req.json(),
+    );
+
+    return c.json(await teams.invite(c.get("workspace").id, c.get("user"), email), 201);
+  });
+  app.post("/api/workspaces/invitations/:id/accept", async (c) =>
+    c.json(await teams.accept(v.parse(idSchema, c.req.param("id")), c.get("user"))),
+  );
+  app.post("/api/workspaces/invitations/:id/revoke", async (c) => {
+    await teams.revoke(
+      c.get("workspace").id,
+      c.get("user").id,
+      v.parse(idSchema, c.req.param("id")),
+    );
+
+    return c.json({ revoked: true });
+  });
+  app.post("/api/workspaces/members/remove", async (c) => {
+    const { userId } = v.parse(
+      v.object({ userId: v.pipe(v.string(), v.minLength(1), v.maxLength(255)) }),
+      await c.req.json(),
+    );
+
+    await teams.remove(c.get("workspace").id, c.get("user").id, userId);
+
+    return c.json({ removed: true });
+  });
   // This endpoint accounts for local desktop calls. Future public MCP handlers
   // must call consumeMcp(workspaceId, true) directly before dispatching a tool.
   app.post("/api/billing/mcp/consume", async (c) =>

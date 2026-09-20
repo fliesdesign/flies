@@ -140,8 +140,12 @@ describe("file library startup sidebar", () => {
     withSession({ librarySection: "settings" }, () => {
       const markup = render();
       assert.match(markup, /<h1[^>]*>Settings<\/h1>/);
+      assert.match(markup, /role="tablist"/);
+      assert.match(markup, />Billing</);
       assert.match(markup, />Updates</);
-      assert.match(markup, /Check for updates/);
+      assert.match(markup, />Account</);
+      assert.match(markup, /Brightness/);
+      assert.doesNotMatch(markup, /Check for updates/);
       assert.doesNotMatch(markup, /<h1[^>]*>Recents<\/h1>/);
     });
   });
