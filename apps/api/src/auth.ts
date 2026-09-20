@@ -11,6 +11,7 @@ import type { Config } from "./config";
 import type { Database } from "./db/client";
 import { loginAttempts, sessions } from "./db/schema";
 import { ensureWorkspace, type Identity } from "./files";
+import { workosOrganizations, type OrganizationProvider } from "./organizations";
 
 export const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const randomToken = () => randomBytes(32).toString("base64url");
@@ -21,7 +22,7 @@ const proofSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9_-]{43}$/));
 export type AuthEnv = {
   Variables: { user: Identity; workspace: { id: string; name: string }; sessionHash: string };
 };
-export interface AuthProvider {
+export interface AuthProvider extends OrganizationProvider {
   authorizationUrl(state: string, verifier: string): string;
   exchange(code: string, verifier: string): Promise<{ user: Identity; sealedSession: string }>;
   verify(sealedSession: string): Promise<{ user: Identity; sealedSession: string } | null>;
@@ -49,6 +50,7 @@ export function workosProvider(config: Config): AuthProvider {
     });
 
   return {
+    ...workosOrganizations(workos),
     authorizationUrl(state, verifier) {
       return workos.userManagement.getAuthorizationUrl({
         provider: "authkit",
@@ -109,7 +111,7 @@ export function authService(db: Database, config: Config, provider: AuthProvider
   }
 
   async function createSession(user: Identity, sealedSession: string) {
-    await ensureWorkspace(db, user);
+    await ensureWorkspace(db, user, provider);
     const token = randomToken();
     await db.insert(sessions).values({
       tokenHash: hash(token),
@@ -156,7 +158,7 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     if (!auth) throw new HTTPException(401, { message: "Your session expired. Sign in again." });
     c.set("user", auth.user);
     c.set("sessionHash", tokenHash);
-    c.set("workspace", await ensureWorkspace(db, auth.user));
+    c.set("workspace", await ensureWorkspace(db, auth.user, provider));
   }
 
   const routes = new Hono<AuthEnv>();
@@ -166,12 +168,21 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     const state = randomToken();
     const browserToken = randomToken();
     const verifier = randomToken();
+    const requestedPath = c.req.query("returnTo") ?? "/recents";
+
+    const returnPath = /^\/(?:recents|settings|archive|files(?:\/[A-Za-z0-9-]+)?)$/.test(
+      requestedPath,
+    )
+      ? requestedPath
+      : "/recents";
+
     await db.delete(loginAttempts).where(lt(loginAttempts.expiresAt, new Date()));
     await db.insert(loginAttempts).values({
       state,
       verifier,
       browserHash: hash(browserToken),
       desktopChallenge: challenge ?? null,
+      returnPath,
       expiresAt: new Date(Date.now() + 10 * 60_000),
     });
     setCookie(c, flowCookie, browserToken, { ...cookieOptions, maxAge: 600 });
@@ -217,7 +228,7 @@ export function authService(db: Database, config: Config, provider: AuthProvider
 
     setCookie(c, sessionCookie, token, { ...cookieOptions, maxAge: ttl });
 
-    return c.redirect(config.WEB_URL);
+    return c.redirect(new URL(attempt.returnPath, config.WEB_URL).href);
   });
   routes.post("/desktop/complete", async (c) => {
     const { verifier } = v.parse(v.object({ verifier: proofSchema }), await c.req.json());

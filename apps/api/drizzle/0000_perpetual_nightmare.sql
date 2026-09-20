@@ -1,6 +1,6 @@
 CREATE TABLE "files" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspaceId" uuid NOT NULL,
+	"id" text PRIMARY KEY NOT NULL,
+	"workspaceId" text NOT NULL,
 	"name" text NOT NULL,
 	"revision" integer NOT NULL,
 	"objectKey" text NOT NULL,
@@ -17,13 +17,14 @@ CREATE TABLE "login_attempts" (
 	"verifier" text NOT NULL,
 	"browserHash" text NOT NULL,
 	"desktopChallenge" text,
+	"returnPath" text DEFAULT '/recents' NOT NULL,
 	"sessionToken" text,
 	"expiresAt" timestamp with time zone NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "file_revisions" (
-	"id" uuid PRIMARY KEY NOT NULL,
-	"fileId" uuid NOT NULL,
+	"id" text PRIMARY KEY NOT NULL,
+	"fileId" text NOT NULL,
 	"number" integer NOT NULL,
 	"objectKey" text NOT NULL,
 	"sha256" text NOT NULL,
@@ -47,9 +48,10 @@ CREATE TABLE "users" (
 );
 --> statement-breakpoint
 CREATE TABLE "workspaces" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"id" text PRIMARY KEY NOT NULL,
 	"ownerId" text NOT NULL,
 	"name" text NOT NULL,
+	"workosOrganizationId" text,
 	"createdAt" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -61,4 +63,5 @@ ALTER TABLE "workspaces" ADD CONSTRAINT "workspaces_ownerId_users_id_fk" FOREIGN
 CREATE INDEX "files_workspace_updated" ON "files" USING btree ("workspaceId","updatedAt");--> statement-breakpoint
 CREATE UNIQUE INDEX "file_revision_number" ON "file_revisions" USING btree ("fileId","number");--> statement-breakpoint
 CREATE UNIQUE INDEX "revision_object_key" ON "file_revisions" USING btree ("objectKey");--> statement-breakpoint
-CREATE UNIQUE INDEX "workspace_owner" ON "workspaces" USING btree ("ownerId");
+CREATE UNIQUE INDEX "workspace_owner" ON "workspaces" USING btree ("ownerId");--> statement-breakpoint
+CREATE UNIQUE INDEX "workspace_workos_organization" ON "workspaces" USING btree ("workosOrganizationId");

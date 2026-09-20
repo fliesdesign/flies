@@ -53,13 +53,15 @@ export type Account = {
 
 export async function signIn(preserveEditor = false) {
   if (!isTauri()) {
+    const loginUrl = apiUrl(`/auth/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+
     if (!preserveEditor) {
-      window.location.assign(apiUrl("/auth/login"));
+      window.location.assign(loginUrl);
 
       return;
     }
 
-    window.open(apiUrl("/auth/login"), "_blank", "noopener,noreferrer");
+    window.open(loginUrl, "_blank", "noopener,noreferrer");
     const expires = Date.now() + 10 * 60_000;
 
     while (Date.now() < expires) {

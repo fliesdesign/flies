@@ -28,7 +28,9 @@ The provisioned development database is Neon project `blue-art-89162937`, branch
 
 Desktop opens AuthKit in the system browser. A random verifier held in the webview claims the finished login through `/auth/desktop/complete`; only its hash appears in the login URL. No session token is put in a URL. The desktop app keeps its opaque token in memory, so restarting requires signing in again. The encrypted WorkOS refresh credentials stay on the server.
 
-The first authenticated login creates one default workspace, guarded by a unique owner constraint. All file operations derive the workspace from the authenticated user, never from client-supplied ownership fields. Requests from unapproved browser origins are rejected. Cross-origin desktop requests use a bearer token; browser mutations require the configured origin and JSON content type.
+The first authenticated login creates one default workspace, guarded by a unique owner constraint, and provisions its WorkOS organization with an active owner membership. The workspace ID is the WorkOS external ID; row locks and idempotency keys make provisioning retryable without duplicate organizations. The linked WorkOS ID is stored on the workspace. Existing unlinked workspaces are linked on their next authenticated request, or with `bun src/db/backfill-organizations.ts` inside the API image. All file operations derive the workspace from the authenticated user, never from client-supplied ownership fields. Requests from unapproved browser origins are rejected. Cross-origin desktop requests use a bearer token; browser mutations require the configured origin and JSON content type.
+
+New workspace, file, revision, and save-operation IDs are ULIDs. WorkOS assigns its own user and organization IDs. The initial schema uses text keys; no UUID-to-ULID upgrade migration is included because production was reset.
 
 ## Endpoints
 
@@ -44,11 +46,11 @@ The first authenticated login creates one default workspace, guarded by a unique
 | POST   | `/api/files/:id/archive`   | Set `{ archived: boolean }`                          |
 | POST   | `/auth/logout`             | Revoke the app and WorkOS sessions                   |
 
-A revision save supplies the last known `revision` and a new UUID `mutationId`. Reuse that UUID only when retrying the same save after an uncertain response. Same-file writes lock the metadata row. A stale base revision returns 409; a repeated mutation returns its original saved document. Other users receive 404 for inaccessible files. Invalid documents return 400 and oversized requests return 413 (100 MiB maximum).
+A revision save supplies the last known `revision` and a new ULID `mutationId`. Reuse that ULID only when retrying the same save after an uncertain response. Same-file writes lock the metadata row. A stale base revision returns 409; a repeated mutation returns its original saved document. Other users receive 404 for inaccessible files. Invalid documents return 400 and oversized requests return 413 (100 MiB maximum).
 
 ## Revision storage
 
-Snapshots use `<prefix>/<workspace>/<file>/<revision>-<random UUID>.json.gz`. Bun compresses and uploads before the database transaction commits the file pointer and revision row. A failed upload cannot advance the database revision. A process crash or failed database commit after upload can leave an unreferenced object; do not delete objects by age alone. A future reconciler can remove keys not referenced by revision rows after a grace period. Accepted historical revisions are retained indefinitely; monitor storage growth and add an explicit retention policy before large-scale use.
+Snapshots use `<prefix>/<workspace>/<file>/<revision>-<random ULID>.json.gz`. Bun compresses and uploads before the database transaction commits the file pointer and revision row. A failed upload cannot advance the database revision. A process crash or failed database commit after upload can leave an unreferenced object; do not delete objects by age alone. A future reconciler can remove keys not referenced by revision rows after a grace period. Accepted historical revisions are retained indefinitely; monitor storage growth and add an explicit retention policy before large-scale use.
 
 Use directly readable S3 storage for revisions. Archive tiers requiring restoration would make opening old designs asynchronous. Embedded images remain in every snapshot, compressed with the document; asset deduplication is a separate future optimization.
 

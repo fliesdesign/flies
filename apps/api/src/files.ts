@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
-
 import { CanvasDocument, type CanvasFrame } from "@flies/canvas/document";
 import { EMPTY_THEME, type CanvasTheme } from "@flies/canvas/theme";
 import { and, desc, eq } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
+import { ulid } from "ulid";
 import * as v from "valibot";
 
 import type { Database } from "./db/client";
 import { files, revisions, users, workspaces } from "./db/schema";
+import type { OrganizationProvider } from "./organizations";
 import type { RevisionStorage } from "./storage";
 
 const snapshotSchema = v.object({
@@ -34,19 +34,45 @@ export function parseSnapshot(input: unknown) {
 export type Snapshot = ReturnType<typeof parseSnapshot>;
 export type Identity = { id: string; email: string; name: string };
 
-export async function ensureWorkspace(db: Database, user: Identity) {
-  return db.transaction(async (tx) => {
+export async function ensureWorkspace(
+  db: Database,
+  user: Identity,
+  provider: OrganizationProvider,
+) {
+  const workspace = await db.transaction(async (tx) => {
     await tx
       .insert(users)
       .values(user)
       .onConflictDoUpdate({ target: users.id, set: { email: user.email, name: user.name } });
     await tx
       .insert(workspaces)
-      .values({ ownerId: user.id, name: "My workspace" })
+      .values({ id: ulid(), ownerId: user.id, name: "My workspace" })
       .onConflictDoNothing({ target: workspaces.ownerId });
-    const [workspace] = await tx.select().from(workspaces).where(eq(workspaces.ownerId, user.id));
+    const [row] = await tx.select().from(workspaces).where(eq(workspaces.ownerId, user.id));
 
-    return workspace;
+    return row;
+  });
+
+  if (workspace.workosOrganizationId) return workspace;
+
+  // Serialize provisioning across API instances without rolling back the workspace ID.
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspace.id))
+      .for("update");
+
+    if (locked.workosOrganizationId) return locked;
+    const workosOrganizationId = await provider.ensureOrganization(locked, user);
+
+    const [linked] = await tx
+      .update(workspaces)
+      .set({ workosOrganizationId })
+      .where(eq(workspaces.id, locked.id))
+      .returning();
+
+    return linked;
   });
 }
 
@@ -126,8 +152,8 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
       snapshot: Snapshot,
       existing?: { id: string; revision: number; mutationId: string },
     ) {
-      const id = existing?.id ?? randomUUID();
-      const revisionId = existing?.mutationId ?? randomUUID();
+      const id = existing?.id ?? ulid();
+      const revisionId = existing?.mutationId ?? ulid();
 
       return db.transaction(async (tx) => {
         let createdAt = new Date();
@@ -171,7 +197,7 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
           ...snapshot,
         };
 
-        const objectKey = `${prefix}/${workspaceId}/${id}/${number}-${randomUUID()}.json.gz`;
+        const objectKey = `${prefix}/${workspaceId}/${id}/${number}-${ulid()}.json.gz`;
         // Publish S3 first. A failed DB commit can only leave an unreferenced object,
         // never a DB pointer to a missing revision. Old objects are never overwritten.
         const metadata = await storage.put(objectKey, document);

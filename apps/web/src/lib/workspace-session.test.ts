@@ -17,6 +17,10 @@ import {
 } from "./workspace-session";
 
 describe("workspace session", () => {
+  it("restores ULID file references", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    assert.equal(normalizeWorkspaceSession({ openIds: [id], activeId: id }).activeId, id);
+  });
   it("keeps tab order, drops junk, and treats a missing active tab as Files", () => {
     const session = normalizeWorkspaceSession({
       openIds: ["aa", "aa", "../secret", "bb", 3, ""],

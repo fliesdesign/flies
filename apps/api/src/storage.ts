@@ -20,7 +20,7 @@ export function createStorage(config: Config): RevisionStorage {
     async put(key, document) {
       const body = Bun.gzipSync(JSON.stringify(document));
       const sha256 = new Bun.CryptoHasher("sha256").update(body).digest("hex");
-      // The service generates a fresh UUID key for every attempt, never a mutable filename.
+      // The service generates a fresh ULID key for every attempt, never a mutable filename.
       await client.write(key, body, { type: "application/gzip" });
 
       return { sha256, byteLength: body.length };

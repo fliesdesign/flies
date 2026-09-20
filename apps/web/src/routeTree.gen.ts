@@ -10,13 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkspaceRouteImport } from './routes/_workspace'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as ComponentsRouteImport } from './routes/components'
+import { Route as WorkspaceArchiveRouteImport } from './routes/_workspace.archive'
+import { Route as WorkspaceFilesRouteImport } from './routes/_workspace.files'
+import { Route as WorkspaceRecentsRouteImport } from './routes/_workspace.recents'
+import { Route as WorkspaceSettingsRouteImport } from './routes/_workspace.settings'
+import { Route as WorkspaceFilesIdRouteImport } from './routes/_workspace.files.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspaceRoute = WorkspaceRouteImport.update({
+  id: '/_workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -34,36 +44,107 @@ const ComponentsRoute = ComponentsRouteImport.update({
   path: '/components',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceArchiveRoute = WorkspaceArchiveRouteImport.update({
+  id: '/archive',
+  path: '/archive',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceFilesRoute = WorkspaceFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceRecentsRoute = WorkspaceRecentsRouteImport.update({
+  id: '/recents',
+  path: '/recents',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceFilesIdRoute = WorkspaceFilesIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => WorkspaceFilesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/archive': typeof WorkspaceArchiveRoute
+  '/files': typeof WorkspaceFilesRouteWithChildren
+  '/recents': typeof WorkspaceRecentsRoute
+  '/settings': typeof WorkspaceSettingsRoute
+  '/files/$id': typeof WorkspaceFilesIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/archive': typeof WorkspaceArchiveRoute
+  '/files': typeof WorkspaceFilesRouteWithChildren
+  '/recents': typeof WorkspaceRecentsRoute
+  '/settings': typeof WorkspaceSettingsRoute
+  '/files/$id': typeof WorkspaceFilesIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_workspace': typeof WorkspaceRouteWithChildren
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/_workspace/archive': typeof WorkspaceArchiveRoute
+  '/_workspace/files': typeof WorkspaceFilesRouteWithChildren
+  '/_workspace/recents': typeof WorkspaceRecentsRoute
+  '/_workspace/settings': typeof WorkspaceSettingsRoute
+  '/_workspace/files/$id': typeof WorkspaceFilesIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/benchmark' | '/components'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/benchmark'
+    | '/components'
+    | '/archive'
+    | '/files'
+    | '/recents'
+    | '/settings'
+    | '/files/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/benchmark' | '/components'
-  id: '__root__' | '/' | '/about' | '/benchmark' | '/components'
+  to:
+    | '/'
+    | '/about'
+    | '/benchmark'
+    | '/components'
+    | '/archive'
+    | '/files'
+    | '/recents'
+    | '/settings'
+    | '/files/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/_workspace'
+    | '/about'
+    | '/benchmark'
+    | '/components'
+    | '/_workspace/archive'
+    | '/_workspace/files'
+    | '/_workspace/recents'
+    | '/_workspace/settings'
+    | '/_workspace/files/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  WorkspaceRoute: typeof WorkspaceRouteWithChildren
   AboutRoute: typeof AboutRoute
   BenchmarkRoute: typeof BenchmarkRoute
   ComponentsRoute: typeof ComponentsRoute
@@ -76,6 +157,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_workspace': {
+      id: '/_workspace'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -99,11 +187,77 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComponentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_workspace/archive': {
+      id: '/_workspace/archive'
+      path: '/archive'
+      fullPath: '/archive'
+      preLoaderRoute: typeof WorkspaceArchiveRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/files': {
+      id: '/_workspace/files'
+      path: '/files'
+      fullPath: '/files'
+      preLoaderRoute: typeof WorkspaceFilesRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/recents': {
+      id: '/_workspace/recents'
+      path: '/recents'
+      fullPath: '/recents'
+      preLoaderRoute: typeof WorkspaceRecentsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/settings': {
+      id: '/_workspace/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof WorkspaceSettingsRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/files/$id': {
+      id: '/_workspace/files/$id'
+      path: '/$id'
+      fullPath: '/files/$id'
+      preLoaderRoute: typeof WorkspaceFilesIdRouteImport
+      parentRoute: typeof WorkspaceFilesRoute
+    }
   }
 }
 
+interface WorkspaceFilesRouteChildren {
+  WorkspaceFilesIdRoute: typeof WorkspaceFilesIdRoute
+}
+
+const WorkspaceFilesRouteChildren: WorkspaceFilesRouteChildren = {
+  WorkspaceFilesIdRoute: WorkspaceFilesIdRoute,
+}
+
+const WorkspaceFilesRouteWithChildren = WorkspaceFilesRoute._addFileChildren(
+  WorkspaceFilesRouteChildren,
+)
+
+interface WorkspaceRouteChildren {
+  WorkspaceArchiveRoute: typeof WorkspaceArchiveRoute
+  WorkspaceFilesRoute: typeof WorkspaceFilesRouteWithChildren
+  WorkspaceRecentsRoute: typeof WorkspaceRecentsRoute
+  WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
+}
+
+const WorkspaceRouteChildren: WorkspaceRouteChildren = {
+  WorkspaceArchiveRoute: WorkspaceArchiveRoute,
+  WorkspaceFilesRoute: WorkspaceFilesRouteWithChildren,
+  WorkspaceRecentsRoute: WorkspaceRecentsRoute,
+  WorkspaceSettingsRoute: WorkspaceSettingsRoute,
+}
+
+const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
+  WorkspaceRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  WorkspaceRoute: WorkspaceRouteWithChildren,
   AboutRoute: AboutRoute,
   BenchmarkRoute: BenchmarkRoute,
   ComponentsRoute: ComponentsRoute,

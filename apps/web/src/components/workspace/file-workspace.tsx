@@ -1,4 +1,5 @@
 import { withAgentActivity } from "@flies/canvas";
+import { useBlocker, useLocation, useNavigate } from "@tanstack/react-router";
 import { isTauri } from "@tauri-apps/api/core";
 import { Menu } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -27,7 +28,6 @@ import { resolveMcpFileId, waitForMcpControls, withFileLock } from "@/lib/mcp/se
 import {
   loadWorkspaceSession,
   patchWorkspaceSession,
-  restoreableActiveId,
   restoreableOpenIds,
 } from "@/lib/workspace-session";
 
@@ -154,7 +154,27 @@ export function FileWorkspace({
   const desktop = isTauri();
   const [library, setLibrary] = useState<FileLibrary | null>(null);
   const [files, setFiles] = useState<DesignFile[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const activeId = /^\/files\/([^/]+)\/?$/.exec(pathname)?.[1] ?? null;
+
+  const section =
+    pathname === "/settings"
+      ? "settings"
+      : pathname === "/files"
+        ? "files"
+        : pathname === "/archive"
+          ? "archive"
+          : "recents";
+
+  const [fileError, setFileError] = useState<{ id: string; message: string } | null>(null);
+
+  const navigateFile = useCallback(
+    (id: string | null) =>
+      id ? navigate({ to: "/files/$id", params: { id } }) : navigate({ to: "/files" }),
+    [navigate],
+  );
+
   const [ready, setReady] = useState(false);
   const savers = useRef(new Map<string, FileSession>());
   const switching = useRef(false);
@@ -167,15 +187,11 @@ export function FileWorkspace({
   const activateFile = useCallback(
     (file: DesignFile) => {
       setFiles((current) =>
-        desktop
-          ? current.some((entry) => entry.id === file.id)
-            ? current
-            : [...current, file]
-          : [file],
+        current.some((entry) => entry.id === file.id) ? current : [...current, file],
       );
-      setActiveId(file.id);
+      void navigateFile(file.id);
     },
-    [desktop],
+    [navigateFile],
   );
 
   const ensureFile = useCallback((file: DesignFile) => {
@@ -184,11 +200,14 @@ export function FileWorkspace({
     );
   }, []);
 
-  const forgetFile = useCallback((id: string) => {
-    savers.current.delete(id);
-    setFiles((current) => current.filter((file) => file.id !== id));
-    setActiveId((current) => (current === id ? null : current));
-  }, []);
+  const forgetFile = useCallback(
+    (id: string) => {
+      savers.current.delete(id);
+      setFiles((current) => current.filter((file) => file.id !== id));
+      if (activeId === id) void navigateFile(null);
+    },
+    [activeId, navigateFile],
+  );
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -217,7 +236,7 @@ export function FileWorkspace({
         const restoreIds = restoreableOpenIds(
           session,
           listing.files.filter((file) => !file.archived).map((file) => file.id),
-        ).filter((id) => desktop || id === session.activeId);
+        ).filter(() => desktop);
 
         for (const id of restoreIds) {
           try {
@@ -232,12 +251,6 @@ export function FileWorkspace({
         }
 
         setFiles(opened);
-        setActiveId(
-          restoreableActiveId(
-            session,
-            opened.map((file) => file.id),
-          ),
-        );
       } catch (failure) {
         if (!cancelled) setError(String(failure));
       } finally {
@@ -256,6 +269,58 @@ export function FileWorkspace({
       activeId,
     });
   }, [ready, files, activeId]);
+
+  useBlocker({
+    enableBeforeUnload: false,
+    shouldBlockFn: async () => {
+      try {
+        await Promise.all([...savers.current.values()].map((session) => session.flush()));
+
+        return false;
+      } catch (failure) {
+        setError(String(failure));
+
+        return true;
+      }
+    },
+  });
+
+  // Browser history controls which editor sessions remain mounted.
+  /* eslint-disable react/set-state-in-effect */
+  useEffect(() => {
+    if (!ready) return;
+
+    if (!activeId) {
+      if (!desktop && files.length) setFiles([]);
+
+      return;
+    }
+
+    const cached = files.find((file) => file.id === activeId);
+
+    if (cached) {
+      if (!desktop && files.length > 1) setFiles([cached]);
+
+      return;
+    }
+
+    let cancelled = false;
+    setFileError(null);
+    void openFile(activeId)
+      .then((file) => {
+        if (!cancelled) setFiles((current) => (desktop ? [...current, file] : [file]));
+
+        return file;
+      })
+      .catch((failure) => {
+        if (!cancelled) setFileError({ id: activeId, message: String(failure) });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, activeId, desktop, files]);
+  /* eslint-enable react/set-state-in-effect */
 
   async function run(action: () => Promise<DesignFile | null>) {
     if (busy) return;
@@ -281,8 +346,7 @@ export function FileWorkspace({
         const saveId = closeId ?? activeId;
         if (saveId) await savers.current.get(saveId)?.flush();
         if (closeId) setFiles((current) => current.filter((file) => file.id !== closeId));
-        if (!desktop && id === null) setFiles([]);
-        setActiveId(id);
+        await navigateFile(id);
         setError("");
         if (id === null) void refresh();
       } catch (failure) {
@@ -291,7 +355,7 @@ export function FileWorkspace({
         switching.current = false;
       }
     },
-    [activeId, desktop, refresh],
+    [activeId, navigateFile, refresh],
   );
 
   useEffect(() => {
@@ -677,6 +741,17 @@ export function FileWorkspace({
         </div>
       )}
       {ready &&
+        activeId &&
+        !files.some((file) => file.id === activeId) &&
+        (fileError?.id === activeId ? (
+          <main className="flex min-h-screen flex-col items-center justify-center gap-4">
+            <p role="alert">{fileError.message}</p>
+            <Button onClick={() => void navigateFile(null)}>Back to files</Button>
+          </main>
+        ) : (
+          <TopLoader active />
+        ))}
+      {ready &&
         files.map((file) => (
           <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
             <FileEditor
@@ -705,6 +780,10 @@ export function FileWorkspace({
             busy={busy}
             error={error}
             desktop={desktop}
+            section={section}
+            onSectionChange={(next) => {
+              void navigate({ to: `/${next}` });
+            }}
             onCreate={async (name) => {
               const file = await createFile(name);
               activateFile(file);

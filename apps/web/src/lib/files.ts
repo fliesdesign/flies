@@ -6,6 +6,7 @@ import {
   type CanvasFrame,
   type CanvasTheme,
 } from "@flies/canvas";
+import { ulid } from "ulid";
 
 import { api, post, ApiError } from "./api";
 
@@ -132,7 +133,7 @@ export class FileAutosave {
   enqueue(nodes: CanvasFrame[], theme: CanvasTheme = this.latestTheme) {
     this.latestNodes = nodes;
     this.latestTheme = theme;
-    this.pending = { name: this.desiredName, nodes, theme, mutationId: crypto.randomUUID() };
+    this.pending = { name: this.desiredName, nodes, theme, mutationId: ulid() };
     this.status("Unsaved changes");
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {

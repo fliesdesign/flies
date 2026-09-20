@@ -46,6 +46,22 @@ try {
   const token = await auth.createSession(verified.user, result.sealedSession);
   const response = await app.request("/api/me", { headers: { Authorization: `Bearer ${token}` } });
   if (response.status !== 200) throw new Error(`Authenticated request failed: ${response.status}`);
+  const account = await response.json();
+  const organization = await workos.organizations.getOrganizationByExternalId(account.workspace.id);
+
+  const members = await workos.userManagement.listOrganizationMemberships({
+    organizationId: organization.id,
+    userId: user.id,
+  });
+
+  if (
+    organization.id !== account.workspace.workosOrganizationId ||
+    members.data[0]?.status !== "active"
+  )
+    throw new Error("Workspace organization or owner membership is missing");
+  const repeated = await provider.ensureOrganization(account.workspace, verified.user);
+  if (repeated !== organization.id) throw new Error("Organization provisioning was not idempotent");
+  console.log("WorkOS organization, active owner membership, and idempotent retry passed.");
   console.log(
     "WorkOS authentication, sealed-session verification, default workspace, and authenticated API request passed.",
   );
@@ -67,6 +83,16 @@ try {
   process.exitCode = 1;
 } finally {
   if (userId) {
+    const [workspace] = await db.select().from(workspaces).where(eq(workspaces.ownerId, userId));
+
+    if (workspace) {
+      const organization = await workos.organizations
+        .getOrganizationByExternalId(workspace.id)
+        .catch(() => null);
+
+      if (organization) await workos.organizations.deleteOrganization(organization.id);
+    }
+
     await db.delete(sessions).where(eq(sessions.userId, userId));
     await db.delete(workspaces).where(eq(workspaces.ownerId, userId));
     await db.delete(users).where(eq(users.id, userId));

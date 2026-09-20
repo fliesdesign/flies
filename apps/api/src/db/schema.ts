@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
-  uuid,
   timestamp,
   integer,
   jsonb,
@@ -21,20 +20,24 @@ export const users = pgTable("users", {
 export const workspaces = pgTable(
   "workspaces",
   {
-    id: uuid().defaultRandom().primaryKey(),
+    id: text().primaryKey(),
     ownerId: text()
       .notNull()
       .references(() => users.id),
     name: text().notNull(),
+    workosOrganizationId: text(),
     createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex("workspace_owner").on(t.ownerId)],
+  (t) => [
+    uniqueIndex("workspace_owner").on(t.ownerId),
+    uniqueIndex("workspace_workos_organization").on(t.workosOrganizationId),
+  ],
 );
 export const files = pgTable(
   "files",
   {
-    id: uuid().defaultRandom().primaryKey(),
-    workspaceId: uuid()
+    id: text().primaryKey(),
+    workspaceId: text()
       .notNull()
       .references(() => workspaces.id),
     name: text().notNull(),
@@ -54,8 +57,8 @@ export const files = pgTable(
 export const revisions = pgTable(
   "file_revisions",
   {
-    id: uuid().primaryKey(),
-    fileId: uuid()
+    id: text().primaryKey(),
+    fileId: text()
       .notNull()
       .references(() => files.id),
     number: integer().notNull(),
@@ -85,6 +88,7 @@ export const loginAttempts = pgTable("login_attempts", {
   verifier: text().notNull(),
   browserHash: text().notNull(),
   desktopChallenge: text(),
+  returnPath: text().notNull().default("/recents"),
   sessionToken: text(),
   expiresAt: timestamp({ withTimezone: true }).notNull(),
 });

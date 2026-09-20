@@ -1,5 +1,5 @@
 {
-  "id": "585265a8-3b98-4311-9a45-43ae3bc9eb3a",
+  "id": "05fc2103-0953-4074-89f8-4042afb6415e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -10,14 +10,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspaceId": {
           "name": "workspaceId",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -146,6 +145,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "returnPath": {
+          "name": "returnPath",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'/recents'"
+        },
         "sessionToken": {
           "name": "sessionToken",
           "type": "text",
@@ -173,13 +179,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true
         },
         "fileId": {
           "name": "fileId",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -376,10 +382,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "ownerId": {
           "name": "ownerId",
@@ -392,6 +397,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "workosOrganizationId": {
+          "name": "workosOrganizationId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "createdAt": {
           "name": "createdAt",
@@ -407,6 +418,21 @@
           "columns": [
             {
               "expression": "ownerId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workspace_workos_organization": {
+          "name": "workspace_workos_organization",
+          "columns": [
+            {
+              "expression": "workosOrganizationId",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

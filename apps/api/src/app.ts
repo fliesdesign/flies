@@ -8,6 +8,7 @@ import { authService, type AuthEnv, type AuthProvider } from "./auth";
 import type { Config } from "./config";
 import type { Database } from "./db/client";
 import { fileService, parseSnapshot } from "./files";
+import { idSchema } from "./ids";
 import type { RevisionStorage } from "./storage";
 
 export const MAX_BODY = 100 * 1024 * 1024;
@@ -82,20 +83,10 @@ export function createApp(
     ),
   );
   app.get("/api/files/:id", async (c) =>
-    c.json(
-      await files.read(
-        c.get("workspace").id,
-        v.parse(v.pipe(v.string(), v.uuid()), c.req.param("id")),
-      ),
-    ),
+    c.json(await files.read(c.get("workspace").id, v.parse(idSchema, c.req.param("id")))),
   );
   app.get("/api/files/:id/revisions", async (c) =>
-    c.json(
-      await files.history(
-        c.get("workspace").id,
-        v.parse(v.pipe(v.string(), v.uuid()), c.req.param("id")),
-      ),
-    ),
+    c.json(await files.history(c.get("workspace").id, v.parse(idSchema, c.req.param("id")))),
   );
   app.post("/api/files/:id/revisions", async (c) => {
     const body = await c.req.json();
@@ -103,25 +94,21 @@ export function createApp(
     const version = v.parse(
       v.object({
         revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
-        mutationId: v.pipe(v.string(), v.uuid()),
+        mutationId: idSchema,
       }),
       body,
     );
 
     return c.json(
       await files.write(c.get("workspace").id, c.get("user").id, parseSnapshot(body), {
-        id: v.parse(v.pipe(v.string(), v.uuid()), c.req.param("id")),
+        id: v.parse(idSchema, c.req.param("id")),
         ...version,
       }),
     );
   });
   app.post("/api/files/:id/archive", async (c) => {
     const { archived } = v.parse(v.object({ archived: v.boolean() }), await c.req.json());
-    await files.archive(
-      c.get("workspace").id,
-      v.parse(v.pipe(v.string(), v.uuid()), c.req.param("id")),
-      archived,
-    );
+    await files.archive(c.get("workspace").id, v.parse(idSchema, c.req.param("id")), archived);
 
     return c.json({ archived });
   });

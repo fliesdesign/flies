@@ -49,6 +49,8 @@ type Props = {
   busy: boolean;
   error: string;
   desktop: boolean;
+  section?: LibrarySection;
+  onSectionChange?: (section: LibrarySection) => void;
   onCreate: (name: string) => Promise<void>;
   onOpen: (id: string) => void;
   onImport: () => void;
@@ -85,14 +87,18 @@ export function FileLibraryView({
   onRefresh,
   account,
   onSignOut,
+  section: routeSection,
+  onSectionChange,
 }: Props) {
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
 
-  const [section, setSection] = useState<LibrarySection>(
+  const [localSection, setSection] = useState<LibrarySection>(
     () => loadWorkspaceSession().librarySection,
   );
+
+  const section = routeSection ?? localSection;
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"edited" | "name">("edited");
@@ -226,6 +232,7 @@ export function FileLibraryView({
                       aria-current={section === item.id ? "page" : undefined}
                       onClick={() => {
                         setSection(item.id);
+                        onSectionChange?.(item.id);
                         patchWorkspaceSession({ librarySection: item.id });
                       }}
                     >

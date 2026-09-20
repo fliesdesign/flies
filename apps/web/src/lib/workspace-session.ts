@@ -19,7 +19,7 @@ export const DEFAULT_WORKSPACE_SESSION: WorkspaceSession = {
   sidebarTab: "design",
 };
 
-const FILE_ID = /^[\da-f][\da-f-]{0,79}$/i;
+const FILE_ID = /^(?:[0-7][0-9A-HJKMNP-TV-Z]{25}|[\da-f][\da-f-]{0,79})$/i;
 
 function storage() {
   try {

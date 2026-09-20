@@ -4,8 +4,15 @@ import * as v from "valibot";
 
 import { configSchema } from "../src/config";
 import { parseSnapshot } from "../src/files";
+import { idSchema } from "../src/ids";
 
 describe("API input validation", () => {
+  test("accepts ULIDs and legacy UUIDs but rejects invalid file IDs", () => {
+    for (const id of ["01ARZ3NDEKTSV4RRFFQ69G5FAV", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"])
+      expect(v.safeParse(idSchema, id).success).toBe(true);
+    for (const id of ["../secret", "ZZZZZZZZZZZZZZZZZZZZZZZZZZ", "01ARZ3NDEKTSV4RRFFQ69G5FAI"])
+      expect(v.safeParse(idSchema, id).success).toBe(false);
+  });
   test("rejects invalid geometry, duplicate IDs, and parent cycles", () => {
     const node = { id: "frame", name: "Frame", x: 0, y: 0, width: 100, height: 100 };
 

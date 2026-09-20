@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { S3Client } from "bun";
 import { eq, inArray } from "drizzle-orm";
+import { ulid } from "ulid";
 
 import { createApp } from "../src/app";
 import { hash, type AuthProvider } from "../src/auth";
@@ -27,7 +28,16 @@ const identities = ["alice", "bob"].map((name): Identity => ({
 let available = true;
 let uploadsFail = false;
 
+const provisioned = new Map<string, string>();
+
 const provider: AuthProvider = {
+  async ensureOrganization(workspace) {
+    if (provisioned.has(workspace.id)) throw new Error("Duplicate provisioning");
+    const id = `org_test_${workspace.id}`;
+    provisioned.set(workspace.id, id);
+
+    return id;
+  },
   authorizationUrl: (state) => `https://example.com/authorize?state=${state}`,
   async exchange(code) {
     const user = identities.find((u) => u.id === code);
@@ -145,6 +155,38 @@ afterAll(async () => {
   await client.close();
 }, 30_000);
 describe("Neon + Railway revision API", () => {
+  test("failed organization provisioning preserves its ID and concurrent retries link once", async () => {
+    const user = { id: `test_retry_${ulid()}`, name: "Retry", email: "retry@example.invalid" };
+    identities.push(user);
+    let externalId = "";
+    let attempts = 0;
+
+    const retryProvider = {
+      async ensureOrganization(workspace: { id: string }) {
+        attempts++;
+
+        if (attempts === 1) {
+          externalId = workspace.id;
+          throw new Error("Provisioning interrupted after remote creation");
+        }
+
+        expect(workspace.id).toBe(externalId);
+
+        return `org_test_${workspace.id}`;
+      },
+    };
+
+    await expect(ensureWorkspace(db, user, retryProvider)).rejects.toThrow(
+      "Provisioning interrupted",
+    );
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => ensureWorkspace(db, user, retryProvider)),
+    );
+
+    expect(attempts).toBe(2);
+    expect(new Set(results.map((w) => w.workosOrganizationId)).size).toBe(1);
+  }, 20_000);
   test("authentication and CSRF reject untrusted requests", async () => {
     expect((await app.request("/api/files")).status).toBe(401);
     expect(
@@ -159,10 +201,11 @@ describe("Neon + Railway revision API", () => {
   });
   test("concurrent first logins create exactly one default workspace", async () => {
     const rows = await Promise.all(
-      Array.from({ length: 4 }, () => ensureWorkspace(db, identities[0])),
+      Array.from({ length: 4 }, () => ensureWorkspace(db, identities[0], provider)),
     );
 
     expect(new Set(rows.map((r) => r.id)).size).toBe(1);
+    expect(rows[0].workosOrganizationId).toBe(provisioned.get(rows[0].id)!);
   }, 20_000);
   test("create and read a real gzipped S3 revision", async () => {
     const response = await request("/api/files", 0, snapshot);
@@ -170,6 +213,7 @@ describe("Neon + Railway revision API", () => {
     const file = await response.json();
     fileId = file.id;
     expect(file.revision).toBe(0);
+    expect(file.id).toMatch(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     const read = await request(`/api/files/${fileId}`);
     expect(await read.json()).toEqual(file);
     expect(
@@ -186,7 +230,7 @@ describe("Neon + Railway revision API", () => {
         await request(`/api/files/${fileId}/revisions`, 1, {
           ...snapshot,
           revision: 0,
-          mutationId: crypto.randomUUID(),
+          mutationId: ulid(),
         })
       ).status,
     ).toBe(404);
@@ -198,7 +242,7 @@ describe("Neon + Railway revision API", () => {
       ...snapshot,
       name: `Save ${n}`,
       revision: 0,
-      mutationId: crypto.randomUUID(),
+      mutationId: ulid(),
     }));
 
     const responses = await Promise.all(
@@ -221,7 +265,7 @@ describe("Neon + Railway revision API", () => {
   }, 30_000);
   test("failed S3 writes preserve the previous revision and allow retry", async () => {
     uploadsFail = true;
-    const payload = { ...snapshot, revision: 1, mutationId: crypto.randomUUID() };
+    const payload = { ...snapshot, revision: 1, mutationId: ulid() };
     expect((await request(`/api/files/${fileId}/revisions`, 0, payload)).status).toBe(500);
     uploadsFail = false;
     expect((await (await request(`/api/files/${fileId}`)).json()).revision).toBe(1);
@@ -250,6 +294,24 @@ describe("Neon + Railway revision API", () => {
       (await (await request("/auth/desktop/complete", 0, { verifier })).json()).token,
     ).toBeNull();
     await db.delete(loginAttempts).where(eq(loginAttempts.state, state));
+  }, 20_000);
+  test("browser login returns to a file route and rejects external redirect targets", async () => {
+    for (const requested of [`/files/${fileId}`, "//evil.example", "https://evil.example"]) {
+      // eslint-disable-next-line no-await-in-loop
+      const login = await app.request(`/auth/login?returnTo=${encodeURIComponent(requested)}`);
+      const state = new URL(login.headers.get("Location")!).searchParams.get("state")!;
+      const cookie = login.headers.get("Set-Cookie")!.split(";")[0];
+
+      // eslint-disable-next-line no-await-in-loop
+      const callback = await app.request(`/auth/callback?state=${state}&code=${identities[0].id}`, {
+        headers: { Cookie: cookie },
+      });
+
+      expect(callback.status).toBe(302);
+      expect(callback.headers.get("Location")).toBe(
+        new URL(requested.startsWith("/files/") ? requested : "/recents", config.WEB_URL).href,
+      );
+    }
   }, 20_000);
   test("logout invalidates the local session", async () => {
     expect((await request("/auth/logout", 0, {})).status).toBe(200);
