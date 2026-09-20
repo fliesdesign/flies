@@ -5,8 +5,8 @@ import { HTTPException } from "hono/http-exception";
 import { ulid } from "ulid";
 import * as v from "valibot";
 
-import type { Database } from "./db/client";
 import { assertImageLimits, BILLING_DISABLED, type Entitlements } from "./billing";
+import type { Database } from "./db/client";
 import { files, revisions, users, workspaces } from "./db/schema";
 import type { OrganizationProvider } from "./organizations";
 import type { RevisionStorage } from "./storage";
@@ -160,10 +160,18 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
       return db.transaction(async (tx) => {
         if (!existing && entitlements.enabled) {
           await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
-          const [usage] = await tx.select({ total: count() }).from(files).where(eq(files.workspaceId, workspaceId));
+
+          const [usage] = await tx
+            .select({ total: count() })
+            .from(files)
+            .where(eq(files.workspaceId, workspaceId));
+
           if (usage.total >= entitlements.limits.designFiles)
-            throw new HTTPException(403, { message: `Your ${entitlements.plan} plan allows ${entitlements.limits.designFiles} design files.` });
+            throw new HTTPException(403, {
+              message: `Your ${entitlements.plan} plan allows ${entitlements.limits.designFiles} design files.`,
+            });
         }
+
         let createdAt = new Date();
         let number = 0;
 

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { post } from "../api";
 import { errorResult, type McpResult } from "./editor";
 
 type Request = { id: string; name: string; arguments: Record<string, unknown> };
@@ -44,6 +45,7 @@ async function fulfill(request: Request) {
 
   try {
     if (!current) throw new Error("Desktop editor disconnected.");
+    await post("/api/billing/mcp/consume", {});
     result = await current(request.name, request.arguments);
   } catch (error) {
     result = errorResult(error);

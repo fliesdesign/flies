@@ -21,18 +21,40 @@ export const configSchema = v.object({
   POLAR_WEBHOOK_SECRET: v.optional(v.string()),
   POLAR_PRO_PRODUCT_ID: v.optional(v.string()),
   POLAR_ORGANIZATION_ID: v.optional(v.string()),
-  POLAR_SERVER: v.optional(v.picklist(["production", "sandbox"])),
+  POLAR_SERVER: v.optional(
+    v.pipe(
+      v.string(),
+      v.transform((value) => value.trim() || undefined),
+      v.optional(v.picklist(["production", "sandbox"])),
+    ),
+  ),
 });
 export type Config = v.InferOutput<typeof configSchema>;
 
-export function billingConfig(config: Pick<Config, "POLAR_ACCESS_TOKEN" | "POLAR_WEBHOOK_SECRET" | "POLAR_PRO_PRODUCT_ID" | "POLAR_ORGANIZATION_ID" | "POLAR_SERVER">) {
-  const required = ["POLAR_ACCESS_TOKEN", "POLAR_WEBHOOK_SECRET", "POLAR_PRO_PRODUCT_ID", "POLAR_ORGANIZATION_ID"] as const;
+export function billingConfig(
+  config: Pick<
+    Config,
+    | "POLAR_ACCESS_TOKEN"
+    | "POLAR_WEBHOOK_SECRET"
+    | "POLAR_PRO_PRODUCT_ID"
+    | "POLAR_ORGANIZATION_ID"
+    | "POLAR_SERVER"
+  >,
+) {
+  const required = [
+    "POLAR_ACCESS_TOKEN",
+    "POLAR_WEBHOOK_SECRET",
+    "POLAR_PRO_PRODUCT_ID",
+    "POLAR_ORGANIZATION_ID",
+  ] as const;
+
   if (![...required, "POLAR_SERVER" as const].some((key) => config[key]?.trim())) return null;
   const missing = required.filter((key) => !config[key]?.trim());
   if (missing.length) throw new Error(`Incomplete Polar configuration: ${missing.join(", ")}`);
   for (const key of ["POLAR_PRO_PRODUCT_ID", "POLAR_ORGANIZATION_ID"] as const)
     if (!v.safeParse(v.pipe(v.string(), v.uuid()), config[key]).success)
       throw new Error(`Invalid Polar configuration: ${key}`);
+
   return {
     accessToken: config.POLAR_ACCESS_TOKEN!,
     webhookSecret: config.POLAR_WEBHOOK_SECRET!,
@@ -50,5 +72,6 @@ export function readConfig() {
     );
 
   billingConfig(result.output);
+
   return result.output;
 }

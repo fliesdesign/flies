@@ -94,7 +94,9 @@ export const loginAttempts = pgTable("login_attempts", {
 });
 
 export const workspaceBilling = pgTable("workspace_billing", {
-  workspaceId: text().primaryKey().references(() => workspaces.id, { onDelete: "cascade" }),
+  workspaceId: text()
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   customerId: text(),
   subscriptionId: text(),
   proUntil: timestamp({ withTimezone: true }),
@@ -102,7 +104,9 @@ export const workspaceBilling = pgTable("workspace_billing", {
 });
 
 export const mcpUsage = pgTable("mcp_usage", {
-  workspaceId: text().primaryKey().references(() => workspaces.id, { onDelete: "cascade" }),
+  workspaceId: text()
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   week: timestamp({ withTimezone: true }).notNull(),
   calls: integer().notNull().default(0),
 });

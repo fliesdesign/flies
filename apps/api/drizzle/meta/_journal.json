@@ -8,6 +8,13 @@
       "when": 1789935156307,
       "tag": "0000_perpetual_nightmare",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789941548019,
+      "tag": "0001_wealthy_lord_hawal",
+      "breakpoints": true
     }
   ]
 }

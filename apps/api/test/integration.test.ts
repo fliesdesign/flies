@@ -320,3 +320,168 @@ describe("Neon + Railway revision API", () => {
     expect((await request("/api/files", 1)).status).toBe(401);
   });
 });
+
+describe("Polar billing boundaries", () => {
+  test("limits serialize, customer state refreshes, and signed webhooks revoke access", async () => {
+    available = true;
+    const { Webhook } = await import("standardwebhooks");
+    const { mcpUsage, workspaceBilling } = await import("../src/db/schema");
+    const { weekStart } = await import("../src/billing");
+
+    const user = {
+      id: `test_billing_${ulid()}`,
+      name: "Billing",
+      email: "billing@example.invalid",
+    };
+
+    identities.push(user);
+    const secret = `whsec_${Buffer.from("test-billing-secret".repeat(2)).toString("base64")}`;
+
+    const billingConfig = {
+      ...config,
+      POLAR_ACCESS_TOKEN: "test",
+      POLAR_WEBHOOK_SECRET: secret,
+      POLAR_PRO_PRODUCT_ID: "14e2d2c3-fa2d-4b26-a686-30efbebbcf1b",
+      POLAR_ORGANIZATION_ID: "be8119a2-23a8-4edf-ab4c-5edd1ba71ccf",
+    };
+
+    let pro = false;
+    let wrongOrganization = false;
+    const documents = new Map<string, unknown>();
+    let checkoutInput: unknown;
+
+    const instance = createApp(
+      db,
+      {
+        async put(key, doc) {
+          documents.set(key, doc);
+
+          return { sha256: "test", byteLength: 1 };
+        },
+        async get(key) {
+          return documents.get(key);
+        },
+      },
+      billingConfig,
+      provider,
+      {
+        async state(workspaceId) {
+          return {
+            id: "customer",
+            organizationId: wrongOrganization ? "other" : billingConfig.POLAR_ORGANIZATION_ID,
+            externalId: workspaceId,
+            activeSubscriptions: pro
+              ? [
+                  {
+                    id: "sub",
+                    productId: billingConfig.POLAR_PRO_PRODUCT_ID,
+                    status: "active",
+                    currentPeriodEnd: new Date(Date.now() + 86400_000),
+                    endsAt: null,
+                  },
+                ]
+              : [],
+          };
+        },
+        async checkout(workspaceId, identity, seats) {
+          checkoutInput = { workspaceId, identity, seats };
+
+          return "https://polar.sh/checkout/test";
+        },
+        async portal() {
+          return "https://polar.sh/portal/test";
+        },
+      },
+    );
+
+    const token = await instance.auth.createSession(user, user.id);
+
+    const call = (path: string, body?: unknown) =>
+      instance.app.request(path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Origin: config.WEB_URL,
+          "Content-Type": "application/json",
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+
+    const me = await (await call("/api/me")).json();
+    const workspaceId = me.workspace.id;
+    expect((await (await call("/api/billing")).json()).plan).toBe("free");
+    expect(
+      (await call("/api/billing/checkout", { seats: 2, workspaceId: "attacker" })).status,
+    ).toBe(200);
+    expect(checkoutInput).toEqual({ workspaceId, identity: user, seats: 2 });
+    expect((await call("/api/billing/checkout", { seats: 0 })).status).toBe(400);
+
+    const creates = await Promise.all(
+      Array.from({ length: 8 }, () => call("/api/files", snapshot)),
+    );
+
+    expect(creates.filter((response) => response.status === 201)).toHaveLength(5);
+    expect(creates.filter((response) => response.status === 403)).toHaveLength(3);
+    await db.insert(mcpUsage).values({ workspaceId, week: weekStart(), calls: 299 });
+
+    const consumes = await Promise.all(
+      Array.from({ length: 4 }, () => call("/api/billing/mcp/consume", {})),
+    );
+
+    expect(consumes.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(consumes.filter((response) => response.status === 429)).toHaveLength(3);
+    await expect(instance.billing.consumeMcp(workspaceId, true)).rejects.toThrow("requires Pro");
+    await db
+      .update(mcpUsage)
+      .set({ week: new Date(0) })
+      .where(eq(mcpUsage.workspaceId, workspaceId));
+    expect((await (await call("/api/billing/mcp/consume", {})).json()).remaining).toBe(299);
+    pro = true;
+    expect((await (await call("/api/billing/refresh", {})).json()).plan).toBe("pro");
+    expect((await call("/api/billing/checkout", { seats: 1 })).status).toBe(409);
+    expect((await call("/api/files", snapshot)).status).toBe(201);
+    expect((await instance.billing.consumeMcp(workspaceId, true)).enabled).toBe(true);
+    pro = false;
+
+    const event = JSON.stringify({
+      type: "customer.state_changed",
+      data: { external_id: workspaceId, organization_id: billingConfig.POLAR_ORGANIZATION_ID },
+    });
+
+    const now = new Date();
+
+    const headers = {
+      "webhook-id": "event_test",
+      "webhook-timestamp": String(Math.floor(now.getTime() / 1000)),
+      "webhook-signature": new Webhook(secret).sign("event_test", now, event),
+      "Content-Type": "application/json",
+    };
+
+    expect(
+      (await instance.app.request("/api/billing/webhook", { method: "POST", body: event })).status,
+    ).toBe(403);
+
+    // Concurrent retries are harmless and need no browser session or Origin.
+    const deliveries = await Promise.all(
+      [0, 1].map(() =>
+        instance.app.request("/api/billing/webhook", { method: "POST", headers, body: event }),
+      ),
+    );
+
+    expect(deliveries.map((response) => response.status)).toEqual([200, 200]);
+
+    expect((await (await call("/api/billing")).json()).plan).toBe("free");
+    expect((await call("/api/files", snapshot)).status).toBe(403);
+    wrongOrganization = true;
+    expect((await call("/api/billing/refresh", {})).status).toBe(502);
+    // No cached entitlement is overwritten on upstream mismatch.
+    expect(
+      (
+        await db
+          .select()
+          .from(workspaceBilling)
+          .where(eq(workspaceBilling.workspaceId, workspaceId))
+      )[0].proUntil,
+    ).toBeNull();
+  }, 30_000);
+});

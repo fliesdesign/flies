@@ -50,7 +50,10 @@ export function createApp(
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Referrer-Policy", "no-referrer");
 
-    if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method) && !(c.req.method === "POST" && c.req.path === "/api/billing/webhook")) {
+    if (
+      !["GET", "HEAD", "OPTIONS"].includes(c.req.method) &&
+      !(c.req.method === "POST" && c.req.path === "/api/billing/webhook")
+    ) {
       const origin = c.req.header("Origin");
       if ((origin && !origins.has(origin)) || (!origin && !c.req.header("Authorization")))
         throw new HTTPException(403, { message: "Request origin is not allowed." });
@@ -71,6 +74,7 @@ export function createApp(
   app.get("/health", (c) => c.json({ ok: true }));
   app.post("/api/billing/webhook", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
     await billing.webhook(await c.req.text(), c.req.header());
+
     return c.json({ received: true });
   });
   app.use("/api/*", async (c, next) => {
@@ -79,12 +83,27 @@ export function createApp(
   });
   app.get("/api/me", (c) => c.json({ user: c.get("user"), workspace: c.get("workspace") }));
   app.get("/api/billing", async (c) => c.json(await billing.entitlements(c.get("workspace").id)));
-  app.post("/api/billing/refresh", async (c) => c.json(await billing.entitlements(c.get("workspace").id, true)));
+  app.post("/api/billing/refresh", async (c) =>
+    c.json(await billing.entitlements(c.get("workspace").id, true)),
+  );
   app.post("/api/billing/checkout", async (c) => {
-    const { seats } = v.parse(v.object({ seats: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), 1) }), await c.req.json());
+    const { seats } = v.parse(
+      v.object({
+        seats: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), 1),
+      }),
+      await c.req.json(),
+    );
+
     return c.json({ url: await billing.checkout(c.get("workspace").id, c.get("user"), seats) });
   });
-  app.post("/api/billing/portal", async (c) => c.json({ url: await billing.portal(c.get("workspace").id) }));
+  app.post("/api/billing/portal", async (c) =>
+    c.json({ url: await billing.portal(c.get("workspace").id) }),
+  );
+  // This endpoint accounts for local desktop calls. Future public MCP handlers
+  // must call consumeMcp(workspaceId, true) directly before dispatching a tool.
+  app.post("/api/billing/mcp/consume", async (c) =>
+    c.json(await billing.consumeMcp(c.get("workspace").id, false)),
+  );
   app.get("/api/files", async (c) =>
     c.json({
       files: await files.list(c.get("workspace").id),
@@ -94,7 +113,13 @@ export function createApp(
   );
   app.post("/api/files", async (c) =>
     c.json(
-      await files.write(c.get("workspace").id, c.get("user").id, parseSnapshot(await c.req.json()), undefined, await billing.entitlements(c.get("workspace").id)),
+      await files.write(
+        c.get("workspace").id,
+        c.get("user").id,
+        parseSnapshot(await c.req.json()),
+        undefined,
+        await billing.entitlements(c.get("workspace").id),
+      ),
       201,
     ),
   );
@@ -111,15 +136,21 @@ export function createApp(
       v.object({
         revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
         mutationId: idSchema,
-      }, await billing.entitlements(c.get("workspace").id)),
+      }),
       body,
     );
 
     return c.json(
-      await files.write(c.get("workspace").id, c.get("user").id, parseSnapshot(body), {
-        id: v.parse(idSchema, c.req.param("id")),
-        ...version,
-      }),
+      await files.write(
+        c.get("workspace").id,
+        c.get("user").id,
+        parseSnapshot(body),
+        {
+          id: v.parse(idSchema, c.req.param("id")),
+          ...version,
+        },
+        await billing.entitlements(c.get("workspace").id),
+      ),
     );
   });
   app.post("/api/files/:id/archive", async (c) => {

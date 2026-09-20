@@ -95,3 +95,74 @@ cargo test --manifest-path apps/desktop/Cargo.toml --lib --locked
 ```
 
 Integration tests require `DATABASE_URL` to equal the separately supplied `TEST_DATABASE_URL`. They exercise a real Neon database and Railway S3 bucket with an injected identity provider to cover ownership, concurrent writes, idempotent retry, failed uploads, immutable historical reads, state/verifier checks, and logout. The WorkOS smoke separately exercises real WorkOS authentication and sealed sessions. No authentication bypass exists in the running API.
+
+## Polar billing (optional)
+
+Leave every `POLAR_*` variable unset or empty to disable billing. This preserves
+unrestricted file saves and MCP usage; it does **not** silently assign the Free
+plan. `/api/billing` returns `{ enabled: false, plan: null, limits: null }`, and
+checkout, portal, and webhook routes return 503. Partial configuration fails at
+startup instead of accidentally bypassing payment checks.
+
+To enable billing, set all four server-only values:
+
+- `POLAR_ACCESS_TOKEN`: a Flies organization access token with customer read,
+  checkout write, and customer-session write access.
+- `POLAR_WEBHOOK_SECRET`: the signing secret for a Raw webhook subscribed to
+  `customer.state_changed`, targeting `https://board.flies.design/api/billing/webhook`.
+- `POLAR_PRO_PRODUCT_ID`: `14e2d2c3-fa2d-4b26-a686-30efbebbcf1b` in production.
+- `POLAR_ORGANIZATION_ID`: `be8119a2-23a8-4edf-ab4c-5edd1ba71ccf` in production.
+
+`POLAR_SERVER` optionally selects `production` (default) or `sandbox`. Sandbox
+requires its own token, webhook secret, organization, and product IDs. Run
+`bun run db:migrate` before enabling billing. Secrets remain outside source control.
+
+| Entitlement                                          | Free                       | Pro ($12/user/month) |
+| ---------------------------------------------------- | -------------------------- | -------------------- |
+| Design files per workspace, including archived files | 5                          | 250                  |
+| Maximum decoded size per image                       | 30 MB                      | 250 MB               |
+| MCP tool calls per workspace per UTC week            | 300                        | 500,000              |
+| Public MCP access                                    | No                         | Yes                  |
+| Workspace type                                       | Personal, single workspace | Team entitlement     |
+| License                                              | Personal use               | Commercial use       |
+| Share links                                          | No                         | Yes                  |
+
+MB means 1,000,000 bytes. Plan limits are per workspace, not multiplied by paid
+seats. Existing files remain readable on downgrade; new files stop at the cap,
+and saves validate each embedded image. Archived files still count. Billing-enabled
+requests allow up to 350 MiB to accommodate a base64-encoded 250 MB image; disabled
+mode retains the original 100 MiB request cap.
+
+| Method | Path                       | Purpose                                                  |
+| ------ | -------------------------- | -------------------------------------------------------- |
+| GET    | `/api/billing`             | Current plan and entitlements                            |
+| POST   | `/api/billing/refresh`     | Refresh after checkout; never trusts redirect parameters |
+| POST   | `/api/billing/checkout`    | `{ seats: 1 }` (1–1000); returns hosted checkout URL     |
+| POST   | `/api/billing/portal`      | Returns hosted subscription management URL               |
+| POST   | `/api/billing/mcp/consume` | Reserve one local MCP tool call before dispatch          |
+| POST   | `/api/billing/webhook`     | Signature-authenticated Polar events; no app session     |
+
+All other billing routes require the existing app session and mutation-origin
+checks. Checkout derives the external customer ID from the authenticated workspace,
+and uses only the configured Pro product. It does not accept customer, product,
+workspace, or redirect overrides. The owner can choose seats and manage them in
+Polar's portal. An active, unexpired subscription to that exact product grants Pro;
+other products and payment failures do not. Cancel-at-period-end subscriptions keep
+access until their paid period ends.
+
+Customer state is fetched from Polar and cached in Postgres for up to 60 seconds.
+Signed webhooks invalidate that cache; the next request reads authoritative state.
+Duplicate and out-of-order deliveries cannot restore old access. Both current
+Standard Webhooks and legacy Polar signatures are supported, with timestamp checks.
+Failed Polar lookups do not silently grant access or downgrade a customer.
+
+The API provides atomic weekly MCP accounting (Monday 00:00 UTC) and checks the
+public-access entitlement through `billing.consumeMcp(workspaceId, true)` for future
+server-side MCP dispatchers. The existing desktop MCP bridge reserves a local
+call through `/api/billing/mcp/consume` before running a tool. Public MCP transport,
+team membership/invitation flows, and share-link creation are separate features;
+this integration exposes their entitlements, not those feature implementations.
+
+Billing tests use an injected provider and signed fixtures. They never charge a
+card or create a real customer. A sandbox checkout and deployed webhook delivery
+still need verification after credentials and deployment are configured.
