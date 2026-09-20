@@ -42,6 +42,7 @@ import {
 import { AppearanceSettings } from "./appearance-settings";
 import { FilePreview } from "./file-preview";
 import { UpdateSettings } from "./update-settings";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 import "./file-library.css";
 
 type Props = {
@@ -201,6 +202,14 @@ export function FileLibraryView({
     >
       <Sidebar collapsible="none" className="library-sidebar">
         <SidebarHeader>
+          <WorkspaceSwitcher
+            workspace={library?.workspace ?? account?.workspace ?? null}
+            onSettings={() => {
+              setSection("settings");
+              onSectionChange?.("settings");
+              patchWorkspaceSession({ librarySection: "settings" });
+            }}
+          />
           <div className="relative">
             <SearchIcon
               aria-hidden="true"

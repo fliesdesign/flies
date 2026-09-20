@@ -47,6 +47,13 @@ test("web workspace routes support direct files, navigation, history, and errors
   await page.getByRole("menuitem", { name: "All files", exact: true }).click();
   await expect(page).toHaveURL("http://127.0.0.1:1431/files");
   await expect(page.getByRole("heading", { name: "Files", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Switch workspace: My workspace" }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "My workspace Current workspace" }),
+  ).toHaveAttribute("aria-current", "true");
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:1431/settings");
+  await page.getByRole("button", { name: "Files", exact: true }).click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page).toHaveURL("http://127.0.0.1:1431/settings");
   await page.getByRole("button", { name: "Recents", exact: true }).click();
