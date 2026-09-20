@@ -17,8 +17,30 @@ export const configSchema = v.object({
   S3_ACCESS_KEY_ID: v.pipe(v.string(), v.minLength(1)),
   S3_SECRET_ACCESS_KEY: v.pipe(v.string(), v.minLength(1)),
   S3_PREFIX: v.optional(v.pipe(v.string(), v.regex(/^[a-zA-Z0-9/_-]+$/)), "revisions"),
+  POLAR_ACCESS_TOKEN: v.optional(v.string()),
+  POLAR_WEBHOOK_SECRET: v.optional(v.string()),
+  POLAR_PRO_PRODUCT_ID: v.optional(v.string()),
+  POLAR_ORGANIZATION_ID: v.optional(v.string()),
+  POLAR_SERVER: v.optional(v.picklist(["production", "sandbox"])),
 });
 export type Config = v.InferOutput<typeof configSchema>;
+
+export function billingConfig(config: Pick<Config, "POLAR_ACCESS_TOKEN" | "POLAR_WEBHOOK_SECRET" | "POLAR_PRO_PRODUCT_ID" | "POLAR_ORGANIZATION_ID" | "POLAR_SERVER">) {
+  const required = ["POLAR_ACCESS_TOKEN", "POLAR_WEBHOOK_SECRET", "POLAR_PRO_PRODUCT_ID", "POLAR_ORGANIZATION_ID"] as const;
+  if (![...required, "POLAR_SERVER" as const].some((key) => config[key]?.trim())) return null;
+  const missing = required.filter((key) => !config[key]?.trim());
+  if (missing.length) throw new Error(`Incomplete Polar configuration: ${missing.join(", ")}`);
+  for (const key of ["POLAR_PRO_PRODUCT_ID", "POLAR_ORGANIZATION_ID"] as const)
+    if (!v.safeParse(v.pipe(v.string(), v.uuid()), config[key]).success)
+      throw new Error(`Invalid Polar configuration: ${key}`);
+  return {
+    accessToken: config.POLAR_ACCESS_TOKEN!,
+    webhookSecret: config.POLAR_WEBHOOK_SECRET!,
+    productId: config.POLAR_PRO_PRODUCT_ID!,
+    organizationId: config.POLAR_ORGANIZATION_ID!,
+    server: config.POLAR_SERVER ?? "production",
+  };
+}
 
 export function readConfig() {
   const result = v.safeParse(configSchema, process.env);
@@ -27,5 +49,6 @@ export function readConfig() {
       `Missing or invalid API configuration: ${result.issues.map((issue) => issue.path?.map((part) => part.key).join(".")).join(", ")}`,
     );
 
+  billingConfig(result.output);
   return result.output;
 }

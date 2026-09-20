@@ -1,4 +1,5 @@
 mod clipboard;
+mod credentials;
 mod fonts;
 mod mcp;
 mod snapshot;
@@ -28,6 +29,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            credentials::read_desktop_session,
+            credentials::write_desktop_session,
             fonts::list_system_fonts,
             clipboard::read_canvas_clipboard,
             mcp::mcp_next_request,

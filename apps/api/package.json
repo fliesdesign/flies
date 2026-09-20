@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@flies/canvas": "workspace:*",
+    "@polar-sh/sdk": "^0.49.0",
     "@workos-inc/node": "^10.13.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
+    "standardwebhooks": "^1.1.1",
     "ulid": "^3.0.2",
     "valibot": "^1.5.0"
   },

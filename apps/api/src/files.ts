@@ -1,11 +1,12 @@
 import { CanvasDocument, type CanvasFrame } from "@flies/canvas/document";
 import { EMPTY_THEME, type CanvasTheme } from "@flies/canvas/theme";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { ulid } from "ulid";
 import * as v from "valibot";
 
 import type { Database } from "./db/client";
+import { assertImageLimits, BILLING_DISABLED, type Entitlements } from "./billing";
 import { files, revisions, users, workspaces } from "./db/schema";
 import type { OrganizationProvider } from "./organizations";
 import type { RevisionStorage } from "./storage";
@@ -151,11 +152,18 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
       userId: string,
       snapshot: Snapshot,
       existing?: { id: string; revision: number; mutationId: string },
+      entitlements: Entitlements = BILLING_DISABLED,
     ) {
       const id = existing?.id ?? ulid();
       const revisionId = existing?.mutationId ?? ulid();
 
       return db.transaction(async (tx) => {
+        if (!existing && entitlements.enabled) {
+          await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
+          const [usage] = await tx.select({ total: count() }).from(files).where(eq(files.workspaceId, workspaceId));
+          if (usage.total >= entitlements.limits.designFiles)
+            throw new HTTPException(403, { message: `Your ${entitlements.plan} plan allows ${entitlements.limits.designFiles} design files.` });
+        }
         let createdAt = new Date();
         let number = 0;
 
@@ -184,6 +192,7 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
           number = row.revision + 1;
         }
 
+        assertImageLimits(snapshot, entitlements);
         const updatedAt = new Date();
 
         const document = {

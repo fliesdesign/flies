@@ -31,6 +31,13 @@ rmcp = { version = "3.4", features = ["transport-streamable-http-server"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 base64 = "0.23"
 fontdb = "0.24.0"
+keyring = { version = "3.6.3", features = [
+  "apple-native",
+  "windows-native",
+  "sync-secret-service",
+  "crypto-rust",
+  "vendored",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

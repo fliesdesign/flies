@@ -1,4 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 const configuredUrl = import.meta.env.VITE_API_URL as string | undefined;
 
@@ -11,12 +11,37 @@ export function apiUrl(path: string) {
   return `${base.replace(/\/$/, "")}${path}`;
 }
 
-// Desktop tokens stay in memory; WorkOS refresh credentials never enter the webview.
-let desktopToken: string | null = null;
+// Persist only the opaque Flies token; WorkOS refresh credentials stay on the server.
+let desktopToken: string | null | undefined;
+let credentialQueue: Promise<unknown> = Promise.resolve();
 
-export const setDesktopToken = (token: string | null) => {
-  desktopToken = token;
-};
+function withCredentials<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = credentialQueue.then(operation);
+  credentialQueue = pending.catch(() => {});
+
+  return pending;
+}
+
+function getDesktopToken(): Promise<string | null> {
+  if (!isTauri()) return Promise.resolve(null);
+
+  return withCredentials(async () => {
+    if (desktopToken === undefined) {
+      desktopToken = await invoke<string | null>("read_desktop_session", { server: apiUrl("") });
+    }
+
+    return desktopToken;
+  });
+}
+
+export async function setDesktopToken(token: string | null) {
+  if (!isTauri()) return;
+
+  await withCredentials(async () => {
+    await invoke("write_desktop_session", { server: apiUrl(""), token });
+    desktopToken = token;
+  });
+}
 
 export class ApiError extends Error {
   constructor(
@@ -28,9 +53,10 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getDesktopToken();
   const headers = new Headers(options.headers);
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
-  if (desktopToken) headers.set("Authorization", `Bearer ${desktopToken}`);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(apiUrl(path), { ...options, headers, credentials: "include" });
 
   if (!response.ok) {
@@ -103,7 +129,8 @@ export async function signIn(preserveEditor = false) {
     const { token } = await post<{ token: string | null }>("/auth/desktop/complete", { verifier });
 
     if (token) {
-      setDesktopToken(token);
+      // eslint-disable-next-line no-await-in-loop
+      await setDesktopToken(token);
 
       return;
     }
@@ -114,5 +141,5 @@ export async function signIn(preserveEditor = false) {
 
 export async function signOut() {
   await post("/auth/logout", {});
-  setDesktopToken(null);
+  await setDesktopToken(null);
 }
