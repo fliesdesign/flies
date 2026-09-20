@@ -1,4 +1,4 @@
-import { CanvasDocument, type CanvasFrame } from "@flies/canvas";
+import { CanvasDocument, ensureCanvasFonts, type CanvasFrame } from "@flies/canvas";
 import { selectionBounds } from "@flies/canvas";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -93,6 +93,10 @@ export async function exportCanvasPng(
 ): Promise<Blob> {
   const snapshot = new CanvasDocument(nodes);
   const roots = snapshot.getRootIds(selectedIds).filter((id) => !snapshot.isHidden(id));
+  const exportedIds = new Set(snapshot.getDescendantIds(roots));
+  await ensureCanvasFonts(
+    nodes.filter((node) => node.kind === "text").filter((node) => exportedIds.has(node.id)),
+  );
   const bounds = selectionBounds(nodes, roots);
   if (!bounds) throw new Error("Select a visible frame or layer to export.");
   const width = Math.ceil(bounds.width);
@@ -122,7 +126,7 @@ export async function exportCanvasPng(
       width,
       height,
       pixelRatio: 1,
-      skipFonts: true,
+      skipFonts: false,
       cacheBust: false,
     });
     if (!blob) throw new Error("PNG export could not finish. Try a smaller selection.");

@@ -1,3 +1,4 @@
+import { resolveCanvasFontFamily as resolveFontFamily } from "@flies/canvas";
 import type { CanvasFrame, CanvasText } from "@flies/canvas";
 
 export function htmlColor(value: string): string {
@@ -15,25 +16,7 @@ export function htmlColor(value: string): string {
   );
 }
 
-export function resolveFontFamily(family: string): NonNullable<CanvasText["fontFamily"]> {
-  const aliases: Record<string, NonNullable<CanvasText["fontFamily"]>> = {
-    arial: "Arial",
-    helvetica: "Helvetica",
-    georgia: "Georgia",
-    "courier new": "Courier New",
-    "sans-serif": "Arial",
-    "system-ui": "Arial",
-    "-apple-system": "Arial",
-    blinkmacsystemfont: "Arial",
-    serif: "Georgia",
-    monospace: "Courier New",
-  };
-  const families = family.split(",").map((s) => s.trim().replace(/["']/g, "").toLowerCase());
-  const fontFamily = families.map((name) => aliases[name]).find(Boolean);
-  if (!fontFamily)
-    throw new Error(`Unsupported font: ${family}. Add a supported or generic fallback.`);
-  return fontFamily;
-}
+export { resolveCanvasFontFamily as resolveFontFamily } from "@flies/canvas";
 
 export function textStyle(
   style: CSSStyleDeclaration,
@@ -52,8 +35,8 @@ export function textStyle(
   const fontFamily = resolveFontFamily(style.fontFamily);
   const fontSize = parseFloat(style.fontSize);
   const weight = Number(style.fontWeight);
-  if (![400, 500, 600, 700].includes(weight))
-    throw new Error("Supported font weights: 400, 500, 600, 700.");
+  if (!Number.isInteger(weight) || weight < 1 || weight > 1000)
+    throw new Error("Font weight must be between 1 and 1000.");
   const decoration = style.textDecorationLine;
   if (!["none", "underline", "line-through"].includes(decoration))
     throw new Error("Use a single underline or line-through decoration.");

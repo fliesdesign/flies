@@ -311,8 +311,8 @@ describe("canvas node content", () => {
       { ...text, fontStyle: "oblique" },
       { ...text, textDecoration: "url(https://example.com)" },
       { ...frame("a"), fill: "red" },
-      { ...text, fontFamily: "arbitrary-font" },
-      { ...text, fontWeight: 300 },
+      { ...text, fontFamily: "" },
+      { ...text, fontWeight: 1001 },
       { ...text, fontWeight: "bold" },
       { ...text, lineHeight: 0.49 },
       { ...text, lineHeight: 4.01 },
@@ -568,7 +568,11 @@ describe("canvas persistence", () => {
       }),
       true,
     );
-    assert.deepEqual(JSON.parse(stored), { version: 2, nodes: [frame("a"), frame("b", 50)] });
+    assert.deepEqual(JSON.parse(stored), {
+      version: 2,
+      nodes: [frame("a"), frame("b", 50)],
+      theme: { tokens: [] },
+    });
     document.endGesture();
     assert.deepEqual(document.getCommittedFrames(), [frame("a", 999), frame("b", 50)]);
   });
@@ -1050,7 +1054,7 @@ describe("canvas legacy migration", () => {
         saved = value;
       },
     });
-    assert.deepEqual(JSON.parse(saved), { version: 2, nodes });
+    assert.deepEqual(JSON.parse(saved), { version: 2, nodes, theme: { tokens: [] } });
     assert.deepEqual(loadCanvasFrames({ getItem: () => saved }, { migrateLegacy: true }), nodes);
     const migrated = loadCanvasFrames(
       { getItem: () => JSON.stringify(nodes) },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import type { CanvasFrame } from "@flies/canvas";
+import type { CanvasFrame, CanvasTheme } from "@flies/canvas";
 import { describe, test } from "vite-plus/test";
 
 import { FileAutosave, type LocalFile } from "./local-files";
@@ -16,6 +16,33 @@ const file: LocalFile = {
 };
 const nodes: CanvasFrame[] = [{ id: "node", name: "Frame", x: 0, y: 0, width: 100, height: 100 }];
 describe("local file autosave", () => {
+  test("saves theme and node snapshots together through queued edits and rename", async () => {
+    const theme: CanvasTheme = {
+      tokens: [{ id: "brand", name: "Brand", type: "color", value: "#123456" }],
+    };
+    const writes: LocalFile[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const saver = new FileAutosave(file, async (previous, next) => {
+      const result = { ...previous, nodes: next, revision: previous.revision + 1 };
+      writes.push(result);
+      if (writes.length === 1) await gate;
+      return result;
+    });
+    saver.enqueue([]);
+    const pending = saver.flush();
+    saver.enqueue(nodes, theme);
+    const rename = saver.rename("Themed");
+    release();
+    await Promise.all([pending, rename]);
+    assert.deepEqual(writes[0].theme, { tokens: [] });
+    assert.deepEqual(writes[1].theme, theme);
+    assert.deepEqual(writes[1].nodes, nodes);
+    assert.equal(writes[1].name, "Themed");
+    assert.equal(writes[1].revision, 2);
+  });
   test("serializes edits made during a save with the returned revision", async () => {
     const writes: number[] = [];
     let release!: () => void;

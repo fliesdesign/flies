@@ -1,4 +1,5 @@
 import type { CanvasFrame, CanvasText } from "./canvas-document";
+import { isFontFamily } from "./canvas-fonts";
 import { DEFAULT_CANVAS_LAYOUT } from "./canvas-layout";
 import {
   moveSelection,
@@ -58,7 +59,9 @@ function styleChange(
     case "opacity":
       return numeric && value >= 0 && value <= 1 ? { ...node, opacity: value } : node;
     case "cornerRadius":
-      return numeric && value >= 0 && (frame || node.kind === "rectangle" || node.kind === "image")
+      return numeric &&
+        value >= 0 &&
+        (frame || node.kind === "rectangle" || node.kind === "image" || node.kind === "svg")
         ? { ...node, cornerRadius: value }
         : node;
     case "fill": {
@@ -108,17 +111,16 @@ function styleChange(
     case "strokeWidth":
       return node.kind === "pen" && numeric && value > 0 ? { ...node, strokeWidth: value } : node;
     case "fontFamily":
-      return node.kind === "text" &&
-        (value === "Arial" ||
-          value === "Helvetica" ||
-          value === "Georgia" ||
-          value === "Courier New")
-        ? { ...node, fontFamily: value as CanvasText["fontFamily"] }
+      return node.kind === "text" && isFontFamily(value)
+        ? { ...node, fontFamily: value.trim() }
         : node;
     case "fontWeight":
       return node.kind === "text" &&
-        (value === 400 || value === 500 || value === 600 || value === 700)
-        ? { ...node, fontWeight: value as CanvasText["fontWeight"] }
+        typeof value === "number" &&
+        Number.isInteger(value) &&
+        value >= 1 &&
+        value <= 1000
+        ? { ...node, fontWeight: value }
         : node;
     case "fontSize":
       return node.kind === "text" && numeric && value > 0 ? { ...node, fontSize: value } : node;

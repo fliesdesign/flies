@@ -1,3 +1,4 @@
+import { svgDataUrl } from "@flies/canvas";
 import type { CanvasFrame } from "@flies/canvas";
 
 import { importHtmlFragment } from "@/lib/mcp/html";
@@ -10,11 +11,7 @@ import {
   preserveSnapshotImageClips,
   type SnapshotDecorations,
 } from "./paper-snapshot-decoration";
-import {
-  rasterizeSnapshotSvg,
-  sanitizeSnapshotSvg,
-  withSnapshotTimeout,
-} from "./paper-snapshot-svg";
+import { sanitizeSnapshotSvg, withSnapshotTimeout } from "./paper-snapshot-svg";
 
 const MAX_BYTES = 5_000_000;
 const RASTER = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z\d+/]+={0,2}$/i;
@@ -94,18 +91,10 @@ function copyStyle(source: Element, target: HTMLElement, warn: (message: string)
     } catch {
       target.style.fontFamily = "Arial";
     }
-    const first = style.fontFamily.split(",")[0].trim().replace(/["']/g, "");
-    if (first.toLowerCase() !== target.style.fontFamily.toLowerCase())
-      warn("Unavailable fonts were replaced with a supported fallback.");
   }
   if (style.fontWeight) {
     const weight = style.fontWeight === "bold" ? 700 : Number(style.fontWeight) || 400;
-    target.style.fontWeight = String(
-      [400, 500, 600, 700].reduce(
-        (best, n) => (Math.abs(n - weight) < Math.abs(best - weight) ? n : best),
-        400,
-      ),
-    );
+    target.style.fontWeight = String(Math.min(1000, Math.max(1, Math.round(weight))));
   }
   if (style.textDecorationLine)
     target.style.textDecorationLine = style.textDecorationLine.includes("underline")
@@ -337,14 +326,14 @@ export async function importPaperSnapshot(
         pixels += Math.min(1_000_000, rect.width * rect.height * 4);
         if (pixels > 8_000_000)
           throw new Error(
-            "Snapshot SVG images exceed the raster budget. Capture a smaller section.",
+            "Snapshot SVG images exceed the decoding budget. Capture a smaller section.",
           );
         svg.style.color = getComputedStyle(holder).color;
         const image = document.createElement("img");
         try {
-          // Decode one SVG at a time to keep the temporary bitmap memory bounded.
-          // eslint-disable-next-line no-await-in-loop
-          image.src = await rasterizeSnapshotSvg(svg, rect.width, rect.height);
+          svg.setAttribute("width", String(rect.width));
+          svg.setAttribute("height", String(rect.height));
+          image.src = svgDataUrl(svg);
           image.style.cssText = holder.style.cssText;
           image.style.width = `${rect.width}px`;
           image.style.height = `${rect.height}px`;

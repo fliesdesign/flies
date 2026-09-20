@@ -24,3 +24,9 @@ export * from "./canvas-spatial-index";
 export * from "./canvas-tools";
 export * from "./use-canvas-document";
 export * from "./webgpu/canvas-gpu-renderer";
+
+export * from "./canvas-fonts";
+
+export * from "./canvas-svg";
+
+export * from "./canvas-theme";

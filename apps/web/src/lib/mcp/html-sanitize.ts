@@ -1,3 +1,5 @@
+import { readCanvasSvg } from "@flies/canvas";
+
 import { resolveFontFamily } from "./html-style";
 const TAGS = new Set(
   "div section article main header footer nav aside span p h1 h2 h3 h4 h5 h6 button label ul ol li img a strong b em i small code br input textarea".split(
@@ -12,7 +14,7 @@ const STYLES = new Set(
 const RASTER = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z\d+/]+={0,2}$/i;
 
 /** Build fresh, passive elements. Never mount caller markup or copy event/URL attributes. */
-export function sanitizeHtml(source: string): DocumentFragment {
+export function sanitizeHtml(source: string, allowVariables = false): DocumentFragment {
   if (new TextEncoder().encode(source).length > 200_000)
     throw new Error("HTML is limited to 200KB.");
   const template = document.createElement("template");
@@ -21,9 +23,32 @@ export function sanitizeHtml(source: string): DocumentFragment {
   const copy = (node: Node, depth: number): Node => {
     if (depth > 30) throw new Error("HTML nesting is limited to 30 levels.");
     if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent ?? "");
+    if (node instanceof Element && node.localName === "svg") {
+      const svgSource = node.cloneNode(true) as SVGSVGElement;
+      // Root CSS opacity belongs to the editable wrapper, not both wrapper and asset.
+      if (svgSource.style.opacity) {
+        svgSource.style.removeProperty("opacity");
+        svgSource.removeAttribute("opacity");
+      }
+      const vector = readCanvasSvg(new XMLSerializer().serializeToString(svgSource));
+      const image = document.createElement("img");
+      image.src = vector.src;
+      image.width = vector.width;
+      image.height = vector.height;
+      for (const attribute of ["class", "data-name", "aria-label"])
+        if (node.hasAttribute(attribute))
+          image.setAttribute(attribute, node.getAttribute(attribute)!);
+      const rootStyle = (node as SVGElement).style;
+      for (const property of Array.from(rootStyle)) {
+        if (STYLES.has(property))
+          image.style.setProperty(property, rootStyle.getPropertyValue(property));
+      }
+      // Reuse the HTML style validation before mounting this passive image.
+      return copy(image, depth);
+    }
     if (!(node instanceof HTMLElement) || !TAGS.has(node.localName))
       throw new Error(
-        "Only passive HTML elements are supported. No scripts, stylesheets, SVG or custom elements.",
+        "Only passive HTML elements are supported. No scripts, stylesheets or custom elements.",
       );
     if (++count > 500) throw new Error("HTML is limited to 500 elements.");
     const element = document.createElement(node.localName);
@@ -49,15 +74,20 @@ export function sanitizeHtml(source: string): DocumentFragment {
         throw new Error(
           `Unsupported HTML attribute: ${attribute.name}. Use Tailwind classes, inline styles and data-name.`,
         );
-      if (attribute.name === "src" && (node.localName !== "img" || !RASTER.test(attribute.value)))
-        throw new Error("Images must use raster data URLs.");
+      if (
+        attribute.name === "src" &&
+        (node.localName !== "img" ||
+          (!RASTER.test(attribute.value) &&
+            !/^data:image\/svg\+xml;base64,[a-z\d+/]+={0,2}$/i.test(attribute.value)))
+      )
+        throw new Error("Images must use embedded raster or SVG data URLs.");
       // Names and typography remain useful; links and form actions are never interactive.
       if (!["style", "href", "type"].includes(attribute.name))
         element.setAttribute(attribute.name, attribute.value);
     }
     // Reject values before assigning styles, including escaped URLs and CSS custom properties.
     const raw = node.getAttribute("style") ?? "";
-    if (/url\s*\(|\\|@|var\s*\(|expression\s*\(/i.test(raw))
+    if (/url\s*\(|\\|@|expression\s*\(/i.test(raw) || (!allowVariables && /var\s*\(/i.test(raw)))
       throw new Error("External resources, CSS escapes and variables are not supported.");
     for (const declaration of raw.split(";").filter((entry) => entry.trim())) {
       const colon = declaration.indexOf(":");

@@ -58,7 +58,9 @@ function FileEditor({
   const [opening, setOpening] = useState(false);
   useEffect(() => {
     if (!controls) return;
-    return controls.document.subscribe(() => save.enqueue(controls.document.getCommittedFrames()));
+    return controls.document.subscribe(() =>
+      save.enqueue(controls.document.getCommittedFrames(), controls.document.getTheme()),
+    );
   }, [controls, save]);
   const flush = useCallback(async () => {
     controls?.prepare();
@@ -80,6 +82,7 @@ function FileEditor({
       <TopLoader active={opening || status === "Saving…"} />
       <DesignCanvas
         initialFrames={file.nodes}
+        initialTheme={file.theme}
         persist={false}
         onReady={setControls}
         fileActions={{
@@ -352,9 +355,18 @@ export function FileWorkspace() {
         }
         const result = await editorTool(controls, name, args);
         if (
-          ["create_artboard", "write_html", "update_node", "delete_nodes", "undo", "redo"].includes(
-            name,
-          ) &&
+          [
+            "create_artboard",
+            "write_html",
+            "update_node",
+            "set_styles",
+            "set_theme",
+            "apply_tokens",
+            "fit_node",
+            "delete_nodes",
+            "undo",
+            "redo",
+          ].includes(name) &&
           !(name === "write_html" && args.validateOnly === true)
         ) {
           saving();

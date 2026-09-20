@@ -120,7 +120,7 @@ describe("canvas properties panel", () => {
   it("offers only relevant text controls with documented defaults", () => {
     const markup = render([text], [text.id]);
     assert.match(markup, /aria-label="Font family"/);
-    assert.match(markup, /<option value="Arial" selected="">Arial/);
+    assert.match(markup, /aria-label="Font family"[^>]*value="Arial"/);
     assert.match(input(markup, "Font size"), /value="24"/);
     assert.match(input(markup, "Line height"), /value="1.25"/);
     assert.match(input(markup, "Letter spacing"), /value="0"/);

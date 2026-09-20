@@ -1,13 +1,15 @@
 import { gunzipSync, strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
 import { CanvasDocument, type CanvasFrame } from "./canvas-document";
+import { EMPTY_THEME, type CanvasTheme } from "./canvas-theme";
 
 export const MAX_PROJECT_BYTES = 100 * 1024 * 1024;
-export type CanvasProject = { name: string; nodes: CanvasFrame[] };
+export type CanvasProject = { name: string; nodes: CanvasFrame[]; theme: CanvasTheme };
 
-const DATA_URL = /^data:(image\/(?:png|jpeg|webp|gif|avif));base64,([a-z\d+/]+={0,2})$/i;
+const DATA_URL = /^data:(image\/(?:png|jpeg|webp|gif|avif|svg\+xml));base64,([a-z\d+/]+={0,2})$/i;
 const IMAGE_PATH = /^images\/[a-z\d._-]+$/i;
 const MIME_EXT: Record<string, string> = {
+  "image/svg+xml": "svg",
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
@@ -15,6 +17,7 @@ const MIME_EXT: Record<string, string> = {
   "image/avif": "avif",
 };
 const EXT_MIME: Record<string, string> = {
+  svg: "image/svg+xml",
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -33,12 +36,17 @@ export function projectFilename(name: string, extension = "zip") {
   return `${safe || "Untitled"}.${extension}`;
 }
 
-export function serializeCanvasProject(name: string, nodes: readonly CanvasFrame[]): string {
+export function serializeCanvasProject(
+  name: string,
+  nodes: readonly CanvasFrame[],
+  theme: CanvasTheme = EMPTY_THEME,
+): string {
   return JSON.stringify({
     format: "flies",
     version: 1,
     name: name.trim() || "Untitled",
     nodes,
+    theme,
   });
 }
 
@@ -70,8 +78,15 @@ export function parseCanvasProject(source: string): CanvasProject {
   )
     throw new Error("This project is incomplete. Its name or layers are missing.");
   try {
-    const document = new CanvasDocument(value.nodes as CanvasFrame[]);
-    return { name: value.name.trim() || "Untitled", nodes: document.getCommittedFrames() };
+    const document = new CanvasDocument(
+      value.nodes as CanvasFrame[],
+      "theme" in value ? (value.theme as CanvasTheme) : EMPTY_THEME,
+    );
+    return {
+      name: value.name.trim() || "Untitled",
+      nodes: document.getCommittedFrames(),
+      theme: document.getTheme(),
+    };
   } catch {
     throw new Error(
       "This project contains invalid layers or frame nesting. Your current canvas has been kept.",
@@ -79,12 +94,16 @@ export function parseCanvasProject(source: string): CanvasProject {
   }
 }
 
-export function packCanvasProject(name: string, nodes: readonly CanvasFrame[]): Uint8Array {
+export function packCanvasProject(
+  name: string,
+  nodes: readonly CanvasFrame[],
+  theme: CanvasTheme = EMPTY_THEME,
+): Uint8Array {
   const files: Record<string, [Uint8Array, { level: 0 | 9 }]> = {};
   const reused = new Map<string, string>();
   const taken = new Set<string>();
   const packed = nodes.map((node) => {
-    if (node.kind !== "image") return node;
+    if (node.kind !== "image" && node.kind !== "svg") return node;
     const parsed = DATA_URL.exec(node.src);
     if (!parsed) return node;
     const existing = reused.get(node.src);
@@ -95,10 +114,10 @@ export function packCanvasProject(name: string, nodes: readonly CanvasFrame[]): 
     for (let n = 2; taken.has(path); n++) path = `images/${base}-${n}.${ext}`;
     taken.add(path);
     reused.set(node.src, path);
-    files[path] = [base64ToBytes(parsed[2]), { level: 0 }];
+    files[path] = [base64ToBytes(parsed[2]), { level: node.kind === "svg" ? 9 : 0 }];
     return { ...node, src: path };
   });
-  files["document.json"] = [strToU8(serializeCanvasProject(name, packed)), { level: 9 }];
+  files["document.json"] = [strToU8(serializeCanvasProject(name, packed, theme)), { level: 9 }];
   const zipped = zipSync(files, { level: 9 });
   if (zipped.byteLength > MAX_PROJECT_BYTES)
     throw new Error("This project is larger than 100 MB. Remove images or layers before saving.");
@@ -144,7 +163,12 @@ function unpackZip(bytes: Uint8Array): CanvasProject {
     throw new Error("This ZIP is missing project layers.");
   }
   const nodes = value.nodes.map((node) => {
-    if (!node || typeof node !== "object" || !("kind" in node) || node.kind !== "image") {
+    if (
+      !node ||
+      typeof node !== "object" ||
+      !("kind" in node) ||
+      (node.kind !== "image" && node.kind !== "svg")
+    ) {
       return node;
     }
     const image = node as CanvasFrame & { src?: string };

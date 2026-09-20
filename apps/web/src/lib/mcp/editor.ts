@@ -1,8 +1,19 @@
+import {
+  normalizeTheme,
+  applyTokenBindings,
+  isTokenBindings,
+  THEME_PROPERTIES,
+  canonicalThemeProperty,
+  type ThemeProperty,
+} from "@flies/canvas";
+import { ensureCanvasFont } from "@flies/canvas";
 import { CanvasDocument, type CanvasFrame, agentActivity } from "@flies/canvas";
 
 import type { CanvasControls } from "@/components/canvas/design-canvas";
+import { updateDocumentTheme, prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 
 import { importHtml } from "./html";
+import { inheritedStyles, validateSharedCss } from "./styles";
 
 export type McpResult = {
   content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[];
@@ -61,6 +72,73 @@ export async function editorTool(
     return agentActivity(doc).capture(doc, () => doc.transact({ add, update, remove }));
   };
   switch (name) {
+    case "get_theme":
+      return textResult({
+        ...doc.getTheme(),
+        cssVariables: doc.getTheme().tokens.map((token) => ({
+          id: token.id,
+          variable: `--${token.id}`,
+          uses: doc
+            .getFrames()
+            .filter((node) => Object.values(node.tokenBindings ?? {}).includes(token.id)).length,
+        })),
+      });
+    case "set_theme": {
+      if (!Array.isArray(args.tokens)) throw new Error("tokens must be an array.");
+      if (args.replace !== undefined && typeof args.replace !== "boolean")
+        throw new Error("replace must be a boolean.");
+      const updates = normalizeTheme({ tokens: args.tokens });
+      const remove = args.deleteTokenIds ?? [];
+      if (!Array.isArray(remove) || !remove.every((id) => typeof id === "string"))
+        throw new Error("deleteTokenIds must be an array of token IDs.");
+      const merged = new Map(
+        (args.replace ? [] : doc.getTheme().tokens).map((token) => [token.id, token]),
+      );
+      for (const id of remove) merged.delete(id);
+      for (const token of updates.tokens) merged.set(token.id, token);
+      await updateDocumentTheme(doc, { tokens: [...merged.values()] });
+      return textResult({ theme: doc.getTheme(), revision: doc.getSnapshot().revision });
+    }
+    case "apply_tokens": {
+      const ids = args.nodeIds;
+      if (
+        !Array.isArray(ids) ||
+        !ids.length ||
+        ids.length > 1000 ||
+        !ids.every((id) => typeof id === "string")
+      )
+        throw new Error("nodeIds must contain 1–1000 IDs.");
+      if (!args.bindings || typeof args.bindings !== "object" || Array.isArray(args.bindings))
+        throw new Error("bindings must map properties to token IDs or null.");
+      if (
+        Object.keys(args.bindings).some(
+          (key) => !Object.prototype.hasOwnProperty.call(THEME_PROPERTIES, key),
+        )
+      )
+        throw new Error("Unknown token property.");
+      const requested = Object.fromEntries(
+        Object.entries(args.bindings).filter(([, id]) => id !== null),
+      );
+      if (!isTokenBindings(requested)) throw new Error("Invalid token bindings.");
+      const originals = [...new Set(ids)].map(getNode);
+      const theme = doc.getTheme();
+      const updates = originals.map((node) => {
+        const bindings = { ...node.tokenBindings };
+        for (const [property, id] of Object.entries(
+          args.bindings as Record<string, string | null>,
+        )) {
+          const canonical = canonicalThemeProperty(node, property as ThemeProperty);
+          if (id === null) Reflect.deleteProperty(bindings, canonical);
+          else Reflect.set(bindings, canonical, id);
+        }
+        return applyTokenBindings(node, theme, bindings, true);
+      });
+      await prepareTokenUpdates(updates, originals);
+      if (doc.getTheme() !== theme || originals.some((node) => doc.getFrame(node.id) !== node))
+        throw new Error("Document changed while applying tokens. Try again.");
+      commit([], updates);
+      return textResult({ nodes: originals.map((node) => doc.getFrame(node.id)) });
+    }
     case "get_selection":
       return textResult({ nodeIds: controls.getSelection() });
     case "get_node_info": {
@@ -105,6 +183,92 @@ export async function editorTool(
       controls.select(node.id);
       return textResult({ nodeId: node.id });
     }
+    case "preview_html": {
+      const nodeId = args.nodeId === undefined ? undefined : getNode(stringArg(args, "nodeId")).id;
+      const width = numberArg(args, "width", 1280);
+      const height = numberArg(args, "height", 800);
+      if (width < 40 || width > 8192 || height < 40 || height > 8192)
+        throw new Error("Preview dimensions must be between 40 and 8192px.");
+      const css =
+        inheritedStyles(doc, nodeId) +
+        "\n" +
+        (args.css === undefined ? "" : validateSharedCss(args.css));
+      const { openPrototype } = await import("./prototype");
+      await openPrototype(stringArg(args, "html"), css, width, height);
+      return textResult({
+        opened: true,
+        width,
+        height,
+        mode: "interactive",
+        persisted: false,
+        capabilities: [
+          "CSS gradients",
+          "hover/focus",
+          "CSS animation",
+          "inline JavaScript",
+          "Tailwind",
+        ],
+        network: "Fetch and external assets blocked except Google Fonts",
+        screenshot: "get_screenshot captures native canvas nodes, not this preview.",
+      });
+    }
+    case "close_preview": {
+      const { closePrototype } = await import("./prototype");
+      closePrototype();
+      return textResult({ closed: true });
+    }
+    case "set_styles": {
+      const node = getNode(stringArg(args, "nodeId"));
+      if (node.kind && node.kind !== "frame")
+        throw new Error("Shared styles belong to a frame or artboard.");
+      const css = validateSharedCss(args.css);
+      commit([], [{ ...node, htmlStyles: css }]);
+      return textResult({
+        nodeId: node.id,
+        css,
+        appliesTo:
+          "Future descendant write_html calls and previews; existing native layers keep their measured styles.",
+      });
+    }
+    case "fit_node": {
+      const node = getNode(stringArg(args, "nodeId"));
+      if (node.kind && node.kind !== "frame" && node.kind !== "group")
+        throw new Error("fit_node requires a frame or group.");
+      const axis = args.axis ?? "both";
+      if (!["both", "width", "height"].includes(String(axis)))
+        throw new Error("axis must be both, width or height.");
+      const padding = numberArg(args, "padding", 0);
+      if (padding < 0) throw new Error("padding must be non-negative.");
+      if (args.clipContent !== undefined && typeof args.clipContent !== "boolean")
+        throw new Error("clipContent must be a boolean.");
+      if (node.kind === "group" && args.clipContent !== undefined)
+        throw new Error("Groups do not clip content; use a frame.");
+      const children = doc
+        .getDescendantIds(doc.getChildren(node.id))
+        .map(getNode)
+        .filter((child) => !doc.isHidden(child.id));
+      if (!children.length) throw new Error("This node has no visible content to fit.");
+      const updated = {
+        ...node,
+        width:
+          axis === "height"
+            ? node.width
+            : children.reduce(
+                (extent, child) => Math.max(extent, child.x + child.width - node.x + padding),
+                node.kind === "group" ? 1 : 40,
+              ),
+        height:
+          axis === "width"
+            ? node.height
+            : children.reduce(
+                (extent, child) => Math.max(extent, child.y + child.height - node.y + padding),
+                node.kind === "group" ? 1 : 40,
+              ),
+        ...(node.kind !== "group" && { clipContent: args.clipContent ?? true }),
+      } as CanvasFrame;
+      commit([], [updated]);
+      return textResult({ node: doc.getFrame(node.id) });
+    }
     case "write_html": {
       const target = args.targetId === undefined ? undefined : getNode(stringArg(args, "targetId"));
       if (target && (args.parentId !== undefined || args.replace !== undefined))
@@ -122,6 +286,7 @@ export async function editorTool(
       const descendants = replacing ? doc.getDescendantIds(doc.getChildren(replacing.id)) : [];
       const originals = descendants.map(getNode);
       let nodes = await importHtml(stringArg(args, "html"), {
+        css: inheritedStyles(doc, anchor?.id),
         parentId: target ? target.parentId : parent?.id,
         x: (anchor?.x ?? 0) + numberArg(args, "x", 0),
         y: (anchor?.y ?? 0) + numberArg(args, "y", 0),
@@ -148,7 +313,14 @@ export async function editorTool(
         const root = roots[0];
         nodes = nodes.map((node) =>
           node.id === root.id
-            ? { ...node, id: target.id, hidden: target.hidden, locked: target.locked }
+            ? {
+                ...node,
+                id: target.id,
+                hidden: target.hidden,
+                locked: target.locked,
+                ...((!node.kind || node.kind === "frame") &&
+                  (!target.kind || target.kind === "frame") && { htmlStyles: target.htmlStyles }),
+              }
             : node.parentId === root.id
               ? { ...node, parentId: target.id }
               : node,
@@ -211,7 +383,7 @@ export async function editorTool(
         "shadows",
       ];
       const byKind = {
-        frame: ["fill", "clipContent", "layout"],
+        frame: ["fill", "clipContent", "layout", "htmlStyles"],
         group: [],
         rectangle: ["fill"],
         text: [
@@ -227,12 +399,72 @@ export async function editorTool(
           "textDecoration",
         ],
         image: ["src"],
+        svg: ["src"],
         pen: ["points", "stroke", "strokeWidth", "pathWidth", "pathHeight"],
       };
       const allowed = new Set([...base, ...byKind[before.kind ?? "frame"]]);
       for (const key of Object.keys(props))
-        if (!allowed.has(key)) throw new Error(`Unsupported property: ${key}`);
-      const updated = { ...before, ...props } as CanvasFrame;
+        if (!allowed.has(key))
+          throw new Error(
+            `Unsupported property for ${before.kind ?? "frame"}: ${key}. Editable properties: ${[...allowed].join(", ")}.`,
+          );
+      if (!Object.keys(props).length)
+        throw new Error("properties must contain at least one field.");
+      const patch = { ...props } as Record<string, unknown>;
+      if (patch.htmlStyles !== undefined && patch.htmlStyles !== null)
+        validateSharedCss(patch.htmlStyles);
+      if (
+        patch.layout &&
+        typeof patch.layout === "object" &&
+        !Array.isArray(patch.layout) &&
+        (!before.kind || before.kind === "frame")
+      ) {
+        for (const key of Object.keys(patch.layout)) {
+          if (!["direction", "gap", "padding", "align", "justify"].includes(key))
+            throw new Error(`Unsupported layout property: ${key}`);
+        }
+        patch.layout = {
+          direction: "row",
+          gap: 16,
+          padding: 16,
+          align: "start",
+          justify: "start",
+          ...before.layout,
+          ...patch.layout,
+        };
+      }
+      const updated = { ...before, ...patch } as CanvasFrame;
+      const optional = new Set([
+        "parentId",
+        "hidden",
+        "locked",
+        "opacity",
+        "cornerRadius",
+        "borderWidth",
+        "borderColor",
+        "shadows",
+        "clipContent",
+        "layout",
+        "htmlStyles",
+        "fontFamily",
+        "fontWeight",
+        "lineHeight",
+        "letterSpacing",
+        "textAlign",
+        "fontStyle",
+        "textDecoration",
+      ]);
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null && optional.has(key)) Reflect.deleteProperty(updated, key);
+      }
+      validate([], [updated], []);
+      if (updated.kind === "text") {
+        await ensureCanvasFont(updated);
+        if (doc.getFrame(before.id) !== before)
+          throw new Error(
+            "Target changed while loading its font. Read the node again before retrying.",
+          );
+      }
       const updates = [updated];
       const dx = updated.x - before.x;
       const dy = updated.y - before.y;

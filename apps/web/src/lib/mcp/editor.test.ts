@@ -212,3 +212,45 @@ test("MCP rejects translated descendant overflow without moving the valid parent
   assert.deepEqual(document.getFrames(), original);
   assert.equal(document.getSnapshot().canUndo, false);
 });
+
+test("fit_node hugs content, enables clipping and preserves child IDs with undo", async () => {
+  const { controls, document } = fixture();
+  document.update({ ...document.getFrame("frame")!, kind: "frame", clipContent: false });
+  const text = document.getFrame("text");
+  await editorTool(controls, "fit_node", { nodeId: "frame", axis: "height", padding: 16 });
+  assert.equal(document.getFrame("frame")?.height, 46);
+  assert.equal(document.getFrame("frame")?.width, 400);
+  assert.equal(Reflect.get(document.getFrame("frame")!, "clipContent"), true);
+  assert.strictEqual(document.getFrame("text"), text);
+  document.undo();
+  assert.equal(document.getFrame("frame")?.height, 300);
+  assert.equal(Reflect.get(document.getFrame("frame")!, "clipContent"), false);
+});
+
+test("shared styles are saved as undoable document metadata and layout patches merge", async () => {
+  const { controls, document } = fixture();
+  const css = ":root { --space:24px; color:#123456; }";
+  await editorTool(controls, "set_styles", { nodeId: "frame", css });
+  const restored = new CanvasDocument(JSON.parse(JSON.stringify(document.getFrames())));
+  assert.equal(Reflect.get(restored.getFrame("frame")!, "htmlStyles"), css);
+  await editorTool(controls, "update_node", {
+    nodeId: "frame",
+    properties: { layout: { direction: "column", gap: 12 } },
+  });
+  await editorTool(controls, "update_node", {
+    nodeId: "frame",
+    properties: { layout: { padding: 24 } },
+  });
+  assert.deepEqual(Reflect.get(document.getFrame("frame")!, "layout"), {
+    direction: "column",
+    gap: 12,
+    padding: 24,
+    align: "start",
+    justify: "start",
+  });
+  await editorTool(controls, "update_node", { nodeId: "frame", properties: { layout: null } });
+  assert.equal(Reflect.get(document.getFrame("frame")!, "layout"), undefined);
+  await assert.rejects(
+    editorTool(controls, "set_styles", { nodeId: "frame", css: '@import "https://example.com";' }),
+  );
+});

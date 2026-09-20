@@ -1,7 +1,9 @@
+import { SVG_DATA_URL, svgDataUrl, ensureCanvasFonts } from "@flies/canvas";
 import type { CanvasFrame } from "@flies/canvas";
 
 import { sanitizeHtml } from "./html-sanitize";
 import { effectsStyle, htmlColor, nodeName, resolveFontFamily, textStyle } from "./html-style";
+import { validateSharedCss } from "./styles";
 export { sanitizeHtml } from "./html-sanitize";
 
 function transformedText(value: string, style: CSSStyleDeclaration, rendered = false) {
@@ -19,17 +21,29 @@ function transformedText(value: string, style: CSSStyleDeclaration, rendered = f
 /** Measure passive HTML into native editable layers, without leaking editor artboard chrome. */
 export async function importHtml(
   source: string,
-  options: { parentId?: string; x: number; y: number; width: number; height?: number },
+  options: {
+    parentId?: string;
+    x: number;
+    y: number;
+    width: number;
+    height?: number;
+    css?: string;
+  },
 ): Promise<CanvasFrame[]> {
   if (options.width < 40 || options.width > 8192)
     throw new Error("HTML layout width must be between 40 and 8192px.");
   if (options.height !== undefined && (options.height < 1 || options.height > 8192))
     throw new Error("HTML layout height must be between 1 and 8192px.");
-  const fragment = sanitizeHtml(source);
-  const stylesheet = fragment.querySelector("[class]")
+  const css = options.css ? validateSharedCss(options.css) : "";
+  const fragment = sanitizeHtml(source, Boolean(css));
+  const tailwind = fragment.querySelector("[class]")
     ? await (await import("./tailwind")).compileTailwind(fragment)
     : undefined;
-  return importHtmlFragment(fragment, { ...options, stylesheet });
+  return importHtmlFragment(fragment, {
+    ...options,
+    stylesheet: [tailwind, css].filter(Boolean).join("\n"),
+    sharedStyles: Boolean(css),
+  });
 }
 
 /** Internal measurement entry point for already sanitized, passive capture fragments. */
@@ -42,6 +56,7 @@ export async function importHtmlFragment(
     width: number;
     height?: number;
     stylesheet?: string;
+    sharedStyles?: boolean;
     prepare?: (layout: HTMLElement) => Promise<void>;
     onUnsupportedClip?: (message: string) => void;
   },
@@ -68,7 +83,8 @@ export async function importHtmlFragment(
   if (viewport) {
     const policy = document.createElement("meta");
     policy.httpEquiv = "Content-Security-Policy";
-    policy.content = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+    policy.content =
+      "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src https://fonts.gstatic.com data:";
     measurementDocument.head.append(policy);
   }
   const host = document.createElement("div");
@@ -89,12 +105,17 @@ export async function importHtmlFragment(
     position: "relative",
     width: `${options.width}px`,
     height: options.height === undefined ? undefined : `${options.height}px`,
-    font: options.stylesheet ? "400 16px/1.5 Arial" : "400 16px/1.25 Arial",
-    color: "#000000",
+    font: options.sharedStyles
+      ? "inherit"
+      : options.stylesheet
+        ? "400 16px/1.5 Arial"
+        : "400 16px/1.25 Arial",
+    color: options.sharedStyles ? "inherit" : "#000000",
   });
   if (options.stylesheet) {
     reset.textContent =
-      options.stylesheet + "\nhtml{font-size:16px;color-scheme:light} body{margin:0}";
+      "html{font:400 16px/1.5 Arial;color:#000;color-scheme:light} body{margin:0}\n" +
+      options.stylesheet;
     // Theme variables target :root, so the compiled sheet belongs in the iframe head.
     measurementDocument.head.append(reset);
   }
@@ -135,6 +156,31 @@ export async function importHtmlFragment(
         element.style.setProperty("font-family", resolveFontFamily(style.fontFamily), "important");
       }
     }
+    for (const image of layout.querySelectorAll("img")) {
+      if (!SVG_DATA_URL.test(image.src)) continue;
+      const bytes = Uint8Array.from(atob(image.src.split(",")[1]), (character) =>
+        character.charCodeAt(0),
+      );
+      const svg = new DOMParser().parseFromString(
+        new TextDecoder().decode(bytes),
+        "image/svg+xml",
+      ).documentElement;
+      if (svg.localName !== "svg") throw new Error("Invalid SVG image.");
+      (svg as unknown as SVGSVGElement).style.color = getComputedStyle(image).color;
+      image.src = svgDataUrl(svg as unknown as SVGSVGElement);
+    }
+    await ensureCanvasFonts(
+      Array.from(layout.querySelectorAll<HTMLElement>("*")).map((element) => {
+        const style = getComputedStyle(element);
+        return {
+          fontFamily: resolveFontFamily(style.fontFamily),
+          fontWeight: Number(style.fontWeight),
+          fontStyle: style.fontStyle,
+          text: element.textContent ?? "",
+        };
+      }),
+      measurementDocument,
+    );
     if (options.prepare) {
       await options.prepare(layout);
     } else {
@@ -329,7 +375,12 @@ export async function importHtmlFragment(
       if (element instanceof HTMLImageElement && style.objectFit !== "fill")
         throw new Error("Use object-fit: fill for editable images.");
       if (element instanceof HTMLImageElement && !decorated && !clipped) {
-        add({ ...base, kind: "image", src: element.src, cornerRadius: effects.cornerRadius });
+        add({
+          ...base,
+          kind: SVG_DATA_URL.test(element.src) ? "svg" : "image",
+          src: element.src,
+          cornerRadius: effects.cornerRadius,
+        });
         return;
       }
       if (
@@ -382,8 +433,14 @@ export async function importHtmlFragment(
         });
       if (element instanceof HTMLImageElement)
         add({
-          ...baseFor(contentRect, base.id, element.alt || "Image"),
-          kind: "image",
+          ...baseFor(
+            contentRect,
+            base.id,
+            element.dataset.name ||
+              element.alt ||
+              (SVG_DATA_URL.test(element.src) ? "SVG" : "Image"),
+          ),
+          kind: SVG_DATA_URL.test(element.src) ? "svg" : "image",
           src: element.src,
           cornerRadius: Math.max(0, (effects.cornerRadius ?? 0) - Math.max(...borderWidths)),
           opacity: 1,

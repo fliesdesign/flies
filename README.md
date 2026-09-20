@@ -131,13 +131,20 @@ Shift-drag adds to the selection. Use Hand, middle-drag, or hold Space to pan. W
 pans; Ctrl/Cmd + wheel or trackpad pinch zooms around the pointer from 10% to 400%. The toolbar
 supports Up/Down and Home/End navigation, with Enter or Space to activate a tool.
 
+The font picker lists installed system fonts in the desktop app and a starter collection of Google
+Fonts on the web. Type any Google Fonts family name to load it on demand; desktop also uses Google
+Fonts when a family is not installed. Imports preserve named families and weights, loading fonts
+before measuring text. Reopened documents, canvas rendering, and PNG export use the same loader.
+Google Fonts requires a network connection on first use; fonts unavailable locally or from Google
+produce an error instead of being silently renamed. Restart the desktop app after installing fonts.
+
 Copy, cut, paste, and duplicate preserve complete selected subtrees and give copies new IDs.
 Paste also accepts plain text and local images; copying or pasting while editing text keeps
 normal text-editing behavior. **Paper Snapshot** captures can be pasted with Ctrl/Cmd + V or
 the canvas context menu. Flies reads their `text/html` clipboard representation (`x-paper-html`)
 and imports the captured layout as a selected group of editable layers, with one-step undo.
 Keyboard paste centers the capture in the viewport; context-menu paste places it at the click.
-Inline SVG icons and backgrounds with uneven corner radii become embedded images; supported text,
+Inline SVG icons become SVG nodes with their vector source preserved. Backgrounds with uneven corner radii become embedded images; supported text,
 colors, and geometry remain editable. Captured image URLs are downloaded once and embedded in the
 document. The desktop app can also load images from servers that block browser CORS requests;
 unavailable images use placeholders. Unsupported effects produce an import notice. This uses the
@@ -325,3 +332,9 @@ than blindly replacing customized components.
 Define it in `apps/desktop/src/lib.rs` and register it in `tauri::generate_handler![...]` —
 commands missing from that macro fail silently when invoked. Call it with
 `invoke<T>("name", args)` from `@tauri-apps/api/core`.
+
+SVG files can be imported through the Image tool, dropped on the canvas, or pasted as SVG markup.
+SVG nodes support normal layer operations, resizing, project save/reopen, PNG export, and all Copy as
+formats (which retain the embedded SVG source). Paths, groups, gradients, clipping, masks, and local
+references are preserved; scripts, external resources, and unsupported SVG elements are removed on
+import. SVG nodes are whole vector assets, not individual editable paths.

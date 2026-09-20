@@ -47,5 +47,8 @@
   "catalog": {
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
     "vite-plus": "0.3.3"
+  },
+  "patchedDependencies": {
+    "pixi.js@8.21.0": "patches/pixi.js@8.21.0.patch"
   }
 }

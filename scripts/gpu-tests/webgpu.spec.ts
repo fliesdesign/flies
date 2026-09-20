@@ -33,6 +33,36 @@ function nearColor(actual: number[], expected: number[]) {
   );
 }
 
+test("theme changes and undo repaint linked layers in WebGPU", async ({ page }) => {
+  await mount(page);
+  await expect(
+    page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]"),
+  ).toBeVisible();
+  await page.evaluate(async () => {
+    const path = "/src/lib/mcp/editor.ts";
+    const { editorTool } = await import(/* @vite-ignore */ path);
+    const { controls } = Reflect.get(window, "gpuFixture");
+    await editorTool(controls, "set_theme", {
+      tokens: [{ id: "brand", name: "Brand", type: "color", value: "#00aaff" }],
+    });
+    await editorTool(controls, "apply_tokens", { nodeIds: ["red"], bindings: { fill: "brand" } });
+  });
+  await expect
+    .poll(async () => (await pixels(page, [{ x: 170, y: 170 }]))[0])
+    .toEqual([0, 170, 255]);
+  await page.evaluate(() => {
+    const doc = Reflect.get(window, "gpuFixture").controls.document;
+    doc.setTheme({ tokens: [{ id: "brand", name: "Brand", type: "color", value: "#bf1020" }] });
+  });
+  await expect
+    .poll(async () => (await pixels(page, [{ x: 170, y: 170 }]))[0])
+    .toEqual([191, 16, 32]);
+  await page.evaluate(() => Reflect.get(window, "gpuFixture").controls.document.undo());
+  await expect
+    .poll(async () => (await pixels(page, [{ x: 170, y: 170 }]))[0])
+    .toEqual([0, 170, 255]);
+});
+
 test("real WebGPU draws three artboards with clipping, text, images, and composited opacity", async ({
   page,
 }, testInfo) => {
@@ -314,4 +344,87 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
       ),
     )
     .toBe("Keep this uncommitted draft");
+});
+
+test("replacing and disposing textured artwork releases shader bindings without warnings", async ({
+  page,
+}) => {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning" && message.text().includes("PixiJS Warning"))
+      warnings.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mount(page);
+  await expect(
+    page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]"),
+  ).toBeVisible();
+  await expect.poll(async () => (await pixels(page, [{ x: 160, y: 330 }]))[0]).toEqual([0, 0, 255]);
+  await page.evaluate(async () => {
+    const { controls } = Reflect.get(window, "gpuFixture");
+    for (let i = 0; i < 4; i++) {
+      const doc = controls.document;
+      doc.update({ ...doc.getFrame("board"), width: 320 + i * 4 });
+      doc.update({ ...doc.getFrame("shadows"), width: 100 + i * 4 });
+      doc.update({ ...doc.getFrame("text"), text: `Updated ${i}` });
+      // Each change must actually render before its texture is replaced again.
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    }
+    controls.document.removeMany(["image"]);
+  });
+  await expect(
+    page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]"),
+  ).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "gpuFixture").dispose());
+  expect(errors).toEqual([]);
+  expect(warnings).toEqual([]);
+});
+
+test("SVG nodes render, resize, update and undo without flattening their source", async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(
+    page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]"),
+  ).toBeVisible();
+  await page.evaluate(async () => {
+    const module = "/packages/canvas/src/canvas-svg.ts";
+    const { readCanvasSvg } = await import(/* @vite-ignore */ module);
+    const { controls } = Reflect.get(window, "gpuFixture");
+    controls.document.add({
+      ...readCanvasSvg(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#ff0000"/></svg>',
+      ),
+      id: "vector",
+      x: 100,
+      y: 450,
+      width: 100,
+      height: 100,
+    });
+  });
+  await expect.poll(async () => (await pixels(page, [{ x: 150, y: 500 }]))[0]).toEqual([255, 0, 0]);
+  await page.evaluate(async () => {
+    const { controls } = Reflect.get(window, "gpuFixture");
+    const node = controls.document.getFrame("vector");
+    controls.document.update({
+      ...node,
+      width: 200,
+      src: node.src.replace(
+        node.src.split(",")[1],
+        btoa(atob(node.src.split(",")[1]).replace("#ff0000", "#0000ff")),
+      ),
+    });
+  });
+  await expect.poll(async () => (await pixels(page, [{ x: 250, y: 500 }]))[0]).toEqual([0, 0, 255]);
+  await page.evaluate(() => Reflect.get(window, "gpuFixture").controls.document.undo());
+  await expect.poll(async () => (await pixels(page, [{ x: 150, y: 500 }]))[0]).toEqual([255, 0, 0]);
+  expect(
+    await page.evaluate(
+      () => Reflect.get(window, "gpuFixture").controls.document.getFrame("vector").kind,
+    ),
+  ).toBe("svg");
 });

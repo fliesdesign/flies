@@ -1,4 +1,4 @@
-import { CanvasDocument, selectionBounds, type CanvasFrame } from "@flies/canvas";
+import { CanvasDocument, selectionBounds, fontFamilyCss, type CanvasFrame } from "@flies/canvas";
 
 export const CANVAS_CODE_FORMATS = ["Tailwind", "CSS", "React Tailwind", "React CSS"] as const;
 export type CanvasCodeFormat = (typeof CANVAS_CODE_FORMATS)[number];
@@ -12,12 +12,6 @@ type Element = {
 const px = (value: number) => `${Number(value.toFixed(4))}px`;
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const FONTS = {
-  Arial: "Arial, Helvetica, sans-serif",
-  Helvetica: "Helvetica, Arial, sans-serif",
-  Georgia: "Georgia, 'Times New Roman', serif",
-  "Courier New": "'Courier New', Courier, monospace",
-};
 
 function nodeElement(
   node: CanvasFrame,
@@ -59,7 +53,7 @@ function nodeElement(
         border: "0px",
         color: node.color,
         "font-size": px(node.fontSize),
-        "font-family": FONTS[node.fontFamily ?? "Arial"],
+        "font-family": fontFamilyCss(node.fontFamily),
         "font-weight": String(node.fontWeight ?? 400),
         "font-style": node.fontStyle ?? "normal",
         "text-decoration": node.textDecoration ?? "none",
@@ -73,7 +67,7 @@ function nodeElement(
       },
       children: [node.text],
     });
-  } else if (node.kind === "image") {
+  } else if (node.kind === "image" || node.kind === "svg") {
     children.push({
       tag: "img",
       styles: { ...fillStyles, "max-width": "none", "object-fit": "fill" },

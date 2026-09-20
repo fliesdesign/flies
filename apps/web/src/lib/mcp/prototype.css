@@ -1,0 +1,48 @@
+.mcp-prototype {
+  width: min(1440px, 96vw);
+  max-width: 96vw;
+  max-height: 94vh;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.mcp-prototype::backdrop {
+  background: #0009;
+}
+.mcp-prototype > header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.mcp-prototype > header strong {
+  margin-right: auto;
+}
+.mcp-prototype > header span {
+  color: var(--muted-foreground);
+}
+.mcp-prototype button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--secondary);
+  cursor: pointer;
+}
+.mcp-prototype button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.mcp-prototype-viewport {
+  overflow: auto;
+  max-height: calc(94vh - 60px);
+}
+.mcp-prototype iframe {
+  display: block;
+  border: 0;
+  background: white;
+}

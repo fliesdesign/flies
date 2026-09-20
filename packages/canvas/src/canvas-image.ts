@@ -1,9 +1,16 @@
+import { readCanvasSvg } from "./canvas-svg";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const PRESERVE_FILE_BYTES = 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
 const RASTER_MIME = /^image\/(?:png|jpeg|webp|gif|avif)$/i;
 
-export type CanvasImage = { src: string; width: number; height: number; name: string };
+export type CanvasImage = {
+  kind: "image" | "svg";
+  src: string;
+  width: number;
+  height: number;
+  name: string;
+};
 
 function dataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,11 +26,14 @@ function dataUrl(file: File): Promise<string> {
   });
 }
 
-/** Decode local files only; sanitize SVG through rasterization and bound stored image sizes. */
+/** Decode local files only; preserve sanitized SVG vectors and bound stored image sizes. */
 export async function readCanvasImage(file: File): Promise<CanvasImage> {
   if (file.size > MAX_FILE_BYTES) throw new Error("Choose an image smaller than 20 MB.");
   if (!file.type.startsWith("image/") && !/\.(?:png|jpe?g|webp|gif|avif|svg)$/i.test(file.name))
     throw new Error("Choose a PNG, JPEG, WebP, GIF, AVIF, or SVG image.");
+
+  if (file.type === "image/svg+xml" || /\.svg$/i.test(file.name))
+    return readCanvasSvg(await file.text(), file.name.replace(/\.[^.]+$/, "") || "SVG");
 
   const objectUrl = URL.createObjectURL(file);
   try {
@@ -61,7 +71,13 @@ export async function readCanvasImage(file: File): Promise<CanvasImage> {
       src = canvas.toDataURL("image/webp", 0.85);
       if (src === "data:,") throw new Error("This image could not be prepared.");
     }
-    return { src, width, height, name: file.name.replace(/\.[^.]+$/, "") || "Image" };
+    return {
+      kind: "image",
+      src,
+      width,
+      height,
+      name: file.name.replace(/\.[^.]+$/, "") || "Image",
+    };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

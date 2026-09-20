@@ -1,3 +1,4 @@
+import { applyTokenBindings, THEME_PROPERTIES, type ThemeProperty } from "@flies/canvas";
 import type { CanvasArrangeAction } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
@@ -17,6 +18,9 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
+import { prepareTokenUpdates } from "@/lib/canvas-theme-actions";
+
+import { CanvasFontPicker } from "./canvas-font-picker";
 import { ColorSwatch, PropertyField, type PropertyPreview } from "./canvas-property-controls";
 import { normalizeCanvasHex } from "./canvas-property-values";
 import "./canvas-properties.css";
@@ -224,15 +228,16 @@ const ALIGN_ACTIONS = [
   { action: "middle", label: "Align vertical centers" },
   { action: "bottom", label: "Align bottom" },
 ] as const;
-const FONT_CHOICES = ["Arial", "Helvetica", "Georgia", "Courier New"].map((font) => ({
-  value: font,
-  label: font,
-}));
 const WEIGHT_CHOICES = [
+  { value: 100, label: "Thin" },
+  { value: 200, label: "Extra light" },
+  { value: 300, label: "Light" },
   { value: 400, label: "Regular" },
   { value: 500, label: "Medium" },
   { value: 600, label: "Semibold" },
   { value: 700, label: "Bold" },
+  { value: 800, label: "Extra bold" },
+  { value: 900, label: "Black" },
 ];
 
 function createSelectionSnapshot(document: CanvasDocument, selectedIds: readonly string[]) {
@@ -284,6 +289,38 @@ export const CanvasProperties = memo(function CanvasProperties({
   onCollapse,
 }: CanvasPropertiesProps) {
   const nodes = useSelectedNodes(document, selectedIds);
+  const theme = useSyncExternalStore(document.subscribe, document.getTheme, document.getTheme);
+  const [tokenError, setTokenError] = useState("");
+  const tokenChoice = (property: ThemeProperty) => ({
+    tokens: theme.tokens.filter((token) => token.type === THEME_PROPERTIES[property]),
+    tokenId: commonValue(nodes, (node) => node.tokenBindings?.[property]),
+    onToken: (id: string | null) => {
+      onPreviewEnd(true);
+      setTokenError("");
+      void (async () => {
+        const before = nodes.map((node) => document.getFrame(node.id)!);
+        const updates = before.map((node) => {
+          const bindings = { ...node.tokenBindings };
+          if (id) bindings[property] = id;
+          else delete bindings[property];
+          return applyTokenBindings(node, theme, bindings, true);
+        });
+        await prepareTokenUpdates(updates, before);
+        if (
+          document.getTheme() !== theme ||
+          before.some((node) => document.getFrame(node.id) !== node)
+        )
+          throw new Error("Selection changed while loading its token. Try again.");
+        if (
+          !document.updateMany(updates) &&
+          updates.some((node, index) => JSON.stringify(node) !== JSON.stringify(before[index]))
+        )
+          throw new Error("This token value is not valid for the selection.");
+      })().catch((error: unknown) =>
+        setTokenError(error instanceof Error ? error.message : String(error)),
+      );
+    },
+  });
   const [preserveAspect, setPreserveAspect] = useState(false);
   const single = nodes.length === 1 ? nodes[0] : undefined;
   const selectedKey = nodes.map((node) => node.id).join(":");
@@ -305,7 +342,7 @@ export const CanvasProperties = memo(function CanvasProperties({
   const hasFill = nodes.length > 0 && nodes.every((node) => fillFor(node) !== undefined);
   const hasRadius =
     nodes.length > 0 &&
-    nodes.every((node) => !node.kind || ["frame", "rectangle", "image"].includes(node.kind));
+    nodes.every((node) => !node.kind || ["frame", "rectangle", "image", "svg"].includes(node.kind));
   const allFrames = nodes.length > 0 && nodes.every((node) => !node.kind || node.kind === "frame");
   const allPens = nodes.length > 0 && nodes.every((node) => node.kind === "pen");
   const parent = single?.parentId ? document.getFrame(single.parentId) : undefined;
@@ -361,6 +398,11 @@ export const CanvasProperties = memo(function CanvasProperties({
         </IconButton>
       </header>
       <div className="canvas-properties-body" key={selectedKey}>
+        {tokenError && (
+          <p role="alert" className="canvas-theme-error">
+            {tokenError}
+          </p>
+        )}
         {!nodes.length ? (
           <div className="canvas-properties-empty">
             <svg
@@ -485,6 +527,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                     <div className="canvas-properties-grid">
                       <PropertyField
                         label="Layout gap"
+                        {...tokenChoice("layoutGap")}
                         prefix="↔"
                         value={layoutValue((layout) => layout.gap, 16)}
                         numeric
@@ -495,6 +538,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                       />
                       <PropertyField
                         label="Layout padding"
+                        {...tokenChoice("layoutPadding")}
                         prefix="⊞"
                         value={layoutValue((layout) => layout.padding, 16)}
                         numeric
@@ -574,6 +618,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                 {hasRadius && (
                   <PropertyField
                     label="Corner radius"
+                    {...tokenChoice("cornerRadius")}
                     prefix={
                       <svg
                         width="14"
@@ -601,6 +646,7 @@ export const CanvasProperties = memo(function CanvasProperties({
               <Section title={allPens ? "Stroke" : "Fill"}>
                 <div className="canvas-properties-color">
                   <ColorSwatch
+                    {...tokenChoice("fill")}
                     value={fill}
                     disabled={anyLocked}
                     onStart={onPreviewStart}
@@ -618,6 +664,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                 {allPens && (
                   <PropertyField
                     label="Stroke width"
+                    {...tokenChoice("strokeWidth")}
                     prefix="W"
                     value={commonValue(nodes, (node) =>
                       node.kind === "pen" ? node.strokeWidth : undefined,
@@ -636,10 +683,10 @@ export const CanvasProperties = memo(function CanvasProperties({
             )}
             {allText && (
               <Section title="Text">
-                <PropertySelect
-                  label="Font family"
+                <CanvasFontPicker
+                  {...tokenChoice("fontFamily")}
                   value={textValue((node) => node.fontFamily ?? "Arial")}
-                  choices={FONT_CHOICES}
+                  nodes={nodes}
                   disabled={anyLocked}
                   onChange={(value) => onChange("fontFamily", value)}
                 />
@@ -653,6 +700,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                 <div className="canvas-properties-grid canvas-properties-grid-three">
                   <PropertyField
                     label="Font size"
+                    {...tokenChoice("fontSize")}
                     prefix="A"
                     value={textValue((node) => node.fontSize)}
                     numeric
@@ -676,6 +724,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                   />
                   <PropertyField
                     label="Letter spacing"
+                    {...tokenChoice("letterSpacing")}
                     prefix="↔"
                     value={textValue((node) => node.letterSpacing ?? 0)}
                     numeric

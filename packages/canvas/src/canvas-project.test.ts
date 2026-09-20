@@ -46,19 +46,21 @@ describe("portable projects", () => {
     assert.deepEqual(parseCanvasProject(serializeCanvasProject("My project", nodes)), {
       name: "My project",
       nodes,
+      theme: { tokens: [] },
     });
   });
   it("supports an intentionally empty project", () => {
     assert.deepEqual(parseCanvasProject(serializeCanvasProject("", [])), {
       name: "Untitled",
       nodes: [],
+      theme: { tokens: [] },
     });
   });
   it("still opens legacy lra-design JSON", () => {
     const project = parseCanvasProject(
       JSON.stringify({ type: "lra-design", version: 1, name: "Legacy", nodes: [] }),
     );
-    assert.deepEqual(project, { name: "Legacy", nodes: [] });
+    assert.deepEqual(project, { name: "Legacy", nodes: [], theme: { tokens: [] } });
   });
   it("rejects malformed, future, invalid, and cyclic documents without partial imports", () => {
     const node = { id: "a", name: "A", x: 0, y: 0, width: 100, height: 100 };
@@ -93,17 +95,19 @@ describe("portable projects", () => {
     const packed = packCanvasProject("Pics", nodes);
     assert.equal(packed[0], 0x50);
     assert.equal(packed[1], 0x4b);
-    assert.deepEqual(unpackCanvasProject(packed), { name: "Pics", nodes });
+    assert.deepEqual(unpackCanvasProject(packed), { name: "Pics", nodes, theme: { tokens: [] } });
   });
   it("opens gzip JSON and plain JSON bytes", () => {
     const json = serializeCanvasProject("Gzipped", []);
     assert.deepEqual(unpackCanvasProject(gzipSync(new TextEncoder().encode(json))), {
       name: "Gzipped",
       nodes: [],
+      theme: { tokens: [] },
     });
     assert.deepEqual(unpackCanvasProject(new TextEncoder().encode(json)), {
       name: "Gzipped",
       nodes: [],
+      theme: { tokens: [] },
     });
   });
 });

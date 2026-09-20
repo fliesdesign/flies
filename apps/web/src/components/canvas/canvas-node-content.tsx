@@ -1,4 +1,4 @@
-import { canvasAppearanceStyle } from "@flies/canvas";
+import { canvasAppearanceStyle, fontFamilyCss } from "@flies/canvas";
 import type { CanvasFrame, CanvasPen, CanvasText } from "@flies/canvas";
 import {
   memo,
@@ -13,19 +13,12 @@ import {
 
 import "./canvas-nodes.css";
 
-const TEXT_FONT_FAMILIES = {
-  Arial: "Arial, Helvetica, sans-serif",
-  Helvetica: "Helvetica, Arial, sans-serif",
-  Georgia: "Georgia, 'Times New Roman', serif",
-  "Courier New": "'Courier New', Courier, monospace",
-} as const;
-
 /** Keep the rendered text, editing field, and height measurement on one typography definition. */
 export function canvasTextStyle(frame: CanvasText): CSSProperties {
   return {
     color: frame.color,
     fontSize: frame.fontSize,
-    fontFamily: TEXT_FONT_FAMILIES[frame.fontFamily ?? "Arial"],
+    fontFamily: fontFamilyCss(frame.fontFamily),
     fontWeight: frame.fontWeight ?? 400,
     fontStyle: frame.fontStyle ?? "normal",
     textDecoration: frame.textDecoration ?? "none",
@@ -110,6 +103,7 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
           {frame.text}
         </span>
       );
+    case "svg":
     case "image":
       return (
         <img

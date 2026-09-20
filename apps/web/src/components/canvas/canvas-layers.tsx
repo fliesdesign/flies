@@ -27,6 +27,9 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
+import { CanvasThemePanel } from "./canvas-theme-panel";
 import "./canvas-layers.css";
 
 type CanvasLayersProps = {
@@ -79,12 +82,21 @@ const ROW_HEIGHT = 30;
 const TREE_PADDING = 8;
 const OVERSCAN = 8;
 
+function SvgLayerIcon({ className }: { className?: string; size?: number; strokeWidth?: number }) {
+  return (
+    <span className={`${className ?? ""} canvas-layer-svg-type`} title="svg">
+      svg
+    </span>
+  );
+}
+
 const NODE_ICONS = {
   frame: FrameIcon,
   group: GroupIcon,
   rectangle: SquareIcon,
   text: TypeIcon,
   image: ImageIcon,
+  svg: SvgLayerIcon,
   pen: PenLineIcon,
 };
 
@@ -499,285 +511,298 @@ export const CanvasLayers = memo(function CanvasLayers({
       : `${drop.placement === "inside" ? "Into" : drop.placement === "before" ? "Above" : "Below"} ${targetName}`;
 
   return (
-    <aside className="canvas-layers" aria-label="Layers panel" data-canvas-ui="">
-      <header className="canvas-layers-header">
-        <h2>Layers</h2>
-        <button
-          type="button"
-          ref={collapseButton}
-          className="canvas-layers-collapse"
-          aria-label="Hide layers"
-          title="Hide layers"
-          onClick={onCollapse}
-        >
-          <PanelLeftCloseIcon size={15} strokeWidth={1.6} aria-hidden="true" />
-        </button>
-      </header>
-      {rows.length === 0 ? (
-        <p className="canvas-layers-empty">Your layers will appear here.</p>
-      ) : (
-        <div
-          ref={treeRef}
-          className="canvas-layers-tree"
-          role="tree"
-          tabIndex={-1}
-          aria-label="Layers"
-          aria-multiselectable
-          data-dragging={draggingIds.length > 0 || undefined}
-          onKeyDownCapture={(event) => {
-            if (event.key === "Escape" && dragRef.current) {
-              event.preventDefault();
-              event.stopPropagation();
-              stopDrag();
-            }
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            suppressClick.current = false;
-            if (event.button !== 0 || (event.target as HTMLElement).closest("button,input")) return;
-            const id = (event.target as HTMLElement).closest<HTMLElement>("[data-layer-id]")
-              ?.dataset.layerId;
-            const row = rows.find((item) => item.node.id === id);
-            if (!row || row.node.locked || row.inheritedLock) return;
-            const ids = document.getRootIds(
-              selected.has(row.node.id) ? selectedIds : [row.node.id],
-            );
-            dragRef.current = {
-              excluded: new Set(document.getDescendantIds(ids)),
-              ids,
-              pointerId: event.pointerId,
-              startX: event.clientX,
-              startY: event.clientY,
-              x: event.clientX,
-              y: event.clientY,
-              moving: false,
-            };
-          }}
-          onPointerMove={(event) => {
-            const drag = dragRef.current;
-            if (!drag || drag.pointerId !== event.pointerId) return;
-            if (event.buttons !== 1) {
-              stopDrag();
-              return;
-            }
-            drag.x = event.clientX;
-            drag.y = event.clientY;
-            if (!drag.moving && Math.hypot(drag.x - drag.startX, drag.y - drag.startY) >= 4) {
-              drag.moving = true;
-              suppressClick.current = true;
-              event.currentTarget.setPointerCapture(event.pointerId);
-              setDraggingIds(drag.ids);
-              onHover(null);
-            }
-            if (drag.moving) {
-              event.preventDefault();
-              setDrop(findDrop(drag.x, drag.y));
-            }
-          }}
-          onPointerUp={(event) => {
-            const drag = dragRef.current;
-            if (!drag || drag.pointerId !== event.pointerId) return;
-            const target = findDrop(event.clientX, event.clientY);
-            if (drag.moving && target) {
-              onMove(drag.ids, target.id, target.placement);
-              if (target.placement === "inside" && target.id)
-                setExpansion((previous) => {
-                  const collapsed = new Set(previous.collapsed);
-                  collapsed.delete(target.id!);
-                  return { ...previous, collapsed };
-                });
-            }
-            stopDrag();
-          }}
-          onPointerCancel={stopDrag}
-          onLostPointerCapture={() => {
-            if (dragRef.current) stopDrag();
-          }}
-          onMouseLeave={() => onHover(null)}
-          onScroll={updateScrollWindow}
-        >
-          <div
-            className="canvas-layers-spacer"
-            role="presentation"
-            style={{ height: rows.length * ROW_HEIGHT }}
+    <aside className="canvas-layers" aria-label="Design sidebar" data-canvas-ui="">
+      <Tabs defaultValue="design" className="canvas-sidebar-tabs">
+        <header className="canvas-layers-header">
+          <TabsList variant="line" aria-label="Sidebar">
+            <TabsTrigger value="design">Design</TabsTrigger>
+            <TabsTrigger value="theme">Theme</TabsTrigger>
+          </TabsList>
+          <button
+            type="button"
+            ref={collapseButton}
+            className="canvas-layers-collapse"
+            aria-label="Hide layers"
+            title="Hide layers"
+            onClick={onCollapse}
           >
-            {drop && drop.placement !== "inside" && (
-              <div
-                className="canvas-layer-drop-line"
-                style={{ top: drop.top, left: 8 + drop.depth * 16 }}
-                aria-hidden="true"
-              />
-            )}
-            {renderedIndices.map((rowIndex) => {
-              const row = rows[rowIndex];
-              const {
-                node,
-                depth,
-                index,
-                siblingCount,
-                hasChildren,
-                inheritedLock,
-                inheritedHidden,
-              } = row;
-              const expanded = !expansion.collapsed.has(node.id);
-              const locked = Boolean(node.locked) || inheritedLock;
-              const onlyParentLocked = inheritedLock && !node.locked;
-              const Icon = NODE_ICONS[node.kind ?? "frame"];
-              return (
-                <div
-                  key={node.id}
-                  ref={(element) => {
-                    if (element) rowElements.current.set(node.id, element);
-                    else rowElements.current.delete(node.id);
-                  }}
-                  className="canvas-layer-row"
-                  role="treeitem"
-                  aria-label={node.name}
-                  aria-level={depth + 1}
-                  aria-posinset={index}
-                  aria-setsize={siblingCount}
-                  aria-selected={selected.has(node.id)}
-                  aria-expanded={hasChildren ? expanded : undefined}
-                  data-layer-id={node.id}
-                  data-locked={locked || undefined}
-                  data-hidden={node.hidden || inheritedHidden || undefined}
-                  data-dragging={draggingIds.includes(node.id) || undefined}
-                  data-drop-inside={
-                    (drop?.id === node.id && drop.placement === "inside") || undefined
-                  }
-                  tabIndex={tabStop === node.id ? 0 : -1}
-                  style={{ "--layer-depth": depth, top: rowIndex * ROW_HEIGHT } as CSSProperties}
-                  onFocus={() => setFocusId(node.id)}
-                  onMouseEnter={() => onHover(node.id)}
-                  onKeyDown={(event) => keyDown(event, row)}
-                  onClick={(event) => {
-                    if (suppressClick.current) return;
-                    focusRow(node.id);
-                    onSelect(node.id, {
-                      additive: event.metaKey || event.ctrlKey,
-                      range: event.shiftKey,
-                      visibleIds,
+            <PanelLeftCloseIcon size={15} strokeWidth={1.6} aria-hidden="true" />
+          </button>
+        </header>
+        <TabsContent value="design" className="canvas-sidebar-design" keepMounted>
+          {rows.length === 0 ? (
+            <p className="canvas-layers-empty">Your layers will appear here.</p>
+          ) : (
+            <div
+              ref={treeRef}
+              className="canvas-layers-tree"
+              role="tree"
+              tabIndex={-1}
+              aria-label="Layers"
+              aria-multiselectable
+              data-dragging={draggingIds.length > 0 || undefined}
+              onKeyDownCapture={(event) => {
+                if (event.key === "Escape" && dragRef.current) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  stopDrag();
+                }
+              }}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                suppressClick.current = false;
+                if (event.button !== 0 || (event.target as HTMLElement).closest("button,input"))
+                  return;
+                const id = (event.target as HTMLElement).closest<HTMLElement>("[data-layer-id]")
+                  ?.dataset.layerId;
+                const row = rows.find((item) => item.node.id === id);
+                if (!row || row.node.locked || row.inheritedLock) return;
+                const ids = document.getRootIds(
+                  selected.has(row.node.id) ? selectedIds : [row.node.id],
+                );
+                dragRef.current = {
+                  excluded: new Set(document.getDescendantIds(ids)),
+                  ids,
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  x: event.clientX,
+                  y: event.clientY,
+                  moving: false,
+                };
+              }}
+              onPointerMove={(event) => {
+                const drag = dragRef.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                if (event.buttons !== 1) {
+                  stopDrag();
+                  return;
+                }
+                drag.x = event.clientX;
+                drag.y = event.clientY;
+                if (!drag.moving && Math.hypot(drag.x - drag.startX, drag.y - drag.startY) >= 4) {
+                  drag.moving = true;
+                  suppressClick.current = true;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setDraggingIds(drag.ids);
+                  onHover(null);
+                }
+                if (drag.moving) {
+                  event.preventDefault();
+                  setDrop(findDrop(drag.x, drag.y));
+                }
+              }}
+              onPointerUp={(event) => {
+                const drag = dragRef.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                const target = findDrop(event.clientX, event.clientY);
+                if (drag.moving && target) {
+                  onMove(drag.ids, target.id, target.placement);
+                  if (target.placement === "inside" && target.id)
+                    setExpansion((previous) => {
+                      const collapsed = new Set(previous.collapsed);
+                      collapsed.delete(target.id!);
+                      return { ...previous, collapsed };
                     });
-                  }}
-                >
-                  {hasChildren ? (
-                    <button
-                      type="button"
-                      className="canvas-layer-disclosure"
-                      aria-label={`${expanded ? "Collapse" : "Expand"} ${node.name}`}
-                      tabIndex={-1}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleExpanded(node.id);
-                        focusRow(node.id);
-                      }}
-                    >
-                      <ChevronRightIcon
-                        size={12}
-                        strokeWidth={1.7}
-                        className={expanded ? "is-expanded" : undefined}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  ) : (
-                    <span className="canvas-layer-disclosure-space" />
-                  )}
-                  <Icon
-                    className="canvas-layer-icon"
-                    size={14}
-                    strokeWidth={1.6}
+                }
+                stopDrag();
+              }}
+              onPointerCancel={stopDrag}
+              onLostPointerCapture={() => {
+                if (dragRef.current) stopDrag();
+              }}
+              onMouseLeave={() => onHover(null)}
+              onScroll={updateScrollWindow}
+            >
+              <div
+                className="canvas-layers-spacer"
+                role="presentation"
+                style={{ height: rows.length * ROW_HEIGHT }}
+              >
+                {drop && drop.placement !== "inside" && (
+                  <div
+                    className="canvas-layer-drop-line"
+                    style={{ top: drop.top, left: 8 + drop.depth * 16 }}
                     aria-hidden="true"
                   />
-                  {editingId === node.id ? (
-                    <LayerNameEditor
-                      name={node.name}
-                      onSave={(name) => finishRename(node.id, name)}
-                      onCancel={() => finishRename(node.id)}
-                    />
-                  ) : (
-                    <span
-                      className="canvas-layer-name"
-                      title={node.name}
-                      onDoubleClick={(event) => {
-                        event.stopPropagation();
-                        if (!locked) setEditingId(node.id);
+                )}
+                {renderedIndices.map((rowIndex) => {
+                  const row = rows[rowIndex];
+                  const {
+                    node,
+                    depth,
+                    index,
+                    siblingCount,
+                    hasChildren,
+                    inheritedLock,
+                    inheritedHidden,
+                  } = row;
+                  const expanded = !expansion.collapsed.has(node.id);
+                  const locked = Boolean(node.locked) || inheritedLock;
+                  const onlyParentLocked = inheritedLock && !node.locked;
+                  const Icon = NODE_ICONS[node.kind ?? "frame"];
+                  return (
+                    <div
+                      key={node.id}
+                      ref={(element) => {
+                        if (element) rowElements.current.set(node.id, element);
+                        else rowElements.current.delete(node.id);
                       }}
-                    >
-                      {node.name}
-                    </span>
-                  )}
-                  <div className="canvas-layer-actions">
-                    <button
-                      type="button"
-                      className="canvas-layer-visibility"
-                      aria-label={
-                        inheritedHidden && !node.hidden
-                          ? `${node.name} is hidden by its parent`
-                          : `${node.hidden ? "Show" : "Hide"} ${node.name}`
+                      className="canvas-layer-row"
+                      role="treeitem"
+                      aria-label={node.name}
+                      aria-level={depth + 1}
+                      aria-posinset={index}
+                      aria-setsize={siblingCount}
+                      aria-selected={selected.has(node.id)}
+                      aria-expanded={hasChildren ? expanded : undefined}
+                      data-layer-id={node.id}
+                      data-locked={locked || undefined}
+                      data-hidden={node.hidden || inheritedHidden || undefined}
+                      data-dragging={draggingIds.includes(node.id) || undefined}
+                      data-drop-inside={
+                        (drop?.id === node.id && drop.placement === "inside") || undefined
                       }
-                      title={
-                        inheritedHidden && !node.hidden
-                          ? "Parent is hidden"
-                          : node.hidden
-                            ? "Show layer"
-                            : "Hide layer"
-                      }
-                      disabled={inheritedHidden && !node.hidden}
                       tabIndex={tabStop === node.id ? 0 : -1}
+                      style={
+                        { "--layer-depth": depth, top: rowIndex * ROW_HEIGHT } as CSSProperties
+                      }
+                      onFocus={() => setFocusId(node.id)}
+                      onMouseEnter={() => onHover(node.id)}
+                      onKeyDown={(event) => keyDown(event, row)}
                       onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleHidden(node.id);
+                        if (suppressClick.current) return;
                         focusRow(node.id);
+                        onSelect(node.id, {
+                          additive: event.metaKey || event.ctrlKey,
+                          range: event.shiftKey,
+                          visibleIds,
+                        });
                       }}
                     >
-                      {node.hidden || inheritedHidden ? (
-                        <EyeOffIcon size={13} strokeWidth={1.6} aria-hidden="true" />
+                      {hasChildren ? (
+                        <button
+                          type="button"
+                          className="canvas-layer-disclosure"
+                          aria-label={`${expanded ? "Collapse" : "Expand"} ${node.name}`}
+                          tabIndex={-1}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleExpanded(node.id);
+                            focusRow(node.id);
+                          }}
+                        >
+                          <ChevronRightIcon
+                            size={12}
+                            strokeWidth={1.7}
+                            className={expanded ? "is-expanded" : undefined}
+                            aria-hidden="true"
+                          />
+                        </button>
                       ) : (
-                        <EyeIcon size={13} strokeWidth={1.6} aria-hidden="true" />
+                        <span className="canvas-layer-disclosure-space" />
                       )}
-                    </button>
-                    <button
-                      type="button"
-                      className="canvas-layer-lock"
-                      aria-label={
-                        onlyParentLocked
-                          ? `${node.name} is locked by its parent`
-                          : `${node.locked ? "Unlock" : "Lock"} ${node.name}`
-                      }
-                      title={
-                        onlyParentLocked
-                          ? "Parent is locked"
-                          : node.locked
-                            ? "Unlock layer"
-                            : "Lock layer"
-                      }
-                      disabled={onlyParentLocked}
-                      tabIndex={tabStop === node.id ? 0 : -1}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleLock(node.id);
-                        focusRow(node.id);
-                      }}
-                    >
-                      {locked ? (
-                        <LockKeyholeIcon size={12} strokeWidth={1.6} aria-hidden="true" />
+                      <Icon
+                        className="canvas-layer-icon"
+                        size={14}
+                        strokeWidth={1.6}
+                        aria-hidden="true"
+                      />
+                      {editingId === node.id ? (
+                        <LayerNameEditor
+                          name={node.name}
+                          onSave={(name) => finishRename(node.id, name)}
+                          onCancel={() => finishRename(node.id)}
+                        />
                       ) : (
-                        <UnlockKeyholeIcon size={12} strokeWidth={1.6} aria-hidden="true" />
+                        <span
+                          className="canvas-layer-name"
+                          title={node.name}
+                          onDoubleClick={(event) => {
+                            event.stopPropagation();
+                            if (!locked) setEditingId(node.id);
+                          }}
+                        >
+                          {node.name}
+                        </span>
                       )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {draggingIds.length > 0 && (
-        <output className="canvas-layer-drag-preview" aria-live="polite">
-          <span className="canvas-layer-drag-name">{dragName}</span>
-          <span className="canvas-layer-drag-destination">{dropDescription}</span>
-        </output>
-      )}
+                      <div className="canvas-layer-actions">
+                        <button
+                          type="button"
+                          className="canvas-layer-visibility"
+                          aria-label={
+                            inheritedHidden && !node.hidden
+                              ? `${node.name} is hidden by its parent`
+                              : `${node.hidden ? "Show" : "Hide"} ${node.name}`
+                          }
+                          title={
+                            inheritedHidden && !node.hidden
+                              ? "Parent is hidden"
+                              : node.hidden
+                                ? "Show layer"
+                                : "Hide layer"
+                          }
+                          disabled={inheritedHidden && !node.hidden}
+                          tabIndex={tabStop === node.id ? 0 : -1}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleHidden(node.id);
+                            focusRow(node.id);
+                          }}
+                        >
+                          {node.hidden || inheritedHidden ? (
+                            <EyeOffIcon size={13} strokeWidth={1.6} aria-hidden="true" />
+                          ) : (
+                            <EyeIcon size={13} strokeWidth={1.6} aria-hidden="true" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="canvas-layer-lock"
+                          aria-label={
+                            onlyParentLocked
+                              ? `${node.name} is locked by its parent`
+                              : `${node.locked ? "Unlock" : "Lock"} ${node.name}`
+                          }
+                          title={
+                            onlyParentLocked
+                              ? "Parent is locked"
+                              : node.locked
+                                ? "Unlock layer"
+                                : "Lock layer"
+                          }
+                          disabled={onlyParentLocked}
+                          tabIndex={tabStop === node.id ? 0 : -1}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleLock(node.id);
+                            focusRow(node.id);
+                          }}
+                        >
+                          {locked ? (
+                            <LockKeyholeIcon size={12} strokeWidth={1.6} aria-hidden="true" />
+                          ) : (
+                            <UnlockKeyholeIcon size={12} strokeWidth={1.6} aria-hidden="true" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {draggingIds.length > 0 && (
+            <output className="canvas-layer-drag-preview" aria-live="polite">
+              <span className="canvas-layer-drag-name">{dragName}</span>
+              <span className="canvas-layer-drag-destination">{dropDescription}</span>
+            </output>
+          )}
+        </TabsContent>
+        <TabsContent value="theme" className="canvas-theme-tab">
+          <CanvasThemePanel document={document} />
+        </TabsContent>
+      </Tabs>
     </aside>
   );
 });

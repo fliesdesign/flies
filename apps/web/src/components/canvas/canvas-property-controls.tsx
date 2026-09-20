@@ -14,6 +14,7 @@ import {
   scrubNumericValue,
   type HsvColor,
 } from "./canvas-property-values";
+import { CanvasTokenSelect, type TokenChoiceProps } from "./canvas-token-select";
 
 export type PropertyPreview = {
   onStart: () => void;
@@ -21,7 +22,7 @@ export type PropertyPreview = {
   onEnd: (cancel: boolean) => void;
 };
 
-type FieldProps = {
+type FieldProps = TokenChoiceProps & {
   label: string;
   prefix?: ReactNode;
   value: string | number | undefined;
@@ -51,6 +52,9 @@ export function PropertyField({
   step = 1,
   preview,
   onCommit,
+  tokens,
+  tokenId,
+  onToken,
 }: FieldProps) {
   const source = typeof value === "number" ? displayNumber(value) : (value ?? "");
   const [draft, setDraft] = useState<{ source: string; value: string } | null>(null);
@@ -232,11 +236,18 @@ export function PropertyField({
           {suffix}
         </span>
       )}
+      <CanvasTokenSelect
+        tokens={tokens}
+        tokenId={tokenId}
+        onToken={onToken}
+        label={label}
+        disabled={disabled}
+      />
     </div>
   );
 }
 
-type ColorProps = {
+type ColorProps = TokenChoiceProps & {
   value: string | undefined;
   disabled: boolean;
   onStart: () => void;
@@ -244,7 +255,16 @@ type ColorProps = {
   onEnd: (cancel: boolean) => void;
 };
 
-export function ColorSwatch({ value, disabled, onStart, onPreview, onEnd }: ColorProps) {
+export function ColorSwatch({
+  value,
+  disabled,
+  onStart,
+  onPreview,
+  onEnd,
+  tokens,
+  tokenId,
+  onToken,
+}: ColorProps) {
   const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const session = useRef(false);
@@ -297,6 +317,12 @@ export function ColorSwatch({ value, disabled, onStart, onPreview, onEnd }: Colo
       />
       {position && (
         <ColorPopover
+          tokens={tokens}
+          tokenId={tokenId}
+          onToken={(id) => {
+            close(true);
+            onToken?.(id);
+          }}
           initialColor={value ?? "#000000"}
           position={position}
           onPreview={onPreview}
@@ -308,11 +334,17 @@ export function ColorSwatch({ value, disabled, onStart, onPreview, onEnd }: Colo
 }
 
 function ColorPopover({
+  tokens,
+  tokenId,
+  onToken,
   initialColor,
   position,
   onPreview,
   onClose,
 }: {
+  tokens?: TokenChoiceProps["tokens"];
+  tokenId?: string;
+  onToken?: TokenChoiceProps["onToken"];
   initialColor: string;
   position: { top: number; right: number };
   onPreview: (value: string) => void;
@@ -393,6 +425,7 @@ function ColorPopover({
       }}
     >
       <div className="canvas-color-heading">Color</div>
+      <CanvasTokenSelect tokens={tokens} tokenId={tokenId} onToken={onToken} label="Fill color" />
       <button
         type="button"
         className="canvas-color-spectrum"

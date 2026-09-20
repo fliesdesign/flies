@@ -43,7 +43,7 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 17);
+    assert_eq!(tools.len(), 24);
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
 }
@@ -202,7 +202,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 17);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 24);
 }
 
 #[tokio::test]
@@ -258,4 +258,107 @@ async fn modern_tool_calls_mark_text_images_and_errors_complete() {
         assert_eq!(response["result"]["content"], payload["content"]);
         assert_eq!(response["result"]["isError"], payload["isError"]);
     }
+}
+
+#[tokio::test]
+async fn overlapping_write_and_screenshot_wait_in_order() {
+    let bridge = Bridge::new();
+    let writer = bridge.clone();
+    let write = tokio::spawn(async move { writer.call("write_html".into(), json!({})).await });
+    let first = bridge.next().await.unwrap();
+    let reader = bridge.clone();
+    let screenshot =
+        tokio::spawn(async move { reader.call("get_screenshot".into(), json!({})).await });
+    tokio::task::yield_now().await;
+    assert!(!screenshot.is_finished());
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&first.id)
+        .unwrap()
+        .send(json!({"content":[]}))
+        .unwrap();
+    assert_eq!(write.await.unwrap(), json!({"content":[]}));
+    let second = bridge.next().await.unwrap();
+    assert_eq!(second.name, "get_screenshot");
+    bridge
+        .pending
+        .lock()
+        .await
+        .remove(&second.id)
+        .unwrap()
+        .send(json!({"content":[]}))
+        .unwrap();
+    assert_eq!(screenshot.await.unwrap(), json!({"content":[]}));
+}
+
+#[tokio::test]
+async fn full_queue_rejects_without_dispatching() {
+    let bridge = Bridge::new();
+    let _capacity = bridge.capacity.acquire_many(17).await.unwrap();
+    let response = bridge.call("write_html".into(), json!({})).await;
+    assert_eq!(response["isError"], true);
+    assert!(bridge.pending.lock().await.is_empty());
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+}
+
+#[test]
+fn update_schema_describes_geometry_clipping_and_layout() {
+    let catalog = tools::catalog();
+    let update = catalog
+        .iter()
+        .find(|tool| tool["name"] == "update_node")
+        .unwrap();
+    let properties = &update["inputSchema"]["properties"]["properties"];
+    assert_eq!(properties["additionalProperties"], false);
+    assert_eq!(properties["properties"]["height"]["type"], "number");
+    assert_eq!(
+        properties["properties"]["clipContent"]["type"],
+        json!(["boolean", "null"])
+    );
+    assert_eq!(
+        properties["properties"]["layout"]["properties"]["direction"]["enum"],
+        json!(["row", "column"])
+    );
+    for name in ["fit_node", "set_styles", "preview_html", "close_preview"] {
+        assert!(catalog.iter().any(|tool| tool["name"] == name));
+    }
+}
+
+#[test]
+fn theme_tools_expose_typed_tokens_and_nullable_bindings() {
+    let catalog = tools::catalog();
+    let theme = catalog
+        .iter()
+        .find(|tool| tool["name"] == "set_theme")
+        .unwrap();
+    let token = &theme["inputSchema"]["properties"]["tokens"]["items"];
+    assert_eq!(token["additionalProperties"], false);
+    assert_eq!(token["required"], json!(["id", "name", "type", "value"]));
+    assert_eq!(
+        token["properties"]["type"]["enum"],
+        json!(["color", "fontFamily", "spacing", "radius", "fontSize"])
+    );
+    let apply = catalog
+        .iter()
+        .find(|tool| tool["name"] == "apply_tokens")
+        .unwrap();
+    let bindings = &apply["inputSchema"]["properties"]["bindings"];
+    assert_eq!(bindings["additionalProperties"], false);
+    for property in [
+        "fill",
+        "fontFamily",
+        "layoutGap",
+        "layoutPadding",
+        "cornerRadius",
+        "fontSize",
+    ] {
+        assert_eq!(
+            bindings["properties"][property]["type"],
+            json!(["string", "null"])
+        );
+    }
+    assert!(catalog.iter().any(|tool| tool["name"] == "get_theme"));
 }

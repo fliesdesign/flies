@@ -1,7 +1,18 @@
-/* oxlint-disable unicorn/no-array-sort, unicorn/no-array-reverse -- Sort/reverse only owned arrays; the app targets ES2020. */
+import { isFontFamily } from "./canvas-fonts";
 import type { FrameRect, Point } from "./canvas-geometry";
 import { canvasLayoutPositions, isCanvasLayout, type CanvasLayout } from "./canvas-layout";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
+/* oxlint-disable unicorn/no-array-sort, unicorn/no-array-reverse -- Sort/reverse only owned arrays; the app targets ES2020. */
+import { SVG_DATA_URL } from "./canvas-svg";
+import {
+  EMPTY_THEME,
+  normalizeTheme,
+  isTokenBindings,
+  applyTokenBindings,
+  detachChangedTokens,
+  type CanvasTheme,
+  type TokenBindings,
+} from "./canvas-theme";
 
 export type CanvasShadow = Readonly<{
   offsetX: number;
@@ -24,6 +35,7 @@ type CanvasNodeBase = Readonly<
     borderWidth?: number;
     borderColor?: string;
     shadows?: readonly CanvasShadow[];
+    tokenBindings?: TokenBindings;
   }
 >;
 export type CanvasFrameNode = CanvasNodeBase & {
@@ -31,6 +43,7 @@ export type CanvasFrameNode = CanvasNodeBase & {
   readonly clipContent?: boolean;
   readonly fill?: string;
   readonly layout?: CanvasLayout;
+  readonly htmlStyles?: string;
 };
 export type CanvasGroup = CanvasNodeBase & { readonly kind: "group" };
 export type CanvasRectangle = CanvasNodeBase & {
@@ -42,8 +55,8 @@ export type CanvasText = CanvasNodeBase & {
   readonly text: string;
   readonly fontSize: number;
   readonly color: string;
-  readonly fontFamily?: "Arial" | "Helvetica" | "Georgia" | "Courier New";
-  readonly fontWeight?: 400 | 500 | 600 | 700;
+  readonly fontFamily?: string;
+  readonly fontWeight?: number;
   readonly lineHeight?: number;
   readonly letterSpacing?: number;
   readonly textAlign?: "left" | "center" | "right";
@@ -54,6 +67,7 @@ export type CanvasImage = CanvasNodeBase & {
   readonly kind: "image";
   readonly src: string;
 };
+export type CanvasSvg = CanvasNodeBase & { readonly kind: "svg"; readonly src: string };
 export type CanvasPen = CanvasNodeBase & {
   readonly kind: "pen";
   readonly points: readonly Readonly<Point>[];
@@ -68,6 +82,7 @@ export type CanvasFrame =
   | CanvasRectangle
   | CanvasText
   | CanvasImage
+  | CanvasSvg
   | CanvasPen;
 
 export type CanvasTransaction = Readonly<{
@@ -92,6 +107,8 @@ type FramePatch = {
   after: CanvasFrame | undefined;
 };
 type DocumentOperation = {
+  beforeTheme?: CanvasTheme;
+  afterTheme?: CanvasTheme;
   patches: readonly FramePatch[];
   beforeIds?: readonly string[];
   afterIds?: readonly string[];
@@ -149,6 +166,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.borderWidth !== second.borderWidth ||
     first.borderColor !== second.borderColor ||
     !shadowsEqual(first.shadows, second.shadows) ||
+    JSON.stringify(first.tokenBindings) !== JSON.stringify(second.tokenBindings) ||
     first.x !== second.x ||
     first.y !== second.y ||
     first.width !== second.width ||
@@ -174,8 +192,9 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         first.fontStyle === second.fontStyle &&
         first.textDecoration === second.textDecoration
       );
+    case "svg":
     case "image":
-      return second.kind === "image" && first.src === second.src;
+      return second.kind === first.kind && first.src === second.src;
     case "pen":
       return (
         second.kind === "pen" &&
@@ -192,6 +211,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         (second.kind === undefined || second.kind === "frame") &&
         first.clipContent === second.clipContent &&
         first.fill === second.fill &&
+        first.htmlStyles === second.htmlStyles &&
         first.layout?.direction === second.layout?.direction &&
         first.layout?.gap === second.layout?.gap &&
         first.layout?.padding === second.layout?.padding &&
@@ -266,6 +286,7 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
       (!isFiniteNumber(frame.borderWidth) || frame.borderWidth < 0)) ||
     (frame.borderColor !== undefined && !isColor(frame.borderColor)) ||
     (frame.shadows !== undefined && !isShadows(frame.shadows)) ||
+    (frame.tokenBindings !== undefined && !isTokenBindings(frame.tokenBindings)) ||
     (frame.layout !== undefined && frame.kind !== undefined && frame.kind !== "frame") ||
     !isFiniteNumber(frame.x) ||
     !isFiniteNumber(frame.y) ||
@@ -282,6 +303,8 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
       return (
         (frame.clipContent === undefined || typeof frame.clipContent === "boolean") &&
         (frame.fill === undefined || isColor(frame.fill)) &&
+        (frame.htmlStyles === undefined ||
+          (typeof frame.htmlStyles === "string" && frame.htmlStyles.length <= 50_000)) &&
         (frame.layout === undefined || isCanvasLayout(frame.layout))
       );
     case "group":
@@ -293,16 +316,9 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
         typeof frame.text === "string" &&
         isPositiveNumber(frame.fontSize) &&
         isColor(frame.color) &&
-        (frame.fontFamily === undefined ||
-          frame.fontFamily === "Arial" ||
-          frame.fontFamily === "Helvetica" ||
-          frame.fontFamily === "Georgia" ||
-          frame.fontFamily === "Courier New") &&
+        (frame.fontFamily === undefined || isFontFamily(frame.fontFamily)) &&
         (frame.fontWeight === undefined ||
-          frame.fontWeight === 400 ||
-          frame.fontWeight === 500 ||
-          frame.fontWeight === 600 ||
-          frame.fontWeight === 700) &&
+          (Number.isInteger(frame.fontWeight) && isNumberInRange(frame.fontWeight, 1, 1000))) &&
         (frame.lineHeight === undefined || isNumberInRange(frame.lineHeight, 0.5, 4)) &&
         (frame.letterSpacing === undefined || isNumberInRange(frame.letterSpacing, -10, 100)) &&
         (frame.textAlign === undefined ||
@@ -316,6 +332,13 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
           frame.textDecoration === "none" ||
           frame.textDecoration === "underline" ||
           frame.textDecoration === "line-through")
+      );
+    case "svg":
+      return (
+        (previous?.kind === "svg" && frame.src === previous.src) ||
+        (typeof frame.src === "string" &&
+          frame.src.length <= 3_000_000 &&
+          SVG_DATA_URL.test(frame.src))
       );
     case "image":
       return (
@@ -372,6 +395,9 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.borderWidth !== undefined && { borderWidth: frame.borderWidth }),
     ...(frame.borderColor !== undefined && { borderColor: frame.borderColor }),
     ...(frame.shadows !== undefined && { shadows: immutableShadows(frame.shadows) }),
+    ...(frame.tokenBindings !== undefined && {
+      tokenBindings: Object.freeze({ ...frame.tokenBindings }),
+    }),
     x: frame.x,
     y: frame.y,
     width: frame.width,
@@ -395,6 +421,7 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...(frame.fontStyle !== undefined && { fontStyle: frame.fontStyle }),
         ...(frame.textDecoration !== undefined && { textDecoration: frame.textDecoration }),
       });
+    case "svg":
     case "image":
       return Object.freeze({ ...base, kind: frame.kind, src: frame.src });
     case "pen":
@@ -415,6 +442,7 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...(frame.kind === "frame" && { kind: frame.kind }),
         ...(frame.clipContent !== undefined && { clipContent: frame.clipContent }),
         ...(frame.fill !== undefined && { fill: frame.fill }),
+        ...(frame.htmlStyles !== undefined && { htmlStyles: frame.htmlStyles }),
         ...(frame.layout !== undefined && {
           layout: Object.freeze({
             direction: frame.layout.direction,
@@ -476,6 +504,7 @@ function sameIds(first: readonly string[], second: readonly string[]) {
 /** Indexed document with per-node subscriptions and bounded atomic operation history. */
 export class CanvasDocument {
   private frames = new Map<string, CanvasFrame>();
+  private theme: CanvasTheme;
   private ids: readonly string[];
   private children: Hierarchy["children"];
   private order: Map<string, number>;
@@ -487,8 +516,10 @@ export class CanvasDocument {
   private future: DocumentOperation[] = [];
   private gesture: Map<string, CanvasFrame> | undefined;
 
-  constructor(initial: readonly CanvasFrame[] = []) {
-    for (const frame of initial) {
+  constructor(initial: readonly CanvasFrame[] = [], theme: CanvasTheme = EMPTY_THEME) {
+    this.theme = normalizeTheme(theme);
+    for (const original of initial) {
+      const frame = this.theme.tokens.length ? applyTokenBindings(original, this.theme) : original;
       if (!isFrame(frame) || this.frames.has(frame.id)) {
         throw new Error("Canvas frames must have valid bounds and unique ids.");
       }
@@ -500,7 +531,9 @@ export class CanvasDocument {
     this.children = hierarchy.children;
     this.order = new Map(this.ids.map((id, index) => [id, index]));
     this.snapshot = Object.freeze({ ids: this.ids, revision: 0, canUndo: false, canRedo: false });
-    const layouts = initial.filter((node) => (!node.kind || node.kind === "frame") && node.layout);
+    const layouts = [...this.frames.values()].filter(
+      (node) => (!node.kind || node.kind === "frame") && node.layout,
+    );
     if (layouts.length) {
       const operation = this.prepare(
         layouts.map((node) => ({
@@ -513,6 +546,39 @@ export class CanvasDocument {
       this.apply(operation, false);
     }
   }
+
+  getTheme = () => this.theme;
+  setTheme = (value: CanvasTheme, measureText?: (node: CanvasText) => number): boolean => {
+    const theme = normalizeTheme(value);
+    if (JSON.stringify(theme) === JSON.stringify(this.theme)) return false;
+    this.endGesture();
+    const updated = this.getFrames().map((node) => {
+      const result = applyTokenBindings(node, theme);
+      return result.kind === "text" &&
+        node.kind === "text" &&
+        measureText &&
+        (result.fontFamily !== node.fontFamily ||
+          result.fontSize !== node.fontSize ||
+          result.letterSpacing !== node.letterSpacing)
+        ? Object.assign({}, result, { height: measureText(result) })
+        : result;
+    });
+    // Validate every resolved value before changing the document or its history.
+    const validated = new CanvasDocument(updated, theme);
+    const patches = validated.getFrames().flatMap((node) => {
+      const before = this.frames.get(node.id)!;
+      return framesEqual(before, node)
+        ? []
+        : [{ id: node.id, before, after: immutableFrame(node) }];
+    });
+    const operation = patches.length ? this.prepare(patches) : { patches };
+    if (!operation) throw new Error("Theme changes would produce invalid layout.");
+    operation.beforeTheme = this.theme;
+    operation.afterTheme = theme;
+    this.apply(operation, false);
+    this.record(operation);
+    return true;
+  };
 
   getFrame = (id: string) => this.frames.get(id);
   isHidden = (id: string): boolean => {
@@ -616,10 +682,10 @@ export class CanvasDocument {
   removeMany = (ids: readonly string[]) => this.transact({ remove: this.getDescendantIds(ids) });
 
   /** Open a complete project atomically, retaining one undo back to the previous document. */
-  replaceAll = (frames: readonly CanvasFrame[]): boolean => {
+  replaceAll = (frames: readonly CanvasFrame[], theme: CanvasTheme = EMPTY_THEME): boolean => {
     let replacement: CanvasDocument;
     try {
-      replacement = new CanvasDocument(frames);
+      replacement = new CanvasDocument(frames, theme);
     } catch {
       return false;
     }
@@ -631,11 +697,18 @@ export class CanvasDocument {
       if (before && after ? !framesEqual(before, after) : before !== after)
         patches.push({ id, before, after });
     }
-    if (!patches.length && sameIds(this.ids, replacement.getIds())) return false;
+    if (
+      !patches.length &&
+      sameIds(this.ids, replacement.getIds()) &&
+      JSON.stringify(this.theme) === JSON.stringify(replacement.getTheme())
+    )
+      return false;
     const operation: DocumentOperation = {
       patches,
       beforeIds: this.ids,
       afterIds: replacement.getIds(),
+      beforeTheme: this.theme,
+      afterTheme: replacement.getTheme(),
     };
     this.apply(operation, false);
     this.record(operation);
@@ -651,7 +724,9 @@ export class CanvasDocument {
       seen.add(frame.id);
       patches.push({ id: frame.id, before: undefined, after: immutableFrame(frame) });
     }
-    for (const frame of update) {
+    for (const raw of update) {
+      const existing = this.frames.get(raw.id);
+      const frame = existing ? detachChangedTokens(existing, raw) : raw;
       const before = this.frames.get(frame.id);
       if (seen.has(frame.id) || !before || !isFrame(frame, before)) return false;
       seen.add(frame.id);
@@ -700,7 +775,9 @@ export class CanvasDocument {
     if (!this.gesture) return false;
     const seen = new Set<string>();
     const updates: CanvasFrame[] = [];
-    for (const frame of frames) {
+    for (const raw of frames) {
+      const existing = this.frames.get(raw.id);
+      const frame = existing ? detachChangedTokens(existing, raw) : raw;
       const before = this.frames.get(frame.id);
       if (!this.gesture.has(frame.id) || seen.has(frame.id) || !before || !isFrame(frame, before))
         return false;
@@ -1115,6 +1192,8 @@ export class CanvasDocument {
   }
 
   private apply(operation: DocumentOperation, reverse: boolean, notifyIds?: ReadonlySet<string>) {
+    const theme = reverse ? operation.beforeTheme : operation.afterTheme;
+    if (theme) this.theme = theme;
     for (const patch of operation.patches) {
       const next = reverse ? patch.before : patch.after;
       if (next) this.frames.set(patch.id, next);
@@ -1233,15 +1312,27 @@ export function loadCanvasFrames(
 export function saveCanvasFrames(
   frames: readonly CanvasFrame[],
   storage?: Pick<Storage, "setItem">,
+  theme: CanvasTheme = EMPTY_THEME,
 ): boolean {
   try {
     (storage ?? window.localStorage).setItem(
       CANVAS_STORAGE_KEY,
-      JSON.stringify({ version: 2, nodes: frames }),
+      JSON.stringify({ version: 2, nodes: frames, theme }),
     );
     return true;
   } catch {
     // Storage can be unavailable or full without making the canvas unusable.
     return false;
+  }
+}
+
+export function loadCanvasTheme(storage?: Pick<Storage, "getItem">): CanvasTheme {
+  try {
+    const value = JSON.parse(
+      (storage ?? window.localStorage).getItem(CANVAS_STORAGE_KEY) ?? "null",
+    );
+    return value?.theme ? normalizeTheme(value.theme) : EMPTY_THEME;
+  } catch {
+    return EMPTY_THEME;
   }
 }

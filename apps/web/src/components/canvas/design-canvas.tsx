@@ -1,3 +1,5 @@
+import { type CanvasTheme, EMPTY_THEME } from "@flies/canvas";
+import { ensureCanvasFonts } from "@flies/canvas";
 import { useCanvasDocument, useCanvasSnapshot, type CanvasFrame } from "@flies/canvas";
 import { arrangeSelection, type CanvasArrangeAction } from "@flies/canvas";
 import { CanvasAutoPan, pointerWorldDelta } from "@flies/canvas";
@@ -112,6 +114,7 @@ export type CanvasControls = {
 type DesignCanvasProps = {
   fileActions?: CanvasFileActions;
   initialFrames?: CanvasFrame[];
+  initialTheme?: CanvasTheme;
   persist?: boolean;
   FrameContent?: FrameContentComponent;
   onReady?: (controls: CanvasControls | null) => void;
@@ -176,6 +179,7 @@ function DrawingPreview({ frame, camera }: { frame: CanvasFrame; camera: CanvasC
 
 export function DesignCanvas({
   initialFrames,
+  initialTheme,
   fileActions,
   persist = true,
   FrameContent,
@@ -186,7 +190,12 @@ export function DesignCanvas({
     () => setNotice("Could not save this canvas. Browser storage may be full."),
     [],
   );
-  const document = useCanvasDocument({ initialFrames, persist, onSaveError: saveFailed });
+  const document = useCanvasDocument({
+    initialFrames,
+    initialTheme,
+    persist,
+    onSaveError: saveFailed,
+  });
   const snapshot = useCanvasSnapshot(document);
   const { ids, canUndo, canRedo } = snapshot;
   const { undo, redo } = document;
@@ -497,13 +506,53 @@ export function DesignCanvas({
     return () => compact.removeEventListener("change", update);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let lastKey = "";
+    const load = () => {
+      const texts = document.getFrames().filter((node) => node.kind === "text");
+      const key = texts
+        .map((node) => `${node.fontFamily}:${node.fontWeight}:${node.fontStyle}:${node.text}`)
+        .join("|");
+      if (key === lastKey) return;
+      lastKey = key;
+      void ensureCanvasFonts(texts).catch((error: unknown) => {
+        if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
+      });
+    };
+    load();
+    const unsubscribe = document.subscribeChanges(load);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [document]);
+
   const changeProperty = useCallback(
-    (
+    async (
       property: CanvasProperty,
       value: string | number | boolean,
       options?: CanvasPropertyOptions,
     ) => {
       finishInteraction(true);
+      if (["fontFamily", "fontWeight", "fontStyle"].includes(property)) {
+        const before = propertyIds.map((id) => document.getFrame(id));
+        const updates = changeCanvasProperty(
+          document.getFrames(),
+          propertyIds,
+          property,
+          value,
+          (node) => node.height,
+          options,
+        );
+        try {
+          await ensureCanvasFonts(updates.filter((node) => node.kind === "text"));
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : String(error));
+          return;
+        }
+        if (before.some((node, index) => document.getFrame(propertyIds[index]) !== node)) return;
+      }
       document.updateMany(
         changeCanvasProperty(
           document.getFrames(),
@@ -612,11 +661,11 @@ export function DesignCanvas({
   ]);
 
   const openProject = useCallback(
-    (nodes: CanvasFrame[]) => {
+    (nodes: CanvasFrame[], theme: CanvasTheme = EMPTY_THEME) => {
       finishInteraction(true);
       endPropertyPreview(true);
       setEditingId(null);
-      document.replaceAll(nodes);
+      document.replaceAll(nodes, theme);
       setSelection([]);
       setGroupScope(null);
       setHoveredId(null);
@@ -779,7 +828,8 @@ export function DesignCanvas({
           (!frame.kind ||
             frame.kind === "frame" ||
             frame.kind === "rectangle" ||
-            frame.kind === "image") &&
+            frame.kind === "image" ||
+            frame.kind === "svg") &&
           point.x >= frame.x &&
           point.x <= frame.x + frame.width &&
           point.y >= frame.y &&
@@ -843,7 +893,7 @@ export function DesignCanvas({
         const frame: CanvasFrame = {
           id: crypto.randomUUID(),
           name: image.name,
-          kind: "image",
+          kind: image.kind,
           src: image.src,
           x: Math.round((point?.x ?? center.x - width / 2) + index * 24),
           y: Math.round((point?.y ?? center.y - height / 2) + index * 24),
@@ -1051,6 +1101,13 @@ export function DesignCanvas({
     if (payload && pasteObjects(payload, inPlace ? undefined : point, inPlace)) return;
     if (isPaperSnapshot(data.html)) {
       await pasteSnapshot(data.html, point);
+      return;
+    }
+    const svgText = [data.text, data.html].find((value) =>
+      /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(value),
+    );
+    if (svgText) {
+      await importImages([new File([svgText], "Pasted SVG.svg", { type: "image/svg+xml" })], point);
       return;
     }
     if (data.images.length) {
@@ -1652,7 +1709,13 @@ export function DesignCanvas({
             file.type.startsWith("image/"),
           ),
         };
-        if (data.internal || data.text || data.images.length || isPaperSnapshot(data.html)) {
+        if (
+          data.internal ||
+          data.text ||
+          data.images.length ||
+          isPaperSnapshot(data.html) ||
+          /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(data.html)
+        ) {
           event.preventDefault();
           void pasteClipboard(data);
         }

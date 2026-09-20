@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 use tauri::Manager;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 type Reply = oneshot::Sender<Value>;
@@ -31,6 +31,7 @@ pub struct Bridge {
     receiver: Mutex<mpsc::Receiver<EditorRequest>>,
     pending: Mutex<HashMap<String, Reply>>,
     serial: Mutex<()>,
+    capacity: Semaphore,
 }
 
 impl Bridge {
@@ -41,13 +42,17 @@ impl Bridge {
             receiver: Mutex::new(receiver),
             pending: Mutex::new(HashMap::new()),
             serial: Mutex::new(()),
+            capacity: Semaphore::new(17),
         })
     }
 
     async fn call(&self, name: String, arguments: Value) -> Value {
-        // Reject overlap rather than accumulating unbounded waiting HTTP requests.
-        let Ok(_serial) = self.serial.try_lock() else {
-            return tool_error("Another tool is running. Retry after it finishes.");
+        // Wait FIFO for the active tool, while bounding queued HTTP requests.
+        let Ok(_capacity) = self.capacity.try_acquire() else {
+            return tool_error("Desktop request queue is full (16 waiting tools). Wait for pending calls to finish.");
+        };
+        let Ok(_serial) = tokio::time::timeout(TIMEOUT, self.serial.lock()).await else {
+            return tool_error("Request waited 45 seconds in the queue and was not dispatched. It is safe to retry.");
         };
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();

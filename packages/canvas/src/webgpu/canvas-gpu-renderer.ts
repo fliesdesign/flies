@@ -19,6 +19,8 @@ import type {
   CanvasShadow,
   CanvasText,
 } from "../canvas-document";
+import { ensureCanvasFont } from "../canvas-fonts";
+import { SVG_DATA_URL } from "../canvas-svg";
 import { createShadowSprite } from "./canvas-gpu-shadows";
 
 type RendererOptions = {
@@ -38,6 +40,7 @@ type Artwork = {
   frame: CanvasFrame;
   initialized: boolean;
   imageSource?: string;
+  svgScale?: number;
   image?: HTMLImageElement;
   imageAbort?: AbortController;
   imageSprite?: Sprite;
@@ -80,8 +83,9 @@ function sameVisual(first: CanvasFrame, second: CanvasFrame) {
         first.textDecoration === second.textDecoration &&
         first.color === second.color
       );
+    case "svg":
     case "image":
-      return second.kind === "image" && first.src === second.src;
+      return second.kind === first.kind && first.src === second.src;
     case "pen":
       return (
         second.kind === "pen" &&
@@ -159,6 +163,7 @@ export class CanvasGpuRenderer {
   private readonly fades = new Map<string, number>();
   private lastActivityChange = "";
   private destroyed = false;
+  private readonly fontLoads = new Map<string, string>();
   private hierarchyDirty = true;
   private documentRenderPending = false;
   private lastWidth = 0;
@@ -263,10 +268,14 @@ export class CanvasGpuRenderer {
     this.unsubscribers.forEach((unsubscribe) => unsubscribe());
     const device = this.renderer.gpu.device;
     device.removeEventListener("uncapturederror", this.handleDeviceError);
+    // Filters retain uniform-batch buffers. Release their bindings before the
+    // renderer destroys those buffers (its pipes are torn down before systems).
+    this.renderer.filter.destroy();
     // Detach nodes first: each owns its own resources, never its descendant nodes.
     for (const node of this.nodes.values()) node.outer.removeFromParent();
     for (const node of this.nodes.values()) this.destroyNode(node);
     this.nodes.clear();
+    this.fontLoads.clear();
     this.world.destroy();
     this.renderer.destroy(false);
     device.destroy();
@@ -331,6 +340,11 @@ export class CanvasGpuRenderer {
         if (progress === 1) this.fades.delete(id);
       }
       const { viewport, size } = this.options.camera.getCurrent();
+      for (const node of this.nodes.values()) {
+        if (node.frame.kind === "svg" && (node.svgScale ?? 0) < this.svgRasterScale(node.frame)) {
+          this.updateBody(node, node.frame);
+        }
+      }
       const width = Math.max(1, size.x);
       const height = Math.max(1, size.y);
       if (width !== this.lastWidth || height !== this.lastHeight) {
@@ -359,6 +373,7 @@ export class CanvasGpuRenderer {
         node.children.removeChildren();
         this.destroyNode(node);
         this.nodes.delete(id);
+        this.fontLoads.delete(id);
       }
     }
     for (const id of ids) {
@@ -452,12 +467,34 @@ export class CanvasGpuRenderer {
       }
       pen.scale.set(frame.width / frame.pathWidth, frame.height / frame.pathHeight);
       node.body.addChild(pen);
-    } else if (frame.kind === "image") {
+    } else if (frame.kind === "image" || frame.kind === "svg") {
       this.addImage(node, frame);
     }
   }
 
   private addText(node: Artwork, frame: CanvasText) {
+    const fontKey = `${frame.fontFamily}:${frame.fontWeight}:${frame.fontStyle}:${frame.text}`;
+    if (frame.fontFamily && this.fontLoads.get(frame.id) !== fontKey) {
+      this.fontLoads.set(frame.id, fontKey);
+      void ensureCanvasFont(frame)
+        .then(() => {
+          if (
+            this.destroyed ||
+            this.nodes.get(frame.id) !== node ||
+            this.fontLoads.get(frame.id) !== fontKey
+          )
+            return false;
+          CanvasTextMetrics.clearMetrics();
+          node.initialized = false;
+          this.dirty.add(frame.id);
+          this.requestDocumentRender();
+          return true;
+        })
+        .catch(() => {
+          /* The editor reports unavailable fonts and retains fallback artwork. */
+        });
+    }
+
     const style = textStyle(frame);
     const content = frame.text.replace(/\t/g, "    ");
     const metrics = CanvasTextMetrics.measureText(content, style);
@@ -494,10 +531,19 @@ export class CanvasGpuRenderer {
     }
   }
 
-  private addImage(node: Artwork, frame: Extract<CanvasFrame, { kind: "image" }>) {
-    if (!RASTER_DATA_URL.test(frame.src))
-      throw new Error("Canvas images must be embedded raster images.");
+  private svgRasterScale(frame: CanvasFrame) {
+    return Math.min(
+      this.resolution * this.options.camera.getCurrent().viewport.zoom,
+      4096 / Math.max(frame.width, frame.height),
+      Math.sqrt(4_000_000 / (frame.width * frame.height)),
+    );
+  }
+
+  private addImage(node: Artwork, frame: Extract<CanvasFrame, { kind: "image" | "svg" }>) {
+    if (!(frame.kind === "svg" ? SVG_DATA_URL : RASTER_DATA_URL).test(frame.src))
+      throw new Error("Canvas images must use embedded data URLs.");
     const image = new Image();
+    if (frame.kind === "svg") node.svgScale = this.svgRasterScale(frame);
     node.image = image;
     node.imageSource = frame.src;
     const abort = new AbortController();
@@ -507,10 +553,23 @@ export class CanvasGpuRenderer {
       () => {
         if (this.destroyed || node.image !== image) return;
         try {
-          const texture = Texture.from(image, true);
+          // Pixi's WebGPU uploader otherwise converts HTML images to canvas itself
+          // and warns on every upload. Supply the supported resource directly.
+          const raster = window.document.createElement("canvas");
+          const scale = frame.kind === "svg" ? this.svgRasterScale(frame) : 1;
+          raster.width =
+            frame.kind === "svg" ? Math.max(1, Math.ceil(frame.width * scale)) : image.naturalWidth;
+          raster.height =
+            frame.kind === "svg"
+              ? Math.max(1, Math.ceil(frame.height * scale))
+              : image.naturalHeight;
+          const context = raster.getContext("2d");
+          if (!context) throw new Error("Unable to prepare canvas image texture.");
+          context.drawImage(image, 0, 0, raster.width, raster.height);
+          const texture = Texture.from(raster, true);
           const sprite = new Sprite(texture);
           const current = this.options.document.getFrame(frame.id);
-          if (!current || current.kind !== "image" || current.src !== frame.src) {
+          if (!current || current.kind !== frame.kind || current.src !== frame.src) {
             sprite.destroy({ texture: true, textureSource: true });
             return;
           }
@@ -559,7 +618,7 @@ export class CanvasGpuRenderer {
       node.decoration.addChild(border);
     }
     node.contentMask.clear();
-    if (frame.kind === "text" || frame.kind === "image") {
+    if (frame.kind === "text" || frame.kind === "image" || frame.kind === "svg") {
       shape(node.contentMask, frame).fill("#fff");
       node.body.mask = node.contentMask;
     } else node.body.mask = null;

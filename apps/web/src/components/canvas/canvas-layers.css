@@ -284,3 +284,33 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+.canvas-layer-svg-type {
+  width: 20px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+
+.canvas-sidebar-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+.canvas-sidebar-design {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.canvas-sidebar-tabs > .canvas-theme-tab {
+  overflow: auto;
+  min-height: 0;
+}
+
+.canvas-sidebar-design[hidden] {
+  display: none;
+}

@@ -1,0 +1,92 @@
+diff --git a/lib/filters/FilterSystem.js b/lib/filters/FilterSystem.js
+index 0cbe11c3343326a330d8b5a1bdf472a9a0de45a7..e6d4db94496f517f2d7f4c97d012c8a98ef911d8 100644
+--- a/lib/filters/FilterSystem.js
++++ b/lib/filters/FilterSystem.js
+@@ -321,6 +321,8 @@ class FilterSystem {
+     return mappedMatrix;
+   }
+   destroy() {
++    this._globalFilterBindGroup?.destroy();
++    this._globalFilterBindGroup = null;
+     this._passthroughFilter?.destroy(true);
+     this._passthroughFilter = null;
+   }
+diff --git a/lib/filters/FilterSystem.mjs b/lib/filters/FilterSystem.mjs
+index fde021a3ac1495080565f13ba0bac12a42f305b0..398e1cd521ec458cefa9ed7121bf8e7932fd9c7b 100644
+--- a/lib/filters/FilterSystem.mjs
++++ b/lib/filters/FilterSystem.mjs
+@@ -319,6 +319,8 @@ class FilterSystem {
+     return mappedMatrix;
+   }
+   destroy() {
++    this._globalFilterBindGroup?.destroy();
++    this._globalFilterBindGroup = null;
+     this._passthroughFilter?.destroy(true);
+     this._passthroughFilter = null;
+   }
+diff --git a/lib/rendering/batcher/gpu/getTextureBatchBindGroup.js b/lib/rendering/batcher/gpu/getTextureBatchBindGroup.js
+index c87625041835cbaf9d1280d6eaef70a3feccf4d2..501bd20e2ef180805c3aac175d1d3cb6fe0cdc8d 100644
+--- a/lib/rendering/batcher/gpu/getTextureBatchBindGroup.js
++++ b/lib/rendering/batcher/gpu/getTextureBatchBindGroup.js
+@@ -5,6 +5,18 @@ var Texture = require('../../renderers/shared/texture/Texture.js');
+ 
+ "use strict";
+ const cachedGroups = {};
++// Cached groups do not own textures. Retire the entire cache entry when a source
++// or sampler is destroyed, releasing all bindings before the resource is freed.
++class TextureBatchBindGroup extends BindGroup.BindGroup {
++  onResourceChange(resource) {
++    if (resource.destroyed) {
++      delete cachedGroups[this.cacheKey];
++      this.destroy();
++      return;
++    }
++    super.onResourceChange(resource);
++  }
++}
+ function getTextureBatchBindGroup(textures, size, maxTextures) {
+   let uid = 2166136261;
+   for (let i = 0; i < size; i++) {
+@@ -22,7 +34,8 @@ function generateTextureBatchBindGroup(textures, size, key, maxTextures) {
+     bindGroupResources[bindIndex++] = texture.source;
+     bindGroupResources[bindIndex++] = texture.style;
+   }
+-  const bindGroup = new BindGroup.BindGroup(bindGroupResources);
++  const bindGroup = new TextureBatchBindGroup(bindGroupResources);
++  bindGroup.cacheKey = key;
+   cachedGroups[key] = bindGroup;
+   return bindGroup;
+ }
+diff --git a/lib/rendering/batcher/gpu/getTextureBatchBindGroup.mjs b/lib/rendering/batcher/gpu/getTextureBatchBindGroup.mjs
+index 433fedc5a99dea5dd01d0f55f0aba7dffdb6c795..9e71064d7286bfbc9fed91a7ec258be34015200b 100644
+--- a/lib/rendering/batcher/gpu/getTextureBatchBindGroup.mjs
++++ b/lib/rendering/batcher/gpu/getTextureBatchBindGroup.mjs
+@@ -3,6 +3,18 @@ import { Texture } from '../../renderers/shared/texture/Texture.mjs';
+ 
+ "use strict";
+ const cachedGroups = {};
++// Cached groups do not own textures. Retire the entire cache entry when a source
++// or sampler is destroyed, releasing all bindings before the resource is freed.
++class TextureBatchBindGroup extends BindGroup {
++  onResourceChange(resource) {
++    if (resource.destroyed) {
++      delete cachedGroups[this.cacheKey];
++      this.destroy();
++      return;
++    }
++    super.onResourceChange(resource);
++  }
++}
+ function getTextureBatchBindGroup(textures, size, maxTextures) {
+   let uid = 2166136261;
+   for (let i = 0; i < size; i++) {
+@@ -20,7 +32,8 @@ function generateTextureBatchBindGroup(textures, size, key, maxTextures) {
+     bindGroupResources[bindIndex++] = texture.source;
+     bindGroupResources[bindIndex++] = texture.style;
+   }
+-  const bindGroup = new BindGroup(bindGroupResources);
++  const bindGroup = new TextureBatchBindGroup(bindGroupResources);
++  bindGroup.cacheKey = key;
+   cachedGroups[key] = bindGroup;
+   return bindGroup;
+ }

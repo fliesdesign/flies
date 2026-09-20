@@ -35,10 +35,46 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 | `write_html`                                 | Convert Tailwind or inline-styled HTML into editable layers |
 | `update_node`, `delete_nodes`                | Modify existing nodes                                       |
 | `set_selection`                              | Select a node or clear selection                            |
+| `set_styles`                                 | Save inherited CSS defaults on a frame/artboard             |
+| `get_theme`, `set_theme`, `apply_tokens`     | Define theme tokens and link layer properties               |
+| `fit_node`                                   | Fit a frame/group to content, with explicit clipping        |
+| `preview_html`, `close_preview`              | Open/close an interactive HTML prototype                    |
 | `get_screenshot`                             | PNG of a node subtree or the whole document                 |
 | `undo`, `redo`, `save_file`                  | Document history and persistence                            |
 
 Start with `get_guide`, then `create_file` or `open_file`. Subsequent editor tools target the active file. Mutation responses wait for the existing autosave queue to flush to compressed JSON. They use the same CanvasDocument transactions and undo history as manual edits. All documents remain local.
+
+### Theme tokens
+
+The left sidebar has **Design** and **Theme** tabs. Theme supports colors, font families,
+spacing, radii, and font sizes. The property controls offer matching tokens; changing a
+token updates every linked layer, including text measurement and layout. Manual literal
+edits detach that property. Deleting a token preserves the layer's current value. Theme
+changes support undo/redo, local autosave, browser storage, and portable ZIP projects.
+
+Agents edit the same theme through these tools:
+
+```json
+{
+  "tokens": [
+    { "id": "brand", "name": "Brand", "type": "color", "value": "#6366f1" },
+    { "id": "body-font", "name": "Body", "type": "fontFamily", "value": "Inter" },
+    { "id": "space-md", "name": "Medium", "type": "spacing", "value": 24 }
+  ]
+}
+```
+
+Pass this object to `set_theme`. Tokens merge by ID; `replace:true` replaces the entire
+theme, while `deleteTokenIds` removes selected tokens. Color values use 6- or 8-digit
+hex; numeric tokens use pixels. IDs are stable lowercase names with hyphens. `get_theme`
+returns the tokens, CSS variable names, and layer usage counts.
+
+Use `apply_tokens({"nodeIds":["TEXT_ID"],"bindings":{"fill":"brand","fontFamily":"body-font"}})`
+to link native layers. Use `null` to detach an individual property. `fill` also handles
+text color and pen stroke. Layout uses `layoutGap` and `layoutPadding` spacing bindings.
+Tokens are available as `var(--brand)`, `var(--body-font)`, and `var(--space-md)` in
+`write_html` and `preview_html`. HTML import resolves CSS to literal values; call
+`apply_tokens` on imported nodes to retain live links.
 
 ### Build a page across calls
 
@@ -107,7 +143,7 @@ Flex/grid layout, spacing, theme colors, typography, borders, shadows, arbitrary
 Responsive breakpoints use the import `width`, not the editor window. Viewport height is
 `height` or 900px when omitted, and `rem` is 16px. Tailwind Preflight applies to fragments
 containing classes, isolated from editor styles. No CSS or class state leaks between calls.
-Use `font-normal`, `font-medium`, `font-semibold`, `font-bold` and `font-sans`/`serif`/`mono`
+Use `font-thin`, `font-light`, `font-normal`, `font-medium`, `font-semibold`, `font-bold`, `font-black` and `font-sans`/`serif`/`mono`
 to match the canvas's supported typography. `rounded-full` works for pills.
 
 The output is a static snapshot: hover/focus states are not activated, unknown custom
@@ -119,7 +155,29 @@ replacement, saving and undo work exactly as with inline CSS.
 
 Supported styles include solid backgrounds, opacity, solid borders (including individual sides), multiple box shadows, uniform corner radii, inline colored text, bold/italic, underline/strike, and explicit line breaks. Text-like inputs become editable value/placeholder text. Generic/system fonts resolve to supported fonts before measurement. Raster images must use data URLs. Native appearance fields survive save/reopen, undo/redo, and PNG export.
 
-Sizes and positions remain a measured snapshot. CSS context is not retained across calls: a new section does not inherit an earlier import's fonts, styles or flex/grid rules, and existing siblings do not automatically reflow. Specify each section's own styles and dimensions. Native `layout` properties can be set deliberately through `update_node`; earlier HTML CSS does not become native auto layout. Unsupported input fails before committing: scripts/events, stylesheets, custom elements, external resources, SVG, gradients, transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage radii, cropped images, or clipping on containers smaller than 40px. Use `border-radius:999px` for pills. Limits: 200KB HTML, 500 elements, 30 nesting levels, and 3000 generated layers per insertion.
+Sizes and positions remain a measured snapshot. Use `set_styles` to retain CSS rules, typography and variables for future imports under an artboard; rules from ancestor frames cascade into descendant `write_html` calls. Native `layout` controls automatic reflow; previous HTML flex/grid rules do not become persistent native layout. Unsupported canvas input fails before committing: scripts/events, stylesheets, custom elements, external resources, CSS gradients/transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage radii, cropped images, or clipping on containers smaller than 40px. Inline SVG is preserved as SVG nodes. Use `preview_html` for live CSS and script behavior. Limits: 200KB HTML, 500 elements, 30 nesting levels, and 3000 generated layers per insertion.
+
+### Reuse CSS and fit content
+
+```js
+set_styles({
+  nodeId: PAGE_ID,
+  css: ":root { --space:24px; font-family:Inter; color:#172033; } .section { padding:var(--space); }",
+});
+write_html({
+  parentId: SECTION_ID,
+  html: "<section class='section'><h2>Shared typography</h2></section>",
+});
+fit_node({ nodeId: PAGE_ID, axis: "height", padding: 24, clipContent: true });
+```
+
+Styles are stored with the frame and survive undo, copying and save/reopen. They affect future imports and previews; existing measured native layers are unchanged. Set empty CSS to clear a frame's defaults. Nested frame styles override ancestor defaults. Shared CSS must be self-contained; fonts load by family name.
+
+`update_node.properties` now lists supported fields, types and bounds. Numeric width/height are fixed sizes, independent of `clipContent`. Use `fit_node` for one-time content sizing without replacing children; it keeps the origin and child IDs and defaults frame clipping to true. Native auto layout may reposition children during fitting. Partial `layout` patches merge with existing layout/defaults; `layout:null` disables it. Optional properties accept null to restore defaults.
+
+### Interactive prototypes
+
+`preview_html({nodeId: PAGE_ID, html: "...", css: "...", width: 1280, height: 800})` opens an opaque-origin sandbox with gradients, hover/focus, CSS animations, Tailwind and inline JavaScript. `nodeId` inherits saved CSS; extra CSS is preview-only. Scripts cannot access the editor, Tauri or editor storage. Fetch, external scripts/assets and form submissions are blocked, with Google Fonts allowed. The preview is transient and does not create native layers. Download HTML keeps a standalone copy; `close_preview` returns to canvas editing. `get_screenshot` continues to capture native canvas layers, not this interactive preview.
 
 `write_html` supports three scopes, each applied in one undoable transaction:
 
@@ -135,7 +193,7 @@ Normal `write_html` results include `applied`, `nodeIds`, `roots`, `containers` 
 
 The SDK owns protocol negotiation, discovery, request validation and HTTP transport. `mod.rs` forwards tool requests to the main webview through Tauri IPC. `src/lib/mcp/` implements the live editor tools and HTML conversion. Only the main desktop window can use the bridge.
 
-Only one editor tool runs at a time; overlapping requests return a retryable tool error. Idle polling waits rather than busy-looping. Unanswered requests time out after 45 seconds. A dispatched edit may already have applied when its request times out: inspect the document before retrying. No active file, invalid input, or failed saves return tool errors.
+Editor tools execute in FIFO order; up to 16 overlapping requests wait automatically. Pairing writes and screenshots no longer produces busy retries. Await a mutation response when its screenshot must follow it across concurrent clients. Queued calls time out after 45 seconds without being dispatched and are safe to retry. Idle polling waits rather than busy-looping. Unanswered requests time out after 45 seconds. A dispatched edit may already have applied when its request times out: inspect the document before retrying. No active file, invalid input, or failed saves return tool errors.
 
 ## Verification
 

@@ -80,7 +80,7 @@ async function routeSnapshotImages(page: Page) {
   return requests;
 }
 
-test("the supplied Paper capture keeps its natural box size, text, and rasterized SVG artwork", async ({
+test("the supplied Paper capture keeps its natural box size, text, and vector SVG artwork", async ({
   page,
 }, testInfo) => {
   await page.goto("/");
@@ -89,7 +89,9 @@ test("the supplied Paper capture keeps its natural box size, text, and rasterize
     const path = "/src/lib/paper-snapshot.ts";
     const { importPaperSnapshot, isPaperSnapshot } = await import(/* @vite-ignore */ path);
     const { nodes, warnings } = await importPaperSnapshot(html);
-    const imageNodes = nodes.filter((node: CanvasFrame) => node.kind === "image");
+    const imageNodes = nodes.filter(
+      (node: CanvasFrame) => node.kind === "image" || node.kind === "svg",
+    );
     const paintedPixels = await Promise.all(
       imageNodes.map(async (node: { src: string }) => {
         const image = new Image();
@@ -127,6 +129,7 @@ test("the supplied Paper capture keeps its natural box size, text, and rasterize
   expect(
     result.nodes.find((node: CanvasFrame) => node.kind === "text" && node.text === "Søg"),
   ).toMatchObject({ color: "#757575ff" });
+  expect(result.nodes.some((node: CanvasFrame) => node.kind === "svg")).toBe(true);
   expect(result.paintedPixels.length).toBeGreaterThan(3);
   expect(result.paintedPixels.every((count: number) => count > 0)).toBe(true);
   expect(sourceImageUrls).toHaveLength(2);

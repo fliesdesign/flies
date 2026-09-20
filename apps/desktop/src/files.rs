@@ -33,6 +33,8 @@ pub struct ProjectFile {
     pub updated_at: u64,
     pub revision: u64,
     pub nodes: Vec<Value>,
+    #[serde(default = "empty_theme")]
+    pub theme: Value,
 }
 
 #[derive(Serialize)]
@@ -58,6 +60,65 @@ pub struct FileStore {
     db: Connection,
 }
 pub struct LocalFiles(pub Arc<Mutex<FileStore>>);
+
+fn empty_theme() -> Value {
+    serde_json::json!({"tokens":[]})
+}
+fn validate_theme(theme: &Value) -> Result<()> {
+    let tokens = theme
+        .get("tokens")
+        .and_then(Value::as_array)
+        .ok_or("Theme tokens must be an array.")?;
+    if tokens.len() > 500 {
+        return Err("Theme is limited to 500 tokens.".into());
+    }
+    let mut ids = HashSet::new();
+    for token in tokens {
+        let id = token["id"].as_str().ok_or("A theme token has no ID.")?;
+        if id.is_empty()
+            || id.len() > 80
+            || !id.as_bytes()[0].is_ascii_lowercase()
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !ids.insert(id)
+        {
+            return Err("Invalid or duplicate theme token ID.".into());
+        }
+        if token["name"]
+            .as_str()
+            .is_none_or(|name| name.trim().is_empty() || name.len() > 480)
+        {
+            return Err("Invalid theme token name.".into());
+        }
+        let valid = match token["type"].as_str() {
+            Some("color") => token["value"].as_str().is_some_and(|v| {
+                (v.len() == 7 || v.len() == 9)
+                    && v.starts_with('#')
+                    && v[1..].bytes().all(|c| c.is_ascii_hexdigit())
+            }),
+            Some("fontFamily") => token["value"].as_str().is_some_and(|v| {
+                !v.trim().is_empty()
+                    && v.len() <= 800
+                    && !v.chars().any(|c| c.is_control() || ";{}<>".contains(c))
+            }),
+            Some("spacing" | "radius" | "fontSize") => token["value"].as_f64().is_some_and(|v| {
+                v.is_finite()
+                    && v >= if token["type"] == "fontSize" {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                    && v <= 10000.0
+            }),
+            _ => false,
+        };
+        if !valid {
+            return Err("Invalid theme token value.".into());
+        }
+    }
+    Ok(())
+}
 
 fn now() -> Result<u64> {
     SystemTime::now()
@@ -93,7 +154,7 @@ fn validate_nodes(nodes: &[Value]) -> Result<()> {
         let kind = node.get("kind").and_then(Value::as_str).unwrap_or("frame");
         if !matches!(
             kind,
-            "frame" | "group" | "rectangle" | "text" | "image" | "pen"
+            "frame" | "group" | "rectangle" | "text" | "image" | "svg" | "pen"
         ) {
             return Err("Unsupported node type.".into());
         }
@@ -219,7 +280,10 @@ fn unpack_zip(bytes: &[u8]) -> Result<String> {
         return Err("This ZIP is missing project layers.".into());
     };
     for node in nodes {
-        if node.get("kind").and_then(Value::as_str) != Some("image") {
+        if !matches!(
+            node.get("kind").and_then(Value::as_str),
+            Some("image" | "svg")
+        ) {
             continue;
         }
         let src = node
@@ -239,6 +303,7 @@ fn unpack_zip(bytes: &[u8]) -> Result<String> {
             "webp" => "image/webp",
             "gif" => "image/gif",
             "avif" => "image/avif",
+            "svg" => "image/svg+xml",
             _ => return Err("This ZIP contains an unsupported image.".into()),
         };
         node["src"] = Value::String(format!("data:{mime};base64,{}", STANDARD.encode(bytes)));
@@ -366,6 +431,7 @@ impl FileStore {
             return Err("This file format is not supported.".into());
         }
         valid_name(&file.name)?;
+        validate_theme(&file.theme)?;
         validate_nodes(&file.nodes)
     }
     // Publish a new immutable compressed snapshot before committing its index pointer.
@@ -397,6 +463,15 @@ impl FileStore {
         Ok(())
     }
     pub fn create(&self, name: &str, nodes: Vec<Value>) -> Result<ProjectFile> {
+        self.create_themed(name, nodes, empty_theme())
+    }
+    pub fn create_themed(
+        &self,
+        name: &str,
+        nodes: Vec<Value>,
+        theme: Value,
+    ) -> Result<ProjectFile> {
+        validate_theme(&theme)?;
         let name = valid_name(name)?;
         validate_nodes(&nodes)?;
         let timestamp = now()?;
@@ -409,6 +484,7 @@ impl FileStore {
             updated_at: timestamp,
             revision: 0,
             nodes,
+            theme,
         };
         let tx = self.transaction()?;
         self.write(&tx, &file)?;
@@ -428,6 +504,19 @@ impl FileStore {
         name: &str,
         nodes: Vec<Value>,
     ) -> Result<ProjectFile> {
+        self.save_themed(id, revision, name, nodes, None)
+    }
+    pub fn save_themed(
+        &self,
+        id: &str,
+        revision: u64,
+        name: &str,
+        nodes: Vec<Value>,
+        theme: Option<Value>,
+    ) -> Result<ProjectFile> {
+        if let Some(theme) = &theme {
+            validate_theme(theme)?;
+        }
         let tx = self.transaction()?;
         let old_path = self.path(id)?;
         let mut file = self.open(id)?;
@@ -437,6 +526,9 @@ impl FileStore {
         file.name = valid_name(name)?;
         validate_nodes(&nodes)?;
         file.nodes = nodes;
+        if let Some(theme) = theme {
+            file.theme = theme;
+        }
         file.revision = file
             .revision
             .checked_add(1)
@@ -513,8 +605,13 @@ pub async fn create_file(
     state: State<'_, LocalFiles>,
     name: String,
     nodes: Vec<Value>,
+    theme: Option<Value>,
 ) -> Result<ProjectFile> {
-    with_store(state, move |store| store.create(&name, nodes)).await
+    with_store(state, move |store| match theme {
+        Some(theme) => store.create_themed(&name, nodes, theme),
+        None => store.create(&name, nodes),
+    })
+    .await
 }
 #[tauri::command]
 pub async fn open_file(state: State<'_, LocalFiles>, id: String) -> Result<ProjectFile> {
@@ -527,8 +624,13 @@ pub async fn save_file(
     revision: u64,
     name: String,
     nodes: Vec<Value>,
+    theme: Option<Value>,
 ) -> Result<ProjectFile> {
-    with_store(state, move |store| store.save(&id, revision, &name, nodes)).await
+    with_store(state, move |store| match theme {
+        Some(theme) => store.save_themed(&id, revision, &name, nodes, Some(theme)),
+        None => store.save(&id, revision, &name, nodes),
+    })
+    .await
 }
 #[tauri::command]
 pub async fn choose_project_json(app: tauri::AppHandle) -> Result<Option<String>> {
@@ -575,6 +677,78 @@ mod tests {
         assert_eq!(reloaded.updated_at, saved.updated_at);
         assert!(reloaded.nodes.is_empty());
     }
+    #[test]
+    fn themes_and_bindings_survive_save_reopen_and_legacy_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let theme =
+            json!({"tokens":[{"id":"brand","name":"Brand","type":"color","value":"#123456"}]});
+        let mut linked = node();
+        linked["fill"] = json!("#123456");
+        linked["tokenBindings"] = json!({"fill":"brand"});
+        let file = store
+            .create_themed("Theme", vec![linked.clone()], theme.clone())
+            .unwrap();
+        let renamed = store
+            .save(&file.id, 0, "Renamed", vec![linked.clone()])
+            .unwrap();
+        assert_eq!(renamed.theme, theme);
+        let invalid =
+            json!({"tokens":[{"id":"brand","name":"Brand","type":"color","value":"invalid"}]});
+        assert!(store
+            .save_themed(&file.id, 1, "Invalid", vec![], Some(invalid))
+            .is_err());
+        drop(store);
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let reopened = store.open(&file.id).unwrap();
+        assert_eq!(reopened.theme, theme);
+        assert_eq!(reopened.nodes, vec![linked]);
+        assert_eq!(reopened.revision, 1);
+        assert_eq!(reopened.name, "Renamed");
+        let mut legacy = serde_json::to_value(reopened).unwrap();
+        legacy.as_object_mut().unwrap().remove("theme");
+        let legacy: ProjectFile = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.theme, empty_theme());
+        let cleared = store
+            .save_themed(&file.id, 1, "Cleared", vec![], Some(empty_theme()))
+            .unwrap();
+        assert_eq!(store.open(&cleared.id).unwrap().theme, empty_theme());
+    }
+    #[test]
+    fn svg_nodes_save_and_reopen_after_restarting_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let file = store.create("Vector document", vec![node()]).unwrap();
+        let vector = json!({
+            "id": "vector", "name": "Logo", "kind": "svg",
+            "x": 12, "y": 24, "width": 64, "height": 48,
+            "src": format!("data:image/svg+xml;base64,{}", STANDARD.encode(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48"><path d="M0 0H64V48Z"/></svg>"#
+            ))
+        });
+        let nodes = vec![node(), vector];
+        let saved = store
+            .save(&file.id, file.revision, &file.name, nodes.clone())
+            .unwrap();
+        assert_eq!(saved.nodes, nodes);
+        let imported = store.create("Imported vectors", nodes.clone()).unwrap();
+        drop(store);
+        let reopened = FileStore::new(dir.path().into()).unwrap();
+        assert_eq!(reopened.open(&file.id).unwrap().nodes, nodes);
+        assert_eq!(reopened.open(&imported.id).unwrap().nodes, nodes);
+        assert!(reopened.list().unwrap().warnings.is_empty());
+    }
+
+    #[test]
+    fn unknown_node_kinds_still_fail_validation() {
+        let mut invalid = node();
+        invalid["kind"] = json!("unknown");
+        assert_eq!(
+            validate_nodes(&[invalid]).unwrap_err(),
+            "Unsupported node type."
+        );
+    }
+
     #[test]
     fn failed_save_keeps_previous_json_and_rejects_stale_writers() {
         let dir = tempfile::tempdir().unwrap();
@@ -702,5 +876,32 @@ mod tests {
                 STANDARD.encode([0x89, 0x50, 0x4E, 0x47])
             )
         );
+    }
+    #[test]
+    fn zip_svg_project_imports_vector_source_and_saves_it() {
+        use zip::write::SimpleFileOptions;
+        use zip::ZipWriter;
+        let source = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>"#;
+        let project = json!({"format":"flies","version":1,"name":"Vector ZIP","nodes":[{
+            "id":"vector","name":"Icon","kind":"svg","x":0,"y":0,"width":16,"height":16,"src":"images/icon.svg"
+        }]});
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file("document.json", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(project.to_string().as_bytes()).unwrap();
+        zip.start_file("images/icon.svg", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(source).unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+        let unpacked: Value = serde_json::from_str(&unpack_zip(&bytes).unwrap()).unwrap();
+        assert_eq!(
+            unpacked["nodes"][0]["src"],
+            format!("data:image/svg+xml;base64,{}", STANDARD.encode(source))
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::new(dir.path().into()).unwrap();
+        let nodes = unpacked["nodes"].as_array().unwrap().clone();
+        let saved = store.create("Vector ZIP", nodes.clone()).unwrap();
+        assert_eq!(store.open(&saved.id).unwrap().nodes, nodes);
     }
 }

@@ -3,20 +3,24 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   CanvasDocument,
   loadCanvasFrames,
+  loadCanvasTheme,
   saveCanvasFrames,
   type CanvasFrame,
 } from "./canvas-document";
+import { EMPTY_THEME, type CanvasTheme } from "./canvas-theme";
 
 export type { CanvasFrame } from "./canvas-document";
 
 type CanvasDocumentOptions = {
   initialFrames?: readonly CanvasFrame[];
+  initialTheme?: CanvasTheme;
   persist?: boolean;
   onSaveError?: () => void;
 };
 
 export function useCanvasDocument({
   initialFrames,
+  initialTheme,
   persist = true,
   onSaveError,
 }: CanvasDocumentOptions = {}) {
@@ -24,6 +28,7 @@ export function useCanvasDocument({
     () =>
       new CanvasDocument(
         initialFrames ?? (persist ? loadCanvasFrames(undefined, { migrateLegacy: true }) : []),
+        initialTheme ?? (persist && !initialFrames ? loadCanvasTheme() : EMPTY_THEME),
       ),
   );
 
@@ -36,7 +41,10 @@ export function useCanvasDocument({
       clearTimeout(timer);
       timer = undefined;
       if (!dirty) return;
-      if (saveCanvasFrames(canvasDocument.getCommittedFrames())) dirty = false;
+      if (
+        saveCanvasFrames(canvasDocument.getCommittedFrames(), undefined, canvasDocument.getTheme())
+      )
+        dirty = false;
       else onSaveError?.();
     };
     const unsubscribe = canvasDocument.subscribe(() => {

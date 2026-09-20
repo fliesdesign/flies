@@ -1,3 +1,4 @@
+import type { CanvasTheme } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import {
   downloadCanvasFile,
@@ -34,7 +35,7 @@ type CanvasFileMenuProps = {
   inspectHtml: boolean;
   onInspectHtmlChange: (enabled: boolean) => void;
   onPrepare: () => void;
-  onOpen: (nodes: CanvasFrame[]) => void;
+  onOpen: (nodes: CanvasFrame[], theme: CanvasTheme) => void;
   onNotice: (message: string) => void;
 };
 
@@ -92,7 +93,7 @@ export function CanvasFileMenu({
     }
     if (busyRef.current) return;
     prepare();
-    const packed = packCanvasProject(name, document.getCommittedFrames());
+    const packed = packCanvasProject(name, document.getCommittedFrames(), document.getTheme());
     const copy = new ArrayBuffer(packed.byteLength);
     new Uint8Array(copy).set(packed);
     downloadCanvasFile(new Blob([copy], { type: "application/zip" }), projectFilename(name));
@@ -174,7 +175,7 @@ export function CanvasFileMenu({
       if (!mounted.current) return;
       // A large file can finish reading after a new field or text draft has started.
       prepare();
-      onOpen(project.nodes);
+      onOpen(project.nodes, project.theme);
       setName(project.name);
       onNotice(`Opened ${project.name}. Undo restores the previous canvas.`);
     } catch (error) {
