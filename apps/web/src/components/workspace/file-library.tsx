@@ -1,7 +1,5 @@
-import type { CanvasFrame } from "@flies/canvas";
 import { formatDistanceToNow } from "date-fns";
-import { FileIcon, LayoutGridIcon, ListIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -22,73 +20,6 @@ type Props = {
   onBrowser: () => void;
 };
 
-function Preview({ nodes }: { nodes: CanvasFrame[] }) {
-  const prefix = useId();
-  if (!nodes.length)
-    return (
-      <div className="library-preview library-preview-empty">
-        <FileIcon size={28} strokeWidth={1.2} />
-      </div>
-    );
-  const left = Math.min(...nodes.map((n) => n.x));
-  const top = Math.min(...nodes.map((n) => n.y));
-  const width = Math.max(1, ...nodes.map((n) => n.x + n.width - left));
-  const height = Math.max(1, ...nodes.map((n) => n.y + n.height - top));
-  const pad = Math.max(width, height) * 0.06;
-  return (
-    <div className="library-preview">
-      <svg
-        aria-hidden="true"
-        viewBox={`${left - pad} ${top - pad} ${width + pad * 2} ${height + pad * 2}`}
-      >
-        {nodes.map((node, index) => {
-          const kind = node.kind ?? "frame";
-          if (kind === "group") return null;
-          const shape = node as CanvasFrame & {
-            fill?: string;
-            color?: string;
-            text?: string;
-            fontSize?: number;
-            cornerRadius?: number;
-          };
-          const clip = `${prefix}-${index}`;
-          return (
-            <g key={node.id} opacity={node.opacity ?? 1}>
-              {kind === "text" ? (
-                <>
-                  <defs>
-                    <clipPath id={clip}>
-                      <rect x={node.x} y={node.y} width={node.width} height={node.height} />
-                    </clipPath>
-                  </defs>
-                  <text
-                    x={node.x}
-                    y={node.y + (shape.fontSize ?? 14)}
-                    fontSize={shape.fontSize ?? 14}
-                    fill={shape.color ?? "#222"}
-                    clipPath={`url(#${clip})`}
-                  >
-                    {shape.text}
-                  </text>
-                </>
-              ) : (
-                <rect
-                  x={node.x}
-                  y={node.y}
-                  width={node.width}
-                  height={node.height}
-                  rx={shape.cornerRadius ?? 0}
-                  fill={shape.fill ?? (kind === "frame" ? "#fff" : "#888")}
-                />
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
 const relative = (time: number) => formatDistanceToNow(time, { addSuffix: true });
 
 export function FileLibraryView({
@@ -102,13 +33,6 @@ export function FileLibraryView({
   onRefresh,
   onBrowser,
 }: Props) {
-  const [view, setView] = useState<"grid" | "list">(() => {
-    try {
-      return localStorage.getItem("flies.library-view") === "grid" ? "grid" : "list";
-    } catch {
-      return "list";
-    }
-  });
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
@@ -117,14 +41,7 @@ export function FileLibraryView({
     // Sorting a copy leaves the library index unchanged.
     // eslint-disable-next-line unicorn/no-array-sort
     .sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : b.updatedAt - a.updatedAt));
-  function chooseView(next: "grid" | "list") {
-    setView(next);
-    try {
-      localStorage.setItem("flies.library-view", next);
-    } catch {
-      /* View preferences are optional. */
-    }
-  }
+
   async function submit() {
     if (creating === null || pending) return;
     setPending(true);
@@ -138,26 +55,21 @@ export function FileLibraryView({
       setPending(false);
     }
   }
-  function fileCard(file: FileSummary) {
+
+  function fileRow(file: FileSummary) {
     return (
-      <article className="library-item" key={file.id}>
-        <button className="library-item-open" disabled={busy} onClick={() => onOpen(file.id)}>
-          <div className="library-item-title">
-            <strong>{file.name}</strong>
-            <small>Edited {relative(file.updatedAt)}</small>
-          </div>
-          <Preview nodes={file.preview ?? []} />
-          {view === "list" && (
-            <>
-              <time className="library-date" title={new Date(file.updatedAt).toLocaleString()}>
-                {relative(file.updatedAt)}
-              </time>
-            </>
-          )}
-        </button>
-      </article>
+      <button className="library-row" key={file.id} disabled={busy} onClick={() => onOpen(file.id)}>
+        <strong>{file.name}</strong>
+        <time
+          dateTime={new Date(file.updatedAt).toISOString()}
+          title={new Date(file.updatedAt).toLocaleString()}
+        >
+          {relative(file.updatedAt)}
+        </time>
+      </button>
     );
   }
+
   return (
     <main className="library-home">
       <header className="library-header">
@@ -175,22 +87,6 @@ export function FileLibraryView({
           >
             Import
           </Button>
-          <div className="library-view-toggle" aria-label="File view">
-            <button
-              aria-label="Grid view"
-              aria-pressed={view === "grid"}
-              onClick={() => chooseView("grid")}
-            >
-              <LayoutGridIcon size={17} />
-            </button>
-            <button
-              aria-label="List view"
-              aria-pressed={view === "list"}
-              onClick={() => chooseView("list")}
-            >
-              <ListIcon size={18} />
-            </button>
-          </div>
         </div>
       </header>
       {(error || failure) && creating === null && (
@@ -214,17 +110,19 @@ export function FileLibraryView({
               <span>Create a file or import one to get started.</span>
             </div>
           )}
-          <div className={`library-items library-${view}`}>
-            {view === "list" && files.length > 0 && (
+          {files.length > 0 && (
+            <div className="library-list">
               <div className="library-list-head">
-                <button onClick={() => setSort("name")}>Name{sort === "name" ? " ↓" : ""}</button>
-                <button onClick={() => setSort("edited")}>
+                <button type="button" onClick={() => setSort("name")}>
+                  Name{sort === "name" ? " ↓" : ""}
+                </button>
+                <button type="button" onClick={() => setSort("edited")}>
                   Edited{sort === "edited" ? " ↓" : ""}
                 </button>
               </div>
-            )}
-            {files.map(fileCard)}
-          </div>
+              {files.map(fileRow)}
+            </div>
+          )}
           {library?.warnings.map((warning) => (
             <p className="file-library-error" key={warning}>
               {warning}
