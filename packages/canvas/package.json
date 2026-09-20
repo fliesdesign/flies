@@ -1,0 +1,24 @@
+{
+  "name": "@flies/canvas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vp test"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "pixi.js": "^8.21.0",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~6.0.3",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

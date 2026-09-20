@@ -4,7 +4,7 @@ test("HTML import, document history and screenshot use the real renderer", async
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const htmlModule = "/src/lib/mcp/html.ts";
-    const docModule = "/src/lib/canvas-document.ts";
+    const docModule = "/packages/canvas/src/canvas-document.ts";
     const exportModule = "/src/components/canvas/canvas-export.tsx";
     const { importHtml } = await import(/* @vite-ignore */ htmlModule);
     const { CanvasDocument } = await import(/* @vite-ignore */ docModule);
@@ -82,7 +82,7 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
 test("write_html replacement is atomic and undo restores the old children", async ({ page }) => {
   await page.goto("/");
   const result = await page.evaluate(async () => {
-    const docPath = "/src/lib/canvas-document.ts";
+    const docPath = "/packages/canvas/src/canvas-document.ts";
     const editorPath = "/src/lib/mcp/editor.ts";
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const { editorTool } = await import(/* @vite-ignore */ editorPath);

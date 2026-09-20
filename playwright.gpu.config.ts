@@ -14,7 +14,7 @@ export default defineConfig({
     launchOptions: { args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader"] },
   },
   webServer: {
-    command: "bun run dev --host 127.0.0.1 --port 1432 --strictPort",
+    command: "vp -C apps/web dev --host 127.0.0.1 --port 1432 --strictPort",
     url: "http://127.0.0.1:1432",
     reuseExistingServer: false,
   },

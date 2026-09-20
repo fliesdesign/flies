@@ -6,7 +6,7 @@ test("agents build a page shell, then fill and replace sections in separate call
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts",
-      docPath = "/src/lib/canvas-document.ts";
+      docPath = "/packages/canvas/src/canvas-document.ts";
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const doc = new CanvasDocument();
@@ -119,7 +119,7 @@ test("targeted previews and invalid replacements leave existing sections and his
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts",
-      docPath = "/src/lib/canvas-document.ts";
+      docPath = "/packages/canvas/src/canvas-document.ts";
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const doc = new CanvasDocument([
@@ -183,7 +183,7 @@ test("section replacement refuses to overwrite edits made during HTML measuremen
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts",
-      docPath = "/src/lib/canvas-document.ts";
+      docPath = "/packages/canvas/src/canvas-document.ts";
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const doc = new CanvasDocument([

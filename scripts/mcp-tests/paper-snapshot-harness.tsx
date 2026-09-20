@@ -1,8 +1,8 @@
+import { setCanvasInspection } from "@flies/canvas";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
-import { setCanvasInspection } from "@/lib/canvas-inspection";
 
 export async function mountSnapshotFixture() {
   setCanvasInspection(true);

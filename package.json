@@ -2,63 +2,50 @@
   "name": "flies",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && tsc --noEmit",
-    "benchmark:canvas": "bun scripts/benchmark-canvas.ts",
-    "benchmark:build": "vite build --mode benchmark --outDir dist/benchmark && tsc --noEmit",
-    "benchmark:preview": "vite preview --outDir dist/benchmark --host 127.0.0.1 --port 4174 --strictPort",
-    "typecheck": "tsc --noEmit",
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "format": "oxfmt",
-    "format:check": "oxfmt --check",
-    "check": "oxfmt --check && oxlint && tsc --noEmit",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "dev": "vp -C apps/web dev",
+    "build": "vp run --filter ./apps/web build",
+    "preview": "vp -C apps/web preview",
+    "typecheck": "vp run --filter ./packages/canvas --filter ./apps/web typecheck",
+    "lint": "vp lint",
+    "lint:fix": "vp lint --fix",
+    "format": "vp fmt",
+    "format:check": "vp fmt --check",
+    "check": "vp check && bun run typecheck",
+    "tauri": "bun run --cwd apps/desktop tauri",
+    "tauri:dev": "bun run --cwd apps/desktop tauri:dev",
+    "tauri:build": "bun run --cwd apps/desktop tauri:build",
+    "test": "vp run --filter ./packages/canvas --filter ./apps/web test",
     "test:mcp": "playwright test --config playwright.mcp.config.ts",
-    "test:gpu": "playwright test --config playwright.gpu.config.ts"
-  },
-  "dependencies": {
-    "@base-ui/react": "^1.8.0",
-    "@shadcn/react": "^0.3.1",
-    "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/react-router": "^1.170.38",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "class-variance-authority": "^0.7.1",
-    "cmdk": "^1.1.1",
-    "cn": "^0.3.0",
-    "date-fns": "^4.4.0",
-    "embla-carousel-react": "^8.6.0",
-    "html-to-image": "^1.11.13",
-    "input-otp": "^1.5.0",
-    "lucide-react": "^1.47.0",
-    "pixi.js": "^8.21.0",
-    "react": "^19.1.0",
-    "react-day-picker": "^10.0.1",
-    "react-dom": "^19.1.0",
-    "react-resizable-panels": "^4.12.4",
-    "recharts": "3.8.0",
-    "shadcn": "^4.21.0",
-    "tailwindcss": "^4.3.3",
-    "tw-animate-css": "^1.4.0"
+    "test:gpu": "playwright test --config playwright.gpu.config.ts",
+    "benchmark:canvas": "bun scripts/benchmark-canvas.ts",
+    "benchmark:build": "bun run --cwd apps/web benchmark:build",
+    "benchmark:preview": "bun run --cwd apps/web benchmark:preview"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "@tanstack/react-router-devtools": "^1.167.2",
-    "@tanstack/router-plugin": "^1.168.40",
-    "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^6.0.2",
-    "oxfmt": "^0.68.0",
-    "oxlint": "^1.83.0",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "overrides": {
+    "vite": "catalog:"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "bun",
+      "version": "1.4.2",
+      "onFail": "download"
+    }
+  },
+  "catalog": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
+    "vite-plus": "0.3.3"
   }
 }

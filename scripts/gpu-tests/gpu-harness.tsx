@@ -1,9 +1,9 @@
+import type { CanvasFrame } from "@flies/canvas";
 import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
-import type { CanvasFrame } from "@/lib/canvas-document";
 
 function populatedFrames(): CanvasFrame[] {
   const image = document.createElement("canvas");

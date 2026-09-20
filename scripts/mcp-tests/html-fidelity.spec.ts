@@ -15,7 +15,7 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
   await page.goto("/");
   const result = await page.evaluate(async (html) => {
     const htmlPath = "/src/lib/mcp/html.ts",
-      docPath = "/src/lib/canvas-document.ts",
+      docPath = "/packages/canvas/src/canvas-document.ts",
       exportPath = "/src/components/canvas/canvas-export.tsx";
     const { importHtml } = await import(/* @vite-ignore */ htmlPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
@@ -69,7 +69,7 @@ test("validateOnly reports layers without changing document or undo history", as
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const editorPath = "/src/lib/mcp/editor.ts",
-      docPath = "/src/lib/canvas-document.ts";
+      docPath = "/packages/canvas/src/canvas-document.ts";
     const { editorTool } = await import(/* @vite-ignore */ editorPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ docPath);
     const document = new CanvasDocument([

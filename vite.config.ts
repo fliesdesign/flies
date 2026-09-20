@@ -1,49 +1,63 @@
-import path from "node:path";
-import process from "node:process";
+import { defineConfig } from "vite-plus";
 
-import tailwindcss from "@tailwindcss/vite";
-import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
-
-const host = process.env.TAURI_DEV_HOST;
-
-// https://vite.dev/config/
-export default defineConfig(() => ({
-  plugins: [
-    // Must come before @vitejs/plugin-react so generated routes are transformed.
-    tanstackRouter({ target: "react", autoCodeSplitting: true }),
-    react(),
-    tailwindcss(),
-  ],
-
-  resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "./src"),
+export default defineConfig({
+  defaultPackage: "./apps/web",
+  fmt: {
+    printWidth: 100,
+    semi: true,
+    singleQuote: false,
+    trailingComma: "all",
+    tabWidth: 2,
+    sortTailwindcss: {
+      stylesheet: "apps/web/src/styles.css",
+      functions: ["cn", "cva"],
     },
-  },
-  // Discover the lazy GPU renderer before editing starts, avoiding a cold-cache dev reload.
-  optimizeDeps: { include: ["pixi.js"] },
-
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
-  clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
-  server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
-    watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+    sortImports: {
+      groups: ["builtin", "external", "internal", ["parent", "sibling", "index"]],
+      newlinesBetween: true,
     },
+    ignorePatterns: ["dist", "apps/desktop/target", "**/routeTree.gen.ts"],
   },
-}));
+  lint: {
+    plugins: ["typescript", "unicorn", "oxc", "react", "jsx-a11y", "import", "promise"],
+    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    categories: {
+      correctness: "error",
+      suspicious: "warn",
+      perf: "warn",
+    },
+    env: {
+      builtin: true,
+      browser: true,
+      es2024: true,
+    },
+    rules: {
+      "vite-plus/prefer-vite-plus-imports": "error",
+      "react/react-in-jsx-scope": "off",
+      "import/no-unassigned-import": ["warn", { allow: ["**/*.css"] }],
+    },
+    ignorePatterns: ["dist", "apps/desktop/target", "**/routeTree.gen.ts"],
+    options: {
+      typeAware: false,
+      typeCheck: false,
+    },
+    overrides: [
+      {
+        files: ["apps/web/src/components/ui/**", "apps/web/src/hooks/use-mobile.ts"],
+        rules: {
+          "eslint/no-shadow": "off",
+          "react/no-array-index-key": "off",
+          "react/no-unstable-nested-components": "off",
+          "react/jsx-no-constructed-context-values": "off",
+          "react/no-object-type-as-default-prop": "off",
+          "jsx-a11y/prefer-tag-over-role": "off",
+          "jsx-a11y/label-has-associated-control": "off",
+          "jsx-a11y/click-events-have-key-events": "off",
+          "jsx-a11y/no-noninteractive-element-interactions": "off",
+          "eslint/no-underscore-dangle": "off",
+          "react/set-state-in-effect": "off",
+        },
+      },
+    ],
+  },
+});

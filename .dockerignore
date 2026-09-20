@@ -1,0 +1,14 @@
+.git
+.github
+**/.DS_Store
+**/node_modules
+**/dist
+**/target
+apps/desktop/**
+!apps/desktop/package.json
+docs
+scripts
+test-results
+playwright-report
+**/*.md
+AGENTS.md

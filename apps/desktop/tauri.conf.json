@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flies",
+  "mainBinaryName": "Flies",
+  "version": "0.1.0",
+  "identifier": "com.lra.dsgn",
+  "build": {
+    "beforeDevCommand": "vp -C ../web dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "vp -C ../web build",
+    "frontendDist": "../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Flies",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 20 },
+        "dragDropEnabled": false,
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

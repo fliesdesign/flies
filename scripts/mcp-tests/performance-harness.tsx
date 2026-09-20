@@ -1,11 +1,11 @@
+import type { CanvasFrame } from "@flies/canvas";
+import { moveSelection } from "@flies/canvas";
 /* eslint-disable no-await-in-loop -- Browser performance phases run on consecutive frames. */
 import { useEffect } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
-import type { CanvasFrame } from "@/lib/canvas-document";
-import { moveSelection } from "@/lib/canvas-operations";
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const round = (value: number) => Math.round(value * 100) / 100;

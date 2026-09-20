@@ -1,10 +1,10 @@
+import { CanvasCamera } from "@flies/canvas";
+import { CanvasDocument } from "@flies/canvas";
+import { agentActivity } from "@flies/canvas";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { CanvasAgentActivity } from "@/components/canvas/canvas-agent-activity";
-import { CanvasCamera } from "@/lib/canvas-camera";
-import { CanvasDocument } from "@/lib/canvas-document";
-import { agentActivity } from "@/lib/mcp/activity";
 
 export function mountActivity() {
   const doc = new CanvasDocument([

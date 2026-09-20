@@ -1,9 +1,13 @@
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 
-import { createBenchmarkFrames } from "../src/lib/canvas-benchmark-fixtures";
-import { CanvasDocument, type CanvasFrame } from "../src/lib/canvas-document";
-import { CanvasSpatialIndex, viewportBounds } from "../src/lib/canvas-spatial-index";
+import {
+  CanvasDocument,
+  CanvasSpatialIndex,
+  createBenchmarkFrames,
+  viewportBounds,
+  type CanvasFrame,
+} from "@flies/canvas";
 
 const COUNTS = [1_000, 5_000, 10_000];
 const POINTER_UPDATES = 1_000;

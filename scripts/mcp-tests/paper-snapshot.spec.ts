@@ -1,8 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
+import type { CanvasFrame } from "@flies/canvas";
 import { expect, test, type Page } from "@playwright/test";
-
-import type { CanvasFrame } from "../../src/lib/canvas-document";
 
 const sample = readFileSync(new URL("./fixtures/paper-snapshot.txt", import.meta.url), "utf8");
 const sourceImageUrls = Array.from(sample.matchAll(/<img[^>]+src="([^"]+)"/g), (match) => match[1]);
@@ -107,7 +106,7 @@ test("the supplied Paper capture keeps its natural box size, text, and rasterize
         return painted;
       }),
     );
-    const documentPath = "/src/lib/canvas-document.ts";
+    const documentPath = "/packages/canvas/src/canvas-document.ts";
     const exportPath = "/src/components/canvas/canvas-export.tsx";
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exportPath);
@@ -383,7 +382,7 @@ test("SVG root opacity is applied once, including CSS overriding the matching pr
   await page.goto("/");
   const alphas = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
-    const documentPath = "/src/lib/canvas-document.ts";
+    const documentPath = "/packages/canvas/src/canvas-document.ts";
     const exportPath = "/src/components/canvas/canvas-export.tsx";
     const { importPaperSnapshot } = await import(/* @vite-ignore */ importPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
@@ -419,7 +418,7 @@ test("captured asymmetric corners preserve transparent corners, fill, and border
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
-    const documentPath = "/src/lib/canvas-document.ts";
+    const documentPath = "/packages/canvas/src/canvas-document.ts";
     const exportPath = "/src/components/canvas/canvas-export.tsx";
     const { importPaperSnapshot } = await import(/* @vite-ignore */ importPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);
@@ -468,7 +467,7 @@ test("embedded root images decode before measurement and invalid bytes produce a
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const importPath = "/src/lib/paper-snapshot.ts";
-    const documentPath = "/src/lib/canvas-document.ts";
+    const documentPath = "/packages/canvas/src/canvas-document.ts";
     const exportPath = "/src/components/canvas/canvas-export.tsx";
     const { importPaperSnapshot } = await import(/* @vite-ignore */ importPath);
     const { CanvasDocument } = await import(/* @vite-ignore */ documentPath);

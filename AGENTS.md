@@ -11,39 +11,45 @@ Use these skills by default, applying each to the relevant work:
 
 ## Project Structure & Module Organization
 
-This is a Tauri v2 desktop app with React 19, TypeScript, Vite, TanStack Router, and Tailwind CSS v4.
+Flies is a Vite+ Bun workspace with a Tauri v2 desktop shell.
 
-- `src/routes/`: file-based pages; `__root.tsx` provides the shared layout.
-- `src/components/ui/`: reusable shadcn components built on Base UI.
-- `src/hooks/` and `src/lib/`: shared hooks and utilities; use the `@/` source alias.
-- `src/styles.css`: global styles and theme tokens; `public/`: static assets.
-- `src-tauri/src/lib.rs`: native commands and app setup; `main.rs`: entry point.
-- `src-tauri/capabilities/`: desktop permissions; `src-tauri/icons/`: app icons.
+- `packages/canvas/`: canvas engine (`@flies/canvas`) — document model, geometry, GPU, clipboard
+- `apps/web/src/routes/`: file-based pages; `__root.tsx` provides the shared layout
+- `apps/web/src/components/ui/`: reusable shadcn components built on Base UI
+- `apps/web/src/hooks/` and `apps/web/src/lib/`: app hooks, MCP, files, snapshots; `@/` aliases `apps/web/src`
+- `apps/web/src/styles.css`: global styles and theme tokens; `apps/web/public/`: static assets
+- `apps/desktop/src/lib.rs`: native commands and app setup; `main.rs`: entry point
+- `apps/desktop/capabilities/`: desktop permissions
+- Root `vite.config.ts`: Vite+ `fmt` and `lint` for the whole workspace
 
-Do not manually edit `src/routeTree.gen.ts`; the router plugin generates it. Keep build outputs in `dist/` and `src-tauri/target/` out of contributions.
+Do not manually edit `apps/web/src/routeTree.gen.ts`; the router plugin generates it. Keep build
+outputs in `apps/web/dist/` and `apps/desktop/target/` out of contributions.
 
 ## Build, Test, and Development Commands
 
 Run these from the repository root:
 
-- `bun install`: install frontend dependencies using `bun.lock`.
-- `bun run dev`: start the frontend development server.
-- `bun run tauri:dev`: launch the desktop app with the development server.
-- `bun run typecheck`: check TypeScript without emitting files.
-- `bun run build`: build the frontend and check TypeScript.
-- `bun run preview`: preview the built frontend.
-- `bun run tauri:build`: create a desktop release bundle; requires Rust and platform build prerequisites.
+- `vp install` or `bun install`: install workspace dependencies
+- `bun run dev` / `vp -C apps/web dev`: start the frontend development server
+- `bun run tauri:dev`: launch the desktop app with the development server
+- `bun run typecheck`: `tsc --noEmit` in canvas and web
+- `vp check`: Oxfmt + Oxlint
+- `bun run check`: format, lint, and typecheck
+- `bun run test`: Vitest in `packages/canvas` and `apps/web`
+- `bun run build`: production frontend build
+- `bun run tauri:build`: desktop release bundle
+- `docker build -t flies-web .`: production image for `apps/web` (Caddy on 8080)
 
 ## Coding Style & Naming Conventions
 
-Follow `oxfmt.config.ts`: two-space indentation, double quotes, semicolons, trailing commas, and a 100-column print width. Oxfmt also sorts imports and Tailwind classes. `oxlint.config.ts` defines correctness, React, TypeScript, and accessibility checks; no lint or format package scripts currently exist.
+Root `vite.config.ts` `fmt` / `lint` blocks: two-space indentation, double quotes, semicolons,
+trailing commas, and a 100-column print width. Oxfmt sorts imports and Tailwind classes.
 
-Use PascalCase component names, camelCase variables, and kebab-case component/hook filenames such as `use-mobile.ts`. Preserve strict TypeScript checks. Follow existing four-space indentation and snake_case functions in Rust.
+Use PascalCase component names, camelCase variables, and kebab-case component/hook filenames such as
+`use-mobile.ts`. Preserve strict TypeScript checks. Follow existing four-space indentation and
+snake_case functions in Rust.
 
 ## Testing Guidelines
 
-No automated test suite, test script, or coverage threshold is configured. Before submitting, run typecheck and build, then manually verify navigation, theme behavior, and changed interactions. Test native commands such as `greet` in the desktop app. Document verification steps and results in the PR.
-
-## Commit & Pull Request Guidelines
-
-This directory has no Git metadata, so historical commit conventions cannot be verified. Use concise, imperative subjects, for example `Fix greeting error handling`. Keep changes focused. PRs should explain behavior changes, link relevant issues, list validation results, and include screenshots for UI changes.
+Engine tests live next to sources in `packages/canvas`. App tests live in `apps/web`. Playwright
+GPU/MCP suites stay under `scripts/`. Before submitting, run `bun run check` and `bun run test`.
