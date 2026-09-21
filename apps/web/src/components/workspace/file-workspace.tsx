@@ -676,7 +676,7 @@ export function FileWorkspace({
           </form>
         </DialogContent>
       </Dialog>
-      {ready && (desktop || activeId) && (
+      {desktop && ready && (
         <div className="workspace-tabs" data-tauri-drag-region>
           <div className="workspace-tab-list" aria-label="Open files">
             <button

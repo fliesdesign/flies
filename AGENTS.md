@@ -25,6 +25,13 @@ Flies is a Vite+ Bun workspace with a Tauri v2 desktop shell.
 Do not manually edit `apps/web/src/routeTree.gen.ts`; the router plugin generates it. Keep build
 outputs in `apps/web/dist/` and `apps/desktop/target/` out of contributions.
 
+## Desktop and Website UI
+
+The workspace tab bar is **desktop-only**. Render it only when `isTauri()` is true;
+never show it on the website, including while a design file is open. Tab-bar
+collaborator avatars belong to the desktop UI too. Do not enable the tab bar on
+the website to expose a desktop feature or simplify browser testing.
+
 ## Build, Test, and Development Commands
 
 Run these from the repository root:
