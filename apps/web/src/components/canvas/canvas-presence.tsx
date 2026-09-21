@@ -98,14 +98,12 @@ export function CanvasPresence({
 
   return (
     <div ref={layer} className="canvas-presence" aria-label="Live collaborators">
-      {state.state !== "disabled" && (
+      {state.state !== "disabled" && people.length > 0 && (
         <output className="canvas-presence-status" data-canvas-ui="">
           <span className={`canvas-presence-dot ${state.state === "live" ? "is-live" : ""}`} />
           <span>
             {state.state === "live"
-              ? people.length
-                ? `${people.length + 1} here`
-                : "Live"
+              ? `${people.length + 1} here`
               : state.state === "connecting"
                 ? "Connecting…"
                 : "Reconnecting…"}
