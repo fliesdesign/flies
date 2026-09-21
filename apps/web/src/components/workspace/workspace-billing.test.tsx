@@ -102,7 +102,7 @@ describe("workspace billing UI", () => {
     await click("Upgrade to Pro");
     await click("Continue to checkout");
     mocks.post.mockResolvedValue(free);
-    await click("Refresh plan");
+    await act(async () => window.dispatchEvent(new Event("focus")));
     expect(document.body.textContent).toContain("Your plan is still Free");
     expect(document.body.textContent).not.toContain("Your Pro plan is active");
   });

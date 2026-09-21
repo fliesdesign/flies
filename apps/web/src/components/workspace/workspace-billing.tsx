@@ -12,7 +12,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { api, post } from "@/lib/api";
 
 export type BillingStatus =
@@ -69,7 +68,6 @@ export function WorkspaceBillingProvider({
   canManage?: boolean;
   children: ReactNode;
 }) {
-  const [seats, setSeats] = useState(1);
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -144,7 +142,7 @@ export function WorkspaceBillingProvider({
     try {
       const { url } = await post<{ url: string }>(
         status.plan === "pro" ? "/api/billing/portal" : "/api/billing/checkout",
-        status.plan === "pro" ? {} : { seats },
+        status.plan === "pro" ? {} : { seats: 1 },
       );
 
       awaitingReturn.current = true;
@@ -162,7 +160,7 @@ export function WorkspaceBillingProvider({
       launching.current = false;
       if (mounted.current) setPending(false);
     }
-  }, [status, canManage, seats, desktop]);
+  }, [status, canManage, desktop]);
 
   const pro = status?.enabled && status.plan === "pro";
 
@@ -217,24 +215,6 @@ export function WorkspaceBillingProvider({
           <p className="text-xs leading-relaxed text-muted-foreground">
             Public MCP access and share links are coming soon.
           </p>
-          {!pro && canManage && (
-            <div className="space-y-2">
-              <label htmlFor="billing-seats" className="text-sm font-medium">
-                Seats, including you
-              </label>
-              <Input
-                id="billing-seats"
-                type="number"
-                min={1}
-                max={1000}
-                step={1}
-                value={seats}
-                onChange={(event) =>
-                  setSeats(Math.max(1, Math.min(1000, Math.floor(Number(event.target.value) || 1))))
-                }
-              />
-            </div>
-          )}
           {error && (
             <p role="alert" className="text-xs text-destructive">
               {error}
@@ -245,24 +225,6 @@ export function WorkspaceBillingProvider({
             {pending ? "Opening…" : pro ? "Open billing portal" : "Continue to checkout"}
             <ArrowUpRightIcon aria-hidden="true" />
           </Button>
-          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              {pro
-                ? "Changes are managed securely by Polar."
-                : `${seats} ${seats === 1 ? "user" : "users"} · $${seats * 12} per month`}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={loading || pending}
-              onClick={() => {
-                setLoading(true);
-                void refresh(true);
-              }}
-            >
-              {loading ? "Refreshing…" : "Refresh plan"}
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
     </BillingContext.Provider>
