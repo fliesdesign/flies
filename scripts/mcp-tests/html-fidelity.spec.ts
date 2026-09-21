@@ -15,7 +15,7 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
   await page.goto("/");
 
   const result = await page.evaluate(async (html) => {
-    const htmlPath = "/src/lib/mcp/html.ts",
+    const htmlPath = "/packages/html/src/html.ts",
       docPath = "/packages/canvas/src/canvas-document.ts",
       exportPath = "/src/components/canvas/canvas-export.tsx";
 
@@ -116,7 +116,7 @@ test("line breaks and side borders survive import without disconnected layers", 
   await page.goto("/");
 
   const result = await page.evaluate(async () => {
-    const path = "/src/lib/mcp/html.ts";
+    const path = "/packages/html/src/html.ts";
     const { importHtml } = await import(/* @vite-ignore */ path);
     const lines = await importHtml("<p>Hello<br>world</p>", { x: 0, y: 0, width: 200 });
 

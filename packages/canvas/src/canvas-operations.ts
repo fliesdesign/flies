@@ -137,6 +137,12 @@ export function resizeSelection(
       ...next,
       width: Math.max(40, next.width),
       height: Math.max(40, next.height),
+      ...(next.width !== start.width && single.widthSizing !== undefined
+        ? { widthSizing: "fixed" as const }
+        : {}),
+      ...(next.height !== start.height && single.heightSizing !== undefined
+        ? { heightSizing: "fixed" as const }
+        : {}),
     };
 
     if (!single.rotation) return [resized];
@@ -176,6 +182,10 @@ export function resizeSelection(
       y: next.y + (node.y - start.y) * scaleY,
       width: Math.max(minimum, node.width * scaleX),
       height: Math.max(minimum, node.height * scaleY),
+      ...(scaleX !== 1 && node.widthSizing !== undefined ? { widthSizing: "fixed" as const } : {}),
+      ...(scaleY !== 1 && node.heightSizing !== undefined
+        ? { heightSizing: "fixed" as const }
+        : {}),
     };
 
     // A text box resized directly reflows; scaling a group scales its typography as well.

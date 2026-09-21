@@ -1,4 +1,4 @@
-import { hasRotation } from "@flies/canvas";
+import { hasRotation, canvasSizingLabel } from "@flies/canvas";
 import { gradientCss, filterCss } from "@flies/canvas";
 import { useCanvasFrame } from "@flies/canvas";
 import type { CanvasCamera } from "@flies/canvas";
@@ -511,8 +511,12 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
   );
 
   const clip = getClipBounds(sharedClips);
+
   // The badge sits 12 screen pixels below the selection and is 20 pixels tall.
-  const label = `${Math.round(bounds.width)} × ${Math.round(bounds.height)}`;
+  const label = single
+    ? canvasSizingLabel(single)
+    : `${Math.round(bounds.width)} × ${Math.round(bounds.height)}`;
+
   const halfBadgeWidth = (label.length * 7 + 14) / (2 * viewport.zoom);
   const badgeCenter = bounds.x + bounds.width / 2;
 
@@ -550,11 +554,7 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
             title={`Resize ${HANDLE_NAMES[handle]}`}
           />
         ))}
-      {showDimensions && (
-        <span className="canvas-dimensions">
-          {Math.round(bounds.width)} <span>×</span> {Math.round(bounds.height)}
-        </span>
-      )}
+      {showDimensions && <span className="canvas-dimensions">{label}</span>}
     </div>
   );
 });

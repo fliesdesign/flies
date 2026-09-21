@@ -1,6 +1,13 @@
 import { isFontFamily } from "./canvas-fonts";
 import type { FrameRect, Point } from "./canvas-geometry";
-import { canvasLayoutPositions, isCanvasLayout, type CanvasLayout } from "./canvas-layout";
+import {
+  canvasLayoutHugSize,
+  canvasLayoutRects,
+  isCanvasLayout,
+  isCanvasSizing,
+  type CanvasLayout,
+  type CanvasSizing,
+} from "./canvas-layout";
 import {
   CANVAS_BLEND_MODES,
   isCanvasGradient,
@@ -41,6 +48,8 @@ type CanvasNodeBase = Readonly<
     hidden?: boolean;
     opacity?: number;
     rotation?: number;
+    widthSizing?: CanvasSizing;
+    heightSizing?: CanvasSizing;
     gradient?: CanvasGradient;
     blendMode?: CanvasBlendMode;
     filters?: CanvasFilters;
@@ -177,6 +186,8 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.hidden !== second.hidden ||
     first.opacity !== second.opacity ||
     first.rotation !== second.rotation ||
+    first.widthSizing !== second.widthSizing ||
+    first.heightSizing !== second.heightSizing ||
     first.blendMode !== second.blendMode ||
     JSON.stringify(first.gradient) !== JSON.stringify(second.gradient) ||
     JSON.stringify(first.filters) !== JSON.stringify(second.filters) ||
@@ -301,6 +312,14 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.locked !== undefined && typeof frame.locked !== "boolean") ||
     (frame.hidden !== undefined && typeof frame.hidden !== "boolean") ||
     (frame.rotation !== undefined && !isFiniteNumber(frame.rotation)) ||
+    [frame.widthSizing, frame.heightSizing].some(
+      (sizing) =>
+        sizing !== undefined &&
+        (!isCanvasSizing(sizing) ||
+          (sizing === "hug" &&
+            ((frame.kind !== undefined && frame.kind !== "frame") || !frame.layout)) ||
+          (sizing === "fill" && frame.kind === "group")),
+    ) ||
     (frame.blendMode !== undefined &&
       !CANVAS_BLEND_MODES.includes(frame.blendMode as CanvasBlendMode)) ||
     (frame.gradient !== undefined &&
@@ -453,6 +472,8 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.hidden !== undefined && { hidden: frame.hidden }),
     ...(frame.opacity !== undefined && { opacity: frame.opacity }),
     ...(frame.rotation !== undefined && { rotation: frame.rotation }),
+    ...(frame.widthSizing !== undefined && { widthSizing: frame.widthSizing }),
+    ...(frame.heightSizing !== undefined && { heightSizing: frame.heightSizing }),
     ...(frame.blendMode !== undefined && { blendMode: frame.blendMode }),
     ...(frame.gradient !== undefined && { gradient: immutableGradient(frame.gradient) }),
     ...(frame.filters !== undefined && { filters: immutableFilterValues(frame.filters) }),
@@ -959,8 +980,10 @@ export class CanvasDocument {
     const updates: CanvasFrame[] = [];
 
     for (const raw of frames) {
-      const existing = this.frames.get(raw.id);
-      const frame = existing ? detachChangedTokens(existing, raw) : raw;
+      // Pointer scrubs derive every sample from their original frame. Comparing with
+      // the previous preview would reattach a binding already removed by sample one.
+      const original = this.gesture.get(raw.id);
+      const frame = original ? detachChangedTokens(original, raw) : raw;
       const before = this.frames.get(frame.id);
       if (!this.gesture.has(frame.id) || seen.has(frame.id) || !before || !isFrame(frame, before))
         return false;
@@ -1350,6 +1373,25 @@ export class CanvasDocument {
 
     for (const id of dirtyIds) collectContainers(read(id), read);
 
+    // A resized parent can change fill sizes throughout its subtree, even when only
+    // the parent appeared in the input patch. Keep unrelated roots untouched.
+    const descendants = [...containers];
+    const visitedDescendants = new Set<string>();
+
+    while (descendants.length) {
+      const id = descendants.pop()!;
+      if (visitedDescendants.has(id)) continue;
+      visitedDescendants.add(id);
+
+      for (const childId of children.get(id) ?? []) {
+        const child = read(childId);
+        if (!child) continue;
+        if (child.kind === "group" || ((!child.kind || child.kind === "frame") && child.layout))
+          containers.add(childId);
+        descendants.push(childId);
+      }
+    }
+
     const depth = (id: string) => {
       let result = 0;
       let node = read(id);
@@ -1364,7 +1406,40 @@ export class CanvasDocument {
 
     let removedGroup = false;
 
-    for (const id of [...containers].sort((first, second) => depth(second) - depth(first))) {
+    const orderedContainers = [...containers].sort((first, second) => depth(second) - depth(first));
+
+    const applyLayout = (container: CanvasFrameNode, members: readonly CanvasFrame[]) => {
+      for (const [childId, rect] of canvasLayoutRects(container, members)) {
+        const child = read(childId)!;
+        const dx = rect.x - child.x;
+        const dy = rect.y - child.y;
+        if (dx === 0 && dy === 0 && rect.width === child.width && rect.height === child.height)
+          continue;
+        const stack = [childId];
+
+        while (stack.length) {
+          const memberId = stack.pop()!;
+          const member = read(memberId);
+          if (!member) continue;
+          patches.set(memberId, {
+            id: memberId,
+            before: patches.has(memberId)
+              ? patches.get(memberId)!.before
+              : this.frames.get(memberId),
+            after: immutableFrame({
+              ...member,
+              x: member.x + dx,
+              y: member.y + dy,
+              ...(memberId === childId ? { width: rect.width, height: rect.height } : {}),
+            }),
+          });
+          if (dx !== 0 || dy !== 0)
+            for (const descendant of children.get(memberId) ?? []) stack.push(descendant);
+        }
+      }
+    };
+
+    for (const id of orderedContainers) {
       const group = read(id);
       if (!group) continue;
 
@@ -1377,30 +1452,13 @@ export class CanvasDocument {
       const before = patches.has(id) ? patches.get(id)!.before : this.frames.get(id);
 
       if (!group.kind || group.kind === "frame") {
-        for (const [childId, position] of canvasLayoutPositions(group, members)) {
-          const child = read(childId)!;
-          const dx = position.x - child.x;
-          const dy = position.y - child.y;
-          if (dx === 0 && dy === 0) continue;
-          const stack = [childId];
+        const sized = immutableFrame({
+          ...group,
+          ...canvasLayoutHugSize(group, members),
+        }) as CanvasFrameNode;
 
-          while (stack.length) {
-            const memberId = stack.pop()!;
-            const member = read(memberId);
-            if (!member) continue;
-
-            const original = patches.has(memberId)
-              ? patches.get(memberId)!.before
-              : this.frames.get(memberId);
-
-            patches.set(memberId, {
-              id: memberId,
-              before: original,
-              after: immutableFrame({ ...member, x: member.x + dx, y: member.y + dy }),
-            });
-            for (const descendant of children.get(memberId) ?? []) stack.push(descendant);
-          }
-        }
+        if (!framesEqual(group, sized)) patches.set(id, { id, before, after: sized });
+        applyLayout(sized, members);
 
         continue;
       }
@@ -1474,6 +1532,22 @@ export class CanvasDocument {
       }
 
       if (!framesEqual(group, after)) patches.set(id, { id, before, after });
+    }
+
+    // Intrinsic dimensions now exist. Allocate downward so nested fill layouts see
+    // their final parent size, not the previous frame's dimensions.
+    for (const id of [...orderedContainers].reverse()) {
+      const container = read(id);
+      if (!container || (container.kind && container.kind !== "frame") || !container.layout)
+        continue;
+
+      const members = (children.get(id) ?? []).flatMap((childId) => {
+        const child = read(childId);
+
+        return child ? [child] : [];
+      });
+
+      applyLayout(container, members);
     }
 
     if (removedGroup) {

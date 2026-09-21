@@ -67,7 +67,7 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 26);
+    assert_eq!(tools.len(), 27);
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
     assert_eq!(tools[0]["name"], "get_guide");
@@ -105,6 +105,33 @@ async fn discovery_exposes_incremental_html_scopes() {
 }
 
 #[tokio::test]
+async fn discovery_exposes_source_import_with_the_same_edit_scopes() {
+    let response = json(
+        app(Bridge::new())
+            .oneshot(request("tools/list", json!({})))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let tool = response["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "write_source")
+        .unwrap();
+    let properties = &tool["inputSchema"]["properties"];
+    assert_eq!(tool["inputSchema"]["required"], json!(["source"]));
+    assert_eq!(properties["format"]["enum"], json!(["auto", "html", "jsx"]));
+    for property in ["parentId", "targetId", "fileId"] {
+        assert_eq!(properties[property]["type"], "string");
+    }
+    for property in ["replace", "validateOnly"] {
+        assert_eq!(properties[property]["type"], "boolean");
+    }
+    assert_eq!(properties["width"]["maximum"], 8192);
+}
+
+#[tokio::test]
 async fn initialize_and_discovery_do_not_unlock_editor_tools() {
     let bridge = Bridge::new();
     let service = app(bridge.clone());
@@ -129,6 +156,7 @@ async fn initialize_and_discovery_do_not_unlock_editor_tools() {
         ("get_basic_info", json!({})),
         ("create_file", json!({"name":"Home"})),
         ("write_html", json!({"html":"<p>Hello</p>"})),
+        ("write_source", json!({"source":"<p>Hello</p>"})),
     ] {
         let body = json(
             service
@@ -530,7 +558,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 26);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 27);
 }
 
 #[tokio::test]
@@ -747,6 +775,26 @@ fn update_schema_describes_geometry_clipping_and_layout() {
         properties["properties"]["layout"]["properties"]["direction"]["enum"],
         json!(["row", "column"])
     );
+    let create = catalog
+        .iter()
+        .find(|tool| tool["name"] == "create_artboard")
+        .unwrap();
+    for axis in ["widthSizing", "heightSizing"] {
+        assert_eq!(
+            properties["properties"][axis]["enum"],
+            json!(["fixed", "fill", "hug", null])
+        );
+        assert_eq!(
+            create["inputSchema"]["properties"][axis],
+            properties["properties"][axis]
+        );
+    }
+    assert_eq!(
+        create["inputSchema"]["properties"]["layout"],
+        properties["properties"]["layout"]
+    );
+    assert!(tools::GUIDE.contains("layout.gap"));
+    assert!(tools::GUIDE.contains("widthSizing/heightSizing"));
     for name in ["fit_node", "set_styles", "preview_html", "close_preview"] {
         assert!(catalog.iter().any(|tool| tool["name"] == name));
     }

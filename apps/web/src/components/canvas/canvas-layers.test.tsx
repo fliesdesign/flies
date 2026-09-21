@@ -6,6 +6,7 @@ import { CanvasDocument, type CanvasFrame } from "@flies/canvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vite-plus/test";
 
+import { revealLayerSelection } from "./canvas-layer-expansion";
 import { CanvasLayers } from "./canvas-layers";
 
 const frame: CanvasFrame = {
@@ -60,9 +61,18 @@ function rows(markup: string) {
 }
 
 describe("canvas layers hierarchy", () => {
+  it("starts with root rows and collapsed container branches", () => {
+    const items = rows(render(new CanvasDocument([frame, back, front, nested, root])));
+    assert.deepEqual(
+      items.map((item) => item["data-layer-id"]),
+      ["root", "frame"],
+    );
+    assert.equal(items[1]["aria-expanded"], "false");
+  });
+
   it("lists frontmost siblings first while keeping each descendant under its own parent", () => {
     const document = new CanvasDocument([frame, back, front, nested, root]);
-    const items = rows(render(document));
+    const items = rows(render(document, ["nested"]));
     assert.deepEqual(
       items.map((item) => item["data-layer-id"]),
       ["root", "frame", "front", "nested", "back"],
@@ -88,7 +98,7 @@ describe("canvas layers hierarchy", () => {
     const document = new CanvasDocument([frame, back, front, nested]);
     document.reorder(["back"], "front");
     assert.deepEqual(
-      rows(render(document)).map((item) => item["data-layer-id"]),
+      rows(render(document, ["nested"])).map((item) => item["data-layer-id"]),
       ["frame", "back", "front", "nested"],
     );
   });
@@ -108,6 +118,7 @@ describe("canvas layers hierarchy", () => {
   it("distinguishes inherited locks from locks a user can clear on the layer itself", () => {
     const markup = render(
       new CanvasDocument([{ ...frame, locked: true }, back, { ...front, locked: true }]),
+      ["back"],
     );
 
     assert.equal(rows(markup).filter((item) => item["data-locked"] === "true").length, 3);
@@ -145,6 +156,7 @@ describe("canvas layers hierarchy", () => {
   it("keeps hidden branches in the layer list with actionable eye controls", () => {
     const markup = render(
       new CanvasDocument([{ ...frame, hidden: true }, back, { ...front, hidden: true }]),
+      ["back"],
     );
 
     assert.equal(rows(markup).filter((item) => item["data-hidden"] === "true").length, 3);
@@ -163,5 +175,39 @@ describe("canvas layers hierarchy", () => {
     assert.match(markup, /aria-label="Hide layers"/);
     assert.match(markup, /Your layers will appear here/);
     assert.ok(!markup.includes('role="tree"'));
+  });
+});
+
+describe("intentional layer expansion", () => {
+  it("reveals only newly selected ancestor paths, preserving explicit collapsed branches", () => {
+    const document = new CanvasDocument([frame, back, front, nested, root]);
+    const selection = revealLayerSelection(document, ["nested"]);
+    assert.deepEqual([...selection.expanded], ["front", "frame"]);
+    const collapsed = { ...selection, expanded: new Set<string>() };
+    const additive = revealLayerSelection(document, ["nested", "root"], collapsed);
+    assert.deepEqual([...additive.expanded], []);
+    const reordered = revealLayerSelection(document, ["root", "nested"], additive);
+    assert.deepEqual([...reordered.expanded], []);
+    const changed = revealLayerSelection(document, ["back"], reordered);
+    assert.deepEqual([...changed.expanded], ["frame"]);
+  });
+
+  it("selecting a container keeps its descendants collapsed until explicitly opened", () => {
+    const document = new CanvasDocument([frame, back, front, nested]);
+    assert.deepEqual([...revealLayerSelection(document, ["frame"]).expanded], []);
+    assert.deepEqual([...revealLayerSelection(document, ["front"]).expanded], ["frame"]);
+  });
+
+  it("background hierarchy edits do not open new ancestors around the current selection", () => {
+    const document = new CanvasDocument([frame, back, front, nested]);
+    const selection = revealLayerSelection(document, ["back"]);
+    document.update({ ...back, parentId: "front" });
+    const afterMove = revealLayerSelection(document, ["back"], selection);
+    assert.deepEqual([...afterMove.expanded], ["frame"]);
+    document.addMany([
+      { ...frame, id: "import" },
+      { ...back, id: "import-child", parentId: "import" },
+    ]);
+    assert.deepEqual([...revealLayerSelection(document, ["back"], afterMove).expanded], ["frame"]);
   });
 });

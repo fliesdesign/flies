@@ -517,6 +517,37 @@ export const CanvasProperties = memo(function CanvasProperties({
                   preview={numberPreview("height", 1, { preserveAspect })}
                   onCommit={(value) => onChange("height", Number(value), { preserveAspect })}
                 />
+                {(["widthSizing", "heightSizing"] as const).map((property) => (
+                  <PropertySelect
+                    key={property}
+                    label={property === "widthSizing" ? "Width sizing" : "Height sizing"}
+                    value={commonValue(nodes, (node) => node[property] ?? "fixed")}
+                    disabled={anyLocked}
+                    choices={[
+                      { value: "fixed", label: "Fixed" },
+                      ...(nodes.every((node) => {
+                        const layoutParent = node.parentId
+                          ? document.getFrame(node.parentId)
+                          : undefined;
+
+                        return (
+                          node.kind !== "group" &&
+                          layoutParent &&
+                          (!layoutParent.kind || layoutParent.kind === "frame") &&
+                          layoutParent.layout
+                        );
+                      })
+                        ? [{ value: "fill", label: "Fill container" }]
+                        : []),
+                      ...(nodes.every(
+                        (node) => (!node.kind || node.kind === "frame") && node.layout,
+                      )
+                        ? [{ value: "hug", label: "Fit contents" }]
+                        : []),
+                    ]}
+                    onChange={(value) => onChange(property, value)}
+                  />
+                ))}
               </div>
               <PropertyField
                 label="Rotation"

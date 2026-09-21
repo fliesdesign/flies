@@ -1,0 +1,79 @@
+.canvas-layout-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  --layout-padding-color: #4996ff;
+  --layout-gap-color: #b28aff;
+}
+
+.canvas-layout-outlines {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.canvas-layout-child {
+  fill: none;
+  stroke: var(--layout-padding-color);
+  stroke-opacity: 0.6;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.canvas-layout-region {
+  fill: var(--layout-padding-color);
+  fill-opacity: 0.12;
+}
+.canvas-layout-region[data-spacing="layoutGap"] {
+  fill: var(--layout-gap-color);
+}
+.canvas-layout-handle {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translate(-50%, -50%) rotate(var(--handle-angle));
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+  outline: none;
+}
+.canvas-layout-handle > span {
+  width: 17px;
+  height: 4px;
+  border: 1px solid #fff;
+  border-radius: 3px;
+  background: var(--layout-padding-color);
+  box-shadow: 0 1px 3px #0005;
+}
+.canvas-layout-handle[data-spacing="layoutGap"] > span {
+  background: var(--layout-gap-color);
+}
+.canvas-layout-handle[data-active] > span {
+  height: 5px;
+}
+.canvas-layout-handle:focus-visible > span {
+  outline: 2px solid var(--layout-padding-color);
+  outline-offset: 3px;
+}
+.canvas-layout-value {
+  position: absolute;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--layout-padding-color);
+  color: #fff;
+  font:
+    11px/16px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.canvas-layout-value[data-spacing="layoutGap"] {
+  background: #8255bf;
+}

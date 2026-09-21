@@ -1,6 +1,6 @@
 import { downloadCanvasFile } from "@flies/canvas";
+import { compileTailwind } from "@flies/html/tailwind";
 
-import { compileTailwind } from "./tailwind";
 import "./prototype.css";
 
 let current: HTMLDialogElement | undefined;

@@ -25,22 +25,23 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 
 ## Tools
 
-| Tool                                         | Purpose                                                     |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| `get_guide`                                  | Required first call: design workflow and supported HTML/CSS |
-| `list_files`, `create_file`, `open_file`     | Discover or open local documents                            |
-| `get_basic_info`                             | Active document, root nodes and camera                      |
-| `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                                |
-| `create_artboard`                            | Create an editable frame                                    |
-| `write_html`                                 | Convert Tailwind or inline-styled HTML into editable layers |
-| `update_node`, `delete_nodes`                | Modify existing nodes                                       |
-| `set_selection`                              | Select a node or clear selection                            |
-| `set_styles`                                 | Save inherited CSS defaults on a frame/artboard             |
-| `get_theme`, `set_theme`, `apply_tokens`     | Define theme tokens and link layer properties               |
-| `fit_node`                                   | Fit a frame/group to content, with explicit clipping        |
-| `preview_html`, `close_preview`              | Open/close an interactive HTML prototype                    |
-| `get_screenshot`                             | PNG of a node subtree or the whole document                 |
-| `undo`, `redo`, `save_file`                  | Document history and persistence                            |
+| Tool                                         | Purpose                                                                 |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| `get_guide`                                  | Required first call: design workflow and supported HTML/CSS             |
+| `list_files`, `create_file`, `open_file`     | Discover or open local documents                                        |
+| `get_basic_info`                             | Active document, root nodes and camera                                  |
+| `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                                            |
+| `create_artboard`                            | Create an editable frame                                                |
+| `write_source`                               | Convert HTML, React/JSX or TSX snippets using the canvas paste importer |
+| `write_html`                                 | Convert Tailwind or inline-styled HTML into editable layers             |
+| `update_node`, `delete_nodes`                | Modify existing nodes                                                   |
+| `set_selection`                              | Select a node or clear selection                                        |
+| `set_styles`                                 | Save inherited CSS defaults on a frame/artboard                         |
+| `get_theme`, `set_theme`, `apply_tokens`     | Define theme tokens and link layer properties                           |
+| `fit_node`                                   | Fit a frame/group to content, with explicit clipping                    |
+| `preview_html`, `close_preview`              | Open/close an interactive HTML prototype                                |
+| `get_screenshot`                             | PNG of a node subtree or the whole document                             |
+| `undo`, `redo`, `save_file`                  | Document history and persistence                                        |
 
 **Call `get_guide` before any other tool**, including `list_files`. Initialization and
 tool discovery explain this requirement; every tool's description repeats it. Until
@@ -68,6 +69,24 @@ files at once without stealing the visible tab. Mutation responses wait for the
 existing autosave queue to flush to compressed JSON. They use the same CanvasDocument
 transactions and undo history as manual edits. All documents remain local. The
 examples below omit `guideSessionId` for readability; stateless clients must include it.
+
+### Pasting HTML and React
+
+Canvas Cmd/Ctrl+V and menu Paste accept HTML, JSX and self-contained React/TSX components,
+including fenced code. The shared `@flies/html` package converts them to editable native layers.
+`write_source({source, format: "auto"})` exposes the same importer to agents. Explicit formats
+are `html` and `jsx` (including TSX). `write_html` remains available for HTML callers.
+
+Local components, static props, style objects, literal constants, conditionals and `array.map`
+are supported. Tailwind classes compile locally; plain embedded `<style>` blocks are validated
+and measured in isolation. Input and rendered markup are limited to 200KB, 500 elements and
+30 nesting levels. This imports a static design: module imports are never executed, hooks,
+runtime APIs and external components fail clearly, and event handlers/refs are omitted.
+Check `sourceWarnings` for omissions and `warnings` for native text rendering issues.
+
+`write_source` supports the same `parentId`, `targetId`, `replace`, `x`, `y`, `width`, `height`
+and `validateOnly` options as `write_html`. Imports validate fully before committing, use the
+same undo history, and flush the file's existing autosave queue before a mutation returns.
 
 ### Theme tokens
 
@@ -208,7 +227,48 @@ fit_node({ nodeId: PAGE_ID, axis: "height", padding: 24, clipContent: true });
 
 Styles are stored with the frame and survive undo, copying and save/reopen. They affect future imports and previews; existing measured native layers are unchanged. Set empty CSS to clear a frame's defaults. Nested frame styles override ancestor defaults. Shared CSS must be self-contained; fonts load by family name.
 
-`update_node.properties` now lists supported fields, types and bounds. Numeric width/height are fixed sizes, independent of `clipContent`. Use `fit_node` for one-time content sizing without replacing children; it keeps the origin and child IDs and defaults frame clipping to true. Native auto layout may reposition children during fitting. Partial `layout` patches merge with existing layout/defaults; `layout:null` disables it. Optional properties accept null to restore defaults.
+`update_node.properties` lists supported fields, types and bounds. `widthSizing` and
+`heightSizing` accept `fixed` (default), `fill` or `hug`; `null` restores fixed sizing.
+
+Text changes through `update_node` load the font and measure the resulting copy, typography,
+and wrapping width. Height grows when required; already roomy text boxes keep their size.
+An explicit `height` or `heightSizing:"fill"` preserves that constraint. The response includes
+warnings for any remaining text overflow or clipping by a parent. Typography and derived
+layout changes save and undo together.
+
+HTML imports measure normal and explicit line heights from the browser. For centered buttons,
+use `display:flex;align-items:center;justify-content:center` or `display:grid;place-items:center`.
+`create_artboard` accepts these fields and an optional native `layout` too.
+`get_node_info.node` returns the saved modes and the resolved numeric width/height.
+
+- `fill` uses available space in an auto-layout parent. It stays at its current size
+  without one and is unavailable on groups, whose bounds come from their contents.
+- `hug` continuously fits visible children plus padding on frames with native layout.
+  The canvas badge calls this mode **Fit**. A fill child on an axis its parent hugs
+  uses its minimum size (40px for frames, 1px for other layers) to avoid a sizing cycle.
+- Numeric width/height edits switch that axis to fixed unless the same patch specifies
+  its sizing mode. Clipping is independent of sizing.
+
+Use `fit_node` for one-time content sizing without replacing children; it fixes the
+requested axes, keeps the origin and child IDs, and defaults frame clipping to true.
+Native auto layout may reposition children during fitting. Partial `layout` patches
+merge with existing layout/defaults; `layout:null` disables it and resets the frame's
+hug axes to fixed. Optional properties accept null to restore defaults.
+
+Canvas spacing handles edit the same `layout.gap` and uniform `layout.padding` fields
+as MCP. Their live previews, commits and cancellation share document state, undo,
+autosave and portable projects with property-panel and agent edits.
+
+```js
+update_node({
+  nodeId: SECTION_ID,
+  properties: {
+    widthSizing: "fill",
+    heightSizing: "hug",
+    layout: { direction: "column", gap: 24, padding: 32 },
+  },
+});
+```
 
 ### Interactive prototypes
 

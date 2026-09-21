@@ -10,6 +10,7 @@ import {
   type CanvasFrame,
 } from "./canvas-document";
 import { packCanvasProject, unpackCanvasProject } from "./canvas-project";
+import { changeCanvasProperty } from "./canvas-properties";
 import {
   EMPTY_THEME,
   STARTER_THEME,
@@ -89,6 +90,51 @@ describe("document theme tokens", () => {
     assert.equal(doc.getFrame("rect")!.tokenBindings, undefined);
     doc.setTheme(recolor("#abcdef"));
     assert.equal(Reflect.get(doc.getFrame("rect")!, "fill"), "#ffffff");
+  });
+
+  it("keeps tokens detached across baseline-derived spacing previews, save and undo", () => {
+    const doc = new CanvasDocument(
+      [
+        {
+          id: "board",
+          name: "Board",
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 200,
+          tokenBindings: { layoutGap: "space", layoutPadding: "space" },
+        },
+        { ...rectangle, parentId: "board" },
+      ],
+      theme,
+    );
+
+    const before = doc.getFrames();
+    doc.beginGesture("board");
+
+    for (const padding of [30, 40, 50]) {
+      doc.previewMany(changeCanvasProperty(before, ["board"], "layoutPadding", padding, () => 20));
+      assert.deepEqual(doc.getFrame("board")!.tokenBindings, { layoutGap: "space" });
+      assert.equal(doc.getFrame("rect")!.x, padding);
+      assert.deepEqual(doc.getCommittedFrames(), before);
+    }
+
+    doc.endGesture();
+    const after = doc.getFrames();
+    assert.equal(doc.getHistoryStats().undoEntries, 1);
+    const project = unpackCanvasProject(packCanvasProject("Spacing", after, doc.getTheme()));
+    const reopened = new CanvasDocument(project.nodes, project.theme);
+    assert.deepEqual(reopened.getFrames(), after);
+    assert.equal(reopened.getFrame("rect")!.x, 50);
+    doc.undo();
+    assert.deepEqual(doc.getFrames(), before);
+    doc.redo();
+    assert.deepEqual(doc.getFrames(), after);
+    doc.setTheme({
+      tokens: theme.tokens.map((token) => (token.id === "space" ? { ...token, value: 60 } : token)),
+    });
+    assert.equal(doc.getFrame("rect")!.x, 50);
+    assert.equal(Reflect.get(doc.getFrame("board")!, "layout").gap, 60);
   });
 
   it("reflows token-driven layout on load and theme edits without replacing IDs", () => {

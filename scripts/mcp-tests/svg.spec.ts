@@ -64,7 +64,7 @@ test("inline SVG imports as a vector node with inherited color and exports visib
   await page.goto("/");
 
   const result = await page.evaluate(async () => {
-    const module = "/src/lib/mcp/html.ts";
+    const module = "/packages/html/src/html.ts";
     const exporter = "/src/components/canvas/canvas-export.tsx";
     const { importHtml } = await import(/* @vite-ignore */ module);
     const { exportCanvasPng } = await import(/* @vite-ignore */ exporter);

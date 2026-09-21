@@ -41,25 +41,27 @@ export function resizeFrame(
   handle: ResizeHandle,
   delta: Point,
   minSize = 40,
+  round = true,
 ): FrameRect {
   const frame = { ...start };
   const minimum = Math.max(1, Math.ceil(minSize));
+  const dimension = round ? Math.round : (value: number) => value;
 
   if (handle.includes("e")) {
-    frame.width = Math.max(minimum, Math.round(start.width + delta.x));
+    frame.width = Math.max(minimum, dimension(start.width + delta.x));
   }
 
   if (handle.includes("w")) {
-    frame.width = Math.max(minimum, Math.round(start.width - delta.x));
+    frame.width = Math.max(minimum, dimension(start.width - delta.x));
     frame.x = start.x + start.width - frame.width;
   }
 
   if (handle.includes("s")) {
-    frame.height = Math.max(minimum, Math.round(start.height + delta.y));
+    frame.height = Math.max(minimum, dimension(start.height + delta.y));
   }
 
   if (handle.includes("n")) {
-    frame.height = Math.max(minimum, Math.round(start.height - delta.y));
+    frame.height = Math.max(minimum, dimension(start.height - delta.y));
     frame.y = start.y + start.height - frame.height;
   }
 

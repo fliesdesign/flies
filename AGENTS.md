@@ -19,6 +19,7 @@ in the same change. Agent edits must share UI document state, persistence and un
 
 Flies is a Vite+ Bun workspace with a Tauri v2 desktop shell.
 
+- `packages/html/`: shared HTML/JSX/TSX import, sanitization, DOM measurement and Tailwind (`@flies/html`)
 - `packages/canvas/`: canvas engine (`@flies/canvas`) — document model, geometry, GPU, clipboard
 - `apps/web/src/routes/`: file-based pages; `__root.tsx` provides the shared layout
 - `apps/web/src/components/ui/`: reusable shadcn components built on Base UI
@@ -45,10 +46,10 @@ Run these from the repository root:
 - `vp install` or `bun install`: install workspace dependencies
 - `bun run dev` / `vp -C apps/web dev`: start the frontend development server
 - `bun run tauri:dev`: launch the desktop app with the development server
-- `bun run typecheck`: `tsc --noEmit` in canvas and web
+- `bun run typecheck`: `tsc --noEmit` in canvas, html, web and API
 - `vp check`: Oxfmt + Oxlint
 - `bun run check`: format, lint, and typecheck
-- `bun run test`: Vitest in `packages/canvas` and `apps/web`
+- `bun run test`: tests in `packages/canvas`, `packages/html`, `apps/web` and `apps/api`
 - `bun run build`: production frontend build
 - `bun run tauri:build`: desktop release bundle
 - `docker build -t flies-web .`: production image for `apps/web` (Caddy on 8080)

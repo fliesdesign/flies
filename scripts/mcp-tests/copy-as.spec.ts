@@ -61,7 +61,7 @@ test("CSS and compiled Tailwind exports render matching selection geometry and a
 
   const result = await page.evaluate(async () => {
     const exporterPath = "/src/lib/canvas-code-export.ts",
-      compilerPath = "/src/lib/mcp/tailwind.ts";
+      compilerPath = "/packages/html/src/tailwind.ts";
 
     const { exportCanvasCode } = await import(/* @vite-ignore */ exporterPath);
     const { compileTailwind } = await import(/* @vite-ignore */ compilerPath);

@@ -5,7 +5,7 @@ test("Google fonts load before HTML measurement and PNG export", async ({ page }
 
   const result = await page.evaluate(async () => {
     const fontModule = "/packages/canvas/src/canvas-fonts.ts";
-    const htmlModule = "/src/lib/mcp/html.ts";
+    const htmlModule = "/packages/html/src/html.ts";
     const exportModule = "/src/components/canvas/canvas-export.tsx";
     const { ensureCanvasFonts, listCanvasFonts } = await import(/* @vite-ignore */ fontModule);
     const { importHtml } = await import(/* @vite-ignore */ htmlModule);

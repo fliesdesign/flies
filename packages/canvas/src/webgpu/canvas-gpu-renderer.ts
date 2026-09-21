@@ -20,11 +20,13 @@ import type {
   CanvasShadow,
   CanvasText,
 } from "../canvas-document";
-import { ensureCanvasFont } from "../canvas-fonts";
+import { ensureCanvasFont, fontFamilyCss } from "../canvas-fonts";
+import { viewportBounds } from "../canvas-spatial-index";
 import { SVG_DATA_URL } from "../canvas-svg";
-import { localTransform } from "../canvas-transform";
+import { localTransform, worldBounds } from "../canvas-transform";
 import { gpuGradient, destroyPaintFilter, gpuFilters, gpuBlend } from "./canvas-gpu-paint";
 import { createShadowSprite } from "./canvas-gpu-shadows";
+import { textRasterResolution } from "./canvas-text-raster";
 
 type RendererOptions = {
   canvas: HTMLCanvasElement;
@@ -47,6 +49,8 @@ type Artwork = {
   image?: HTMLImageElement;
   imageAbort?: AbortController;
   imageSprite?: Sprite;
+  text?: Text;
+  textRasterSize?: { width: number; height: number };
   outerShadow?: Sprite;
   innerShadow?: Sprite;
   opacityFilter?: AlphaFilter;
@@ -177,6 +181,7 @@ export class CanvasGpuRenderer {
   private lastActivityChange = "";
   private destroyed = false;
   private readonly fontLoads = new Map<string, string>();
+  private readonly textBaselines = new Map<string, number>();
   private hierarchyDirty = true;
   private documentRenderPending = false;
   private lastWidth = 0;
@@ -294,6 +299,7 @@ export class CanvasGpuRenderer {
     for (const node of this.nodes.values()) this.destroyNode(node);
     this.nodes.clear();
     this.fontLoads.clear();
+    this.textBaselines.clear();
     this.world.destroy();
     this.renderer.destroy(false);
     device.destroy();
@@ -405,7 +411,31 @@ export class CanvasGpuRenderer {
 
       const { viewport, size } = this.options.camera.getCurrent();
 
+      const visible = viewportBounds(viewport, size, 32);
+
       for (const node of this.nodes.values()) {
+        if (node.text && node.textRasterSize && !this.options.document.isHidden(node.frame.id)) {
+          const resolution = textRasterResolution(
+            node.textRasterSize.width,
+            node.textRasterSize.height,
+            this.resolution,
+            viewport.zoom,
+          );
+
+          // Keep sharper textures when zooming out. Panning never recreates them,
+          // and distant labels only upgrade when they enter the viewport.
+          if (resolution > (node.text.resolution ?? 0)) {
+            const bounds = worldBounds(this.options.document, node.frame);
+            if (
+              bounds.x + bounds.width >= visible.x &&
+              bounds.y + bounds.height >= visible.y &&
+              bounds.x <= visible.x + visible.width &&
+              bounds.y <= visible.y + visible.height
+            )
+              node.text.resolution = resolution;
+          }
+        }
+
         if (node.frame.kind === "svg" && (node.svgScale ?? 0) < this.svgRasterScale(node.frame)) {
           this.updateBody(node, node.frame);
         }
@@ -567,6 +597,49 @@ export class CanvasGpuRenderer {
     }
   }
 
+  /** Match CSS line-box rounding and font ascent, including tight line heights.
+   * Measure once per typography style, never on camera movement. */
+  private textBaseline(frame: CanvasText) {
+    const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
+    const key = `${frame.fontFamily}:${frame.fontSize}:${frame.fontWeight}:${frame.fontStyle}:${lineHeight}`;
+    const cached = this.textBaselines.get(key);
+    if (cached !== undefined) return cached;
+    const measurement = window.document.createElement("span");
+    Object.assign(measurement.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      display: "block",
+      visibility: "hidden",
+      contain: "layout style",
+      whiteSpace: "pre",
+      padding: "0",
+      margin: "0",
+      border: "0",
+      fontFamily: fontFamilyCss(frame.fontFamily),
+      fontSize: `${frame.fontSize}px`,
+      fontWeight: String(frame.fontWeight ?? 400),
+      fontStyle: frame.fontStyle ?? "normal",
+      lineHeight: `${lineHeight}px`,
+    });
+    const marker = window.document.createElement("span");
+    Object.assign(marker.style, {
+      display: "inline-block",
+      width: "0",
+      height: "0",
+      verticalAlign: "baseline",
+    });
+    measurement.append("M", marker);
+    window.document.body.append(measurement);
+    const baseline = marker.getBoundingClientRect().top - measurement.getBoundingClientRect().top;
+    measurement.remove();
+    if (this.textBaselines.size >= 256)
+      this.textBaselines.delete(this.textBaselines.keys().next().value!);
+    this.textBaselines.set(key, baseline);
+
+    return baseline;
+  }
+
   private addText(node: Artwork, frame: CanvasText) {
     const fontKey = `${frame.fontFamily}:${frame.fontWeight}:${frame.fontStyle}:${frame.text}`;
 
@@ -581,6 +654,7 @@ export class CanvasGpuRenderer {
           )
             return false;
           CanvasTextMetrics.clearMetrics();
+          this.textBaselines.clear();
           node.initialized = false;
           this.dirty.add(frame.id);
           this.requestDocumentRender();
@@ -598,25 +672,26 @@ export class CanvasGpuRenderer {
     const textureWidth = Math.max(1, metrics.width);
     const textureHeight = Math.max(1, metrics.height);
 
-    const resolution = Math.min(
-      this.resolution,
-      4096 / textureWidth,
-      4096 / textureHeight,
-      Math.sqrt(8_000_000 / (textureWidth * textureHeight)),
-    );
-
+    const resolution = textRasterResolution(textureWidth, textureHeight, this.resolution, 1);
     const text = new Text({ text: content, style, resolution });
+    node.text = text;
+    node.textRasterSize = { width: textureWidth, height: textureHeight };
     // Pixi aligns lines within the longest line; CSS aligns within the text node's full width.
     const alignment = frame.textAlign === "center" ? 0.5 : frame.textAlign === "right" ? 1 : 0;
     text.x = (frame.width - metrics.maxLineWidth) * alignment;
+    const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
+    const baseline = this.textBaseline(frame);
+
+    const rasterBaseline =
+      metrics.fontProperties.ascent +
+      Math.max(0, (lineHeight - metrics.fontProperties.fontSize) / 2);
+
+    text.y = baseline - rasterBaseline;
     node.body.addChild(text);
 
     if (frame.textDecoration && frame.textDecoration !== "none") {
       const lines = new Graphics();
-      const lineHeight = frame.fontSize * (frame.lineHeight ?? 1.25);
       const ascent = metrics.fontProperties.ascent;
-      const lineOffset = (lineHeight - metrics.fontProperties.fontSize) / 2;
-      const baseline = lineOffset + ascent;
       const offset = frame.textDecoration === "underline" ? baseline + 1 : baseline - ascent * 0.35;
       metrics.lineWidths.forEach((width, index) => {
         lines.rect(
@@ -750,6 +825,8 @@ export class CanvasGpuRenderer {
     }
 
     node.imageSource = undefined;
+    node.text = undefined;
+    node.textRasterSize = undefined;
     destroySprite(node.imageSprite);
     node.imageSprite = undefined;
     for (const child of node.body.removeChildren()) child.destroy();

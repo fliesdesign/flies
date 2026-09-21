@@ -350,6 +350,10 @@ export function scaleSelectionWorld(
         y: y + (node.y - root.y) * scale,
         width: Math.max(minimum, node.width * scale),
         height: Math.max(minimum, node.height * scale),
+        ...(scale !== 1 && node.widthSizing !== undefined ? { widthSizing: "fixed" as const } : {}),
+        ...(scale !== 1 && node.heightSizing !== undefined
+          ? { heightSizing: "fixed" as const }
+          : {}),
         ...(node.kind === "text" ? { fontSize: node.fontSize * scale } : {}),
       });
     }

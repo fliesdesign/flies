@@ -11,6 +11,7 @@ import {
   AlignmentGuideTargets,
   CanvasGuides,
   type AlignmentGuide,
+  type AlignmentSnapState,
 } from "./canvas-guides";
 
 const target = { id: "target", x: 100, y: 100, width: 200, height: 200 };
@@ -271,5 +272,47 @@ describe("guide overlay lifecycle", () => {
       if (cancel) Object.defineProperty(globalThis, "cancelAnimationFrame", cancel);
       else Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
     }
+  });
+});
+
+describe("stable gesture snapping", () => {
+  for (const zoom of [0.5, 1, 4]) {
+    it(`holds one target through competing anchors and releases at nine screen pixels (${zoom}x)`, () => {
+      const index = new AlignmentGuideIndex(
+        [
+          { id: "a", x: 100, y: 0, width: 0, height: 100 },
+          { id: "b", x: 100 + 8 / zoom, y: 0, width: 0, height: 100 },
+        ],
+        "moving",
+      );
+
+      const state: AlignmentSnapState = {};
+      const rect = (offset: number) => ({ x: 100 + offset / zoom, y: 500, width: 0, height: 20 });
+      assert.equal(index.snap(rect(2), zoom, undefined, 1, state).rect.x, 100);
+      assert.equal(index.snap(rect(7), zoom, undefined, 1, state).rect.x, 100);
+      assert.equal(index.snap(rect(10), zoom, undefined, 1, state).rect.x, 100 + 8 / zoom);
+      assert.deepEqual(index.snap(rect(18), zoom, undefined, 1, state).guides, []);
+      assert.equal(state.x, undefined);
+    });
+  }
+
+  it("drops locks for targets that leave the visible index", () => {
+    const state: AlignmentSnapState = {};
+    const index = new AlignmentGuideIndex([target], "moving");
+    const rect = { x: 104, y: 500, width: 20, height: 20 };
+    assert.equal(index.snap(rect, 1, undefined, 1, state).rect.x, 100);
+    assert.deepEqual(new AlignmentGuideIndex([], "moving").snap(rect, 1, undefined, 1, state), {
+      rect,
+      guides: [],
+    });
+    assert.equal(state.x, undefined);
+  });
+
+  it("releases resize locks that would violate minimum dimensions", () => {
+    const state: AlignmentSnapState = {};
+    const index = new AlignmentGuideIndex([target], "moving");
+    index.snap({ x: 50, y: 500, width: 48, height: 20 }, 1, "e", 40, state);
+    const rect = { x: 64, y: 500, width: 40, height: 20 };
+    assert.deepEqual(index.snap(rect, 1, "e", 40, state), { rect, guides: [] });
   });
 });

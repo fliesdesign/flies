@@ -1,8 +1,7 @@
 import { svgDataUrl } from "@flies/canvas";
 import type { CanvasFrame } from "@flies/canvas";
-
-import { importHtmlFragment } from "@/lib/mcp/html";
-import { resolveFontFamily } from "@/lib/mcp/html-style";
+import { importHtmlFragment } from "@flies/html";
+import { resolveFontFamily } from "@flies/html";
 
 import { loadSnapshotImage } from "./paper-snapshot-assets";
 import {

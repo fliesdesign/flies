@@ -41,7 +41,7 @@ export default defineConfig(() => ({
   resolve: {
     // Browser test harnesses live outside apps/web; resolve shared dependencies
     // from the app so they use the same canvas store and React instance.
-    dedupe: ["@flies/canvas", "react", "react-dom"],
+    dedupe: ["@flies/canvas", "@flies/html", "react", "react-dom"],
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },
@@ -49,7 +49,7 @@ export default defineConfig(() => ({
   // pixi.js lives on @flies/canvas and is loaded by the lazy GPU renderer.
   // Prebundle it through that package so the first WebGPU import does not
   // invalidate the dep cache and reload the editor.
-  optimizeDeps: { include: ["@flies/canvas > pixi.js"] },
+  optimizeDeps: { include: ["@flies/canvas > pixi.js", "@flies/html > @swc/wasm-web"] },
   envDir: repoRoot,
   clearScreen: false,
   server: {

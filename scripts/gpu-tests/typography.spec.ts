@@ -12,7 +12,7 @@ for (const { name, width, fontSize } of [
     const regions = await page.evaluate(
       async ({ layoutWidth, size }) => {
         const harnessPath = "/scripts/gpu-tests/gpu-harness.tsx";
-        const htmlPath = "/src/lib/mcp/html.ts";
+        const htmlPath = "/packages/html/src/html.ts";
         const { mountGpuFixture } = await import(/* @vite-ignore */ harnessPath);
         const { importHtml } = await import(/* @vite-ignore */ htmlPath);
         const fixture = await mountGpuFixture();

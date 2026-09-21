@@ -80,6 +80,7 @@
 
 .design-canvas {
   --canvas-select-cursor: url("/cursor.svg") 1 1, default;
+  --editor-outline: #4996ff;
   position: fixed;
   inset: 0;
   overflow: clip;
@@ -303,14 +304,14 @@
 .canvas-node-selection-border {
   position: absolute;
   inset: 0;
-  outline: calc(1px * var(--canvas-inverse-zoom, 1)) solid var(--ring);
+  outline: calc(1px * var(--canvas-inverse-zoom, 1)) solid var(--editor-outline);
   pointer-events: none;
 }
 
 .canvas-hover,
 .canvas-selection {
   z-index: 1;
-  outline: 1px solid var(--ring);
+  outline: 1px solid var(--editor-outline);
   pointer-events: none;
 }
 
@@ -322,7 +323,7 @@
 .canvas-selection-border {
   position: absolute;
   inset: 0;
-  outline: 1px solid var(--ring);
+  outline: 1px solid var(--editor-outline);
 }
 
 .canvas-resize {
@@ -341,7 +342,7 @@
   content: "";
   position: absolute;
   inset: 4px;
-  border: 1px solid var(--ring);
+  border: 1px solid var(--editor-outline);
   background: #fff;
 }
 
@@ -398,12 +399,13 @@
   transform: translateX(-50%);
   padding: 2px 7px;
   border-radius: 4px;
-  background: var(--ring);
-  color: var(--primary-foreground);
+  background: #2674d7;
+  color: #fff;
   font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .canvas-dimensions > span {

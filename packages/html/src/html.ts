@@ -9,7 +9,13 @@ import {
   nativeGradient,
 } from "./html-paint";
 import { sanitizeHtml } from "./html-sanitize";
-import { effectsStyle, htmlColor, nodeName, resolveFontFamily, textStyle } from "./html-style";
+import {
+  createTextMeasurer,
+  effectsStyle,
+  htmlColor,
+  nodeName,
+  resolveFontFamily,
+} from "./html-style";
 import { validateSharedCss } from "./styles";
 export { sanitizeHtml } from "./html-sanitize";
 
@@ -43,8 +49,26 @@ export async function importHtml(
     throw new Error("HTML layout width must be between 40 and 8192px.");
   if (options.height !== undefined && (options.height < 1 || options.height > 8192))
     throw new Error("HTML layout height must be between 1 and 8192px.");
-  const css = options.css ? validateSharedCss(options.css) : "";
-  const fragment = sanitizeHtml(source, Boolean(css));
+  if (new TextEncoder().encode(source).length > 200_000)
+    throw new Error("HTML is limited to 200KB.");
+  // Parsing in a template is inert: scripts and resources are never mounted.
+  const template = document.createElement("template");
+  template.innerHTML = source;
+  const sheets = [options.css ?? ""];
+
+  for (const style of template.content.querySelectorAll("style")) {
+    if (style.attributes.length) throw new Error("Embedded styles must use a plain <style> tag.");
+    sheets.push(style.textContent ?? "");
+    style.remove();
+  }
+
+  // Browsers commonly prefix copied rich HTML with this metadata.
+  for (const meta of template.content.querySelectorAll("meta[charset]")) {
+    if (meta.attributes.length === 1) meta.remove();
+  }
+
+  const css = validateSharedCss(sheets.filter(Boolean).join("\n"));
+  const fragment = sanitizeHtml(template.innerHTML, Boolean(css));
 
   const tailwind = fragment.querySelector("[class]")
     ? await (await import("./tailwind")).compileTailwind(fragment)
@@ -238,6 +262,7 @@ export async function importHtmlFragment(
     const origin = layout.getBoundingClientRect();
     const nodes: CanvasFrame[] = [];
     let textFragments = 0;
+    const measureText = createTextMeasurer(measurementDocument);
 
     const add = (node: CanvasFrame) => {
       if (nodes.length >= 3000)
@@ -258,15 +283,13 @@ export async function importHtmlFragment(
     const measuredText = (textNode: Text, parentId?: string, opacity = 1) => {
       if (!textNode.textContent?.trim()) return;
       const style = getComputedStyle(textNode.parentElement!);
-      const type = textStyle(style);
       const value = textNode.textContent;
       const range = document.createRange();
-      const lineHeight = type.fontSize * (type.lineHeight ?? 1.25);
 
       const emit = (start: number, end: number) => {
         if (!["pre", "pre-wrap", "break-spaces"].includes(style.whiteSpace)) {
-          while (start < end && /\s/.test(value[start])) start++;
-          while (end > start && /\s/.test(value[end - 1])) end--;
+          while (start < end && /[\t\r\n ]/.test(value[start])) start++;
+          while (end > start && /[\t\r\n ]/.test(value[end - 1])) end--;
         }
 
         if (start === end) return;
@@ -277,6 +300,8 @@ export async function importHtmlFragment(
         if (++textFragments > 2000)
           throw new Error("Too many text fragments. Import a smaller section.");
         const text = transformedText(value.slice(start, end), style);
+        const { typography: type, rangeTop } = measureText(style, text);
+        const lineHeight = type.fontSize * type.lineHeight!;
         add({
           ...baseFor(rect, parentId, text.slice(0, 80)),
           ...type,
@@ -284,7 +309,7 @@ export async function importHtmlFragment(
           kind: "text",
           text,
           textAlign: "left",
-          y: options.y + rect.y - origin.y - (lineHeight - rect.height) / 2,
+          y: options.y + rect.y - origin.y - rangeTop,
           width: rect.width + 0.5,
           height: Math.max(1, lineHeight),
         });
@@ -404,6 +429,7 @@ export async function importHtmlFragment(
         : element.innerText;
 
       const leafText = !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+      const buttonText = element.localName === "button";
 
       const contentRect = new DOMRect(
         rect.x + parseFloat(style.paddingLeft) + borderWidths[3],
@@ -426,8 +452,8 @@ export async function importHtmlFragment(
         ),
       );
 
-      if (element instanceof HTMLInputElement || element.localName === "button") {
-        const typography = textStyle(style);
+      if (element instanceof HTMLInputElement) {
+        const { typography } = measureText(style, plainText);
         const lineHeight = typography.fontSize * (typography.lineHeight ?? 1.25);
 
         if (contentRect.height > lineHeight) {
@@ -443,7 +469,8 @@ export async function importHtmlFragment(
         !decorated &&
         !painted &&
         !clipped &&
-        (style.display === "inline" ||
+        (buttonText ||
+          style.display === "inline" ||
           style.display.includes("flex") ||
           style.display.includes("grid"))
       ) {
@@ -459,13 +486,14 @@ export async function importHtmlFragment(
         !decorated &&
         !painted &&
         !clipped &&
+        !buttonText &&
         !style.display.includes("flex") &&
         !style.display.includes("grid") &&
         style.display !== "inline"
       ) {
         add({
           ...baseFor(contentRect, parentId, element.dataset.name ?? plainText.trim().slice(0, 80)),
-          ...textStyle(style),
+          ...measureText(style, plainText).typography,
           kind: "text",
           text: transformedText(plainText, style, true),
           opacity: base.opacity,
@@ -570,13 +598,14 @@ export async function importHtmlFragment(
       else if (
         leafText &&
         (input ||
-          (!style.display.includes("flex") &&
+          (!buttonText &&
+            !style.display.includes("flex") &&
             !style.display.includes("grid") &&
             style.display !== "inline"))
       ) {
         add({
           ...baseFor(contentRect, base.id, plainText.trim().slice(0, 80)),
-          ...textStyle(style),
+          ...measureText(style, plainText).typography,
           kind: "text",
           text: transformedText(plainText, style, true),
         });

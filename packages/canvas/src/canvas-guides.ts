@@ -6,9 +6,14 @@ import { CanvasSpatialIndex } from "./canvas-spatial-index";
 
 type Anchor = { position: number; start: number; end: number };
 export type AlignmentGuide = Anchor & { axis: "x" | "y" };
-type Match = { anchor: Anchor; delta: number };
+type Match = { anchor: Anchor; delta: number; movingAnchor: number };
+type SnapAnchor = { position: number; movingAnchor: number };
+
+/** Gesture-local locks keep nearby alignment targets from competing between samples. */
+export type AlignmentSnapState = { x?: SnapAnchor; y?: SnapAnchor };
 
 const SNAP_DISTANCE = 6;
+const SNAP_RELEASE_DISTANCE = 9;
 const NO_GUIDES: readonly AlignmentGuide[] = [];
 
 /** Freeze visible geometry once, then query nearby targets as an edge drag pans the camera. */
@@ -62,10 +67,25 @@ function closest(
   tolerance: number,
   minimum = -Infinity,
   maximum = Infinity,
+  previous?: SnapAnchor,
+  releaseTolerance = tolerance,
 ): Match | undefined {
+  if (previous) {
+    const anchor = anchors[lowerBound(anchors, previous.position)];
+    const position = positions[previous.movingAnchor];
+    if (
+      anchor?.position === previous.position &&
+      anchor.position >= minimum &&
+      anchor.position <= maximum &&
+      position !== undefined &&
+      Math.abs(anchor.position - position) <= releaseTolerance
+    )
+      return { anchor, delta: anchor.position - position, movingAnchor: previous.movingAnchor };
+  }
+
   let match: Match | undefined;
 
-  for (const position of positions) {
+  for (const [movingAnchor, position] of positions.entries()) {
     const index = lowerBound(anchors, Math.max(minimum, Math.min(maximum, position)));
 
     for (const candidate of [index - 1, index]) {
@@ -73,7 +93,7 @@ function closest(
       if (!anchor || anchor.position < minimum || anchor.position > maximum) continue;
       const delta = anchor.position - position;
       if (Math.abs(delta) <= tolerance && (!match || Math.abs(delta) < Math.abs(match.delta)))
-        match = { anchor, delta };
+        match = { anchor, delta, movingAnchor };
     }
   }
 
@@ -118,10 +138,17 @@ export class AlignmentGuideIndex {
     this.y.sort((a, b) => a.position - b.position);
   }
 
-  snap(rect: FrameRect, zoom: number, handle?: ResizeHandle, minSize = 1) {
+  snap(
+    rect: FrameRect,
+    zoom: number,
+    handle?: ResizeHandle,
+    minSize = 1,
+    state?: AlignmentSnapState,
+  ) {
     const right = rect.x + rect.width;
     const bottom = rect.y + rect.height;
     const tolerance = SNAP_DISTANCE / zoom;
+    const releaseTolerance = SNAP_RELEASE_DISTANCE / zoom;
     const west = handle?.includes("w");
     const east = handle?.includes("e");
     const north = handle?.includes("n");
@@ -133,6 +160,8 @@ export class AlignmentGuideIndex {
       tolerance,
       east ? rect.x + minSize : -Infinity,
       west ? right - minSize : Infinity,
+      state?.x,
+      releaseTolerance,
     );
 
     const y = closest(
@@ -147,7 +176,14 @@ export class AlignmentGuideIndex {
       tolerance,
       south ? rect.y + minSize : -Infinity,
       north ? bottom - minSize : Infinity,
+      state?.y,
+      releaseTolerance,
     );
+
+    if (state) {
+      state.x = x ? { position: x.anchor.position, movingAnchor: x.movingAnchor } : undefined;
+      state.y = y ? { position: y.anchor.position, movingAnchor: y.movingAnchor } : undefined;
+    }
 
     const dx = x?.delta ?? 0;
     const dy = y?.delta ?? 0;

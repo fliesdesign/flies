@@ -1,4 +1,5 @@
 import {
+  themeCss,
   worldTransform,
   inverseMatrix,
   transformVector,
@@ -32,7 +33,12 @@ import {
   type ResizeHandle,
   type Viewport,
 } from "@flies/canvas";
-import { AlignmentGuideTargets, CanvasGuides, type AlignmentGuideIndex } from "@flies/canvas";
+import {
+  AlignmentGuideTargets,
+  CanvasGuides,
+  type AlignmentGuideIndex,
+  type AlignmentSnapState,
+} from "@flies/canvas";
 import { CanvasHitTester } from "@flies/canvas";
 import { readCanvasImage } from "@flies/canvas";
 import { getCanvasInspection, setCanvasInspection, subscribeCanvasInspection } from "@flies/canvas";
@@ -60,6 +66,7 @@ import {
 } from "@flies/canvas";
 import { viewportBounds } from "@flies/canvas";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@flies/canvas";
+import { detectSourceFormat } from "@flies/html/source";
 import { PanelLeftOpenIcon, PanelRightOpenIcon } from "lucide-react";
 import {
   useCallback,
@@ -100,6 +107,7 @@ import { CanvasAgentActivity } from "./canvas-agent-activity";
 import { CanvasFileMenu, type CanvasFileActions } from "./canvas-file-menu";
 import { CanvasAlignmentGuides } from "./canvas-guides";
 import { CanvasLayers } from "./canvas-layers";
+import { CanvasLayoutOverlay, type LayoutHandle } from "./canvas-layout-overlay";
 import { CanvasNodeContent, measureCanvasTextHeight } from "./canvas-node-content";
 import { CanvasPresence } from "./canvas-presence";
 import { CanvasProperties } from "./canvas-properties";
@@ -136,13 +144,24 @@ type DesignCanvasProps = {
 };
 
 type Interaction = {
-  kind: "pan" | "move" | "resize" | "draw" | "marquee";
+  kind: "pan" | "move" | "resize" | "draw" | "marquee" | "spacing";
   pointerId: number;
   start: Point;
   viewport: Viewport;
   frame?: CanvasFrame;
   frames?: CanvasFrame[];
   geometryFrames?: readonly CanvasFrame[];
+  geometrySource?: ReturnType<typeof frameSource>;
+  transformed?: boolean;
+  axisLock?: "x" | "y";
+  snapState?: AlignmentSnapState;
+  spacing?: {
+    property: "layoutGap" | "layoutPadding";
+    axis: "x" | "y";
+    sign: number;
+    value: number;
+    inverse: ReturnType<typeof worldTransform>;
+  };
   roots?: string[];
   bounds?: FrameRect;
   initialSelection?: string[];
@@ -320,6 +339,7 @@ export function DesignCanvas({
   const pasteRef = useRef({ payload: "", count: 0 });
   const readingClipboardRef = useRef(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [activeSpacing, setActiveSpacing] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -383,6 +403,7 @@ export function DesignCanvas({
     (cancel = false) => {
       const active = interactionRef.current;
       if (!active) return;
+      setActiveSpacing(null);
       autoPan.stop();
       guides.clear();
       interactionRef.current = null;
@@ -769,7 +790,15 @@ export function DesignCanvas({
       propertyIds.flatMap((id) => {
         const node = document.getFrame(id);
 
-        return node?.kind === "text" ? [{ ...node, height: measureCanvasTextHeight(node) }] : [];
+        return node?.kind === "text"
+          ? [
+              {
+                ...node,
+                height: measureCanvasTextHeight(node),
+                ...(node.heightSizing && { heightSizing: "fixed" as const }),
+              },
+            ]
+          : [];
       }),
     );
   }, [document, finishInteraction, propertyIds]);
@@ -841,7 +870,12 @@ export function DesignCanvas({
   useEffect(() => {
     function releaseSpace(event: globalThis.KeyboardEvent) {
       const active = interactionRef.current;
-      if (active) active.modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
+
+      if (active) {
+        active.modifiers = { shiftKey: event.shiftKey, altKey: event.altKey };
+        if (!event.shiftKey) active.axisLock = undefined;
+        if (event.altKey) active.snapState = {};
+      }
 
       if (event.code === "Space") {
         spaceRef.current = false;
@@ -1182,7 +1216,7 @@ export function DesignCanvas({
     createText(point ?? screenToWorld({ x: size.x / 2, y: size.y / 2 }, viewport), text, false);
   }
 
-  async function pasteSnapshot(html: string, point?: Point) {
+  async function pasteMarkup(source: string, point?: Point, isSnapshot = false) {
     finishInteraction(true);
     const { viewport, size } = camera.getCurrent();
     const center = screenToWorld({ x: size.x / 2, y: size.y / 2 }, viewport);
@@ -1191,11 +1225,27 @@ export function DesignCanvas({
     setNotice("");
 
     try {
-      const { nodes, warnings } = await importPaperSnapshot(html);
+      const { nodes, warnings } = isSnapshot
+        ? await importPaperSnapshot(source)
+        : await (
+            await import("@flies/html")
+          ).importSource(source, {
+            x: 0,
+            y: 0,
+            width: 800,
+            css: document.getTheme().tokens.length ? themeCss(document.getTheme()) : undefined,
+          });
+
       if (!mountedRef.current) return;
       const roots = nodes.filter((node) => !node.parentId).map((node) => node.id);
-      const bounds = selectionBounds(nodes, roots);
-      if (!bounds) throw new Error("This Paper snapshot has no visible content.");
+      const geometry = frameSource(nodes);
+
+      const bounds = selectionBounds(
+        nodes.map((node) => ({ ...node, ...worldBounds(geometry, node) })),
+        roots,
+      );
+
+      if (!bounds) throw new Error("This content has no visible layers.");
 
       const offset = {
         x: (point?.x ?? center.x - bounds.width / 2) - bounds.x,
@@ -1209,11 +1259,13 @@ export function DesignCanvas({
       setSelection(roots);
       setHoveredId(null);
       setTool("select");
-      setNotice(warnings.length ? `Snapshot pasted. ${warnings.join(" ")}` : "");
+      setNotice(warnings.length ? `Pasted. ${warnings.join(" ")}` : "");
       focusCanvas();
     } catch (error) {
       if (mountedRef.current)
-        setNotice(error instanceof Error ? error.message : "Could not paste this Paper snapshot.");
+        setNotice(
+          error instanceof Error ? error.message : "Could not paste this HTML or React snippet.",
+        );
     } finally {
       pendingImportsRef.current--;
       if (mountedRef.current) setImporting(pendingImportsRef.current > 0);
@@ -1225,7 +1277,7 @@ export function DesignCanvas({
     if (payload && pasteObjects(payload, inPlace ? undefined : point, inPlace)) return;
 
     if (isPaperSnapshot(data.html)) {
-      await pasteSnapshot(data.html, point);
+      await pasteMarkup(data.html, point, true);
 
       return;
     }
@@ -1240,14 +1292,27 @@ export function DesignCanvas({
       return;
     }
 
+    // Code editors often supply a highlighted HTML wrapper alongside the actual source.
+    if (detectSourceFormat(data.text)) {
+      await pasteMarkup(data.text, point);
+
+      return;
+    }
+
     if (data.images.length) {
       await importImages(data.images, point);
 
       return;
     }
 
+    if (data.html.trim()) {
+      await pasteMarkup(data.html, point);
+
+      return;
+    }
+
     if (data.text.trim()) pasteText(data.text, point);
-    else setNotice("The clipboard has no supported content. Copy the snapshot again, then paste.");
+    else setNotice("Copy HTML, React/JSX, text, an image or canvas layers, then paste.");
   }
 
   async function pasteFromClipboard(point?: Point, inPlace = false) {
@@ -1355,6 +1420,57 @@ export function DesignCanvas({
       }
 
     return result;
+  }
+
+  function startSpacingInteraction(event: PointerEvent<HTMLButtonElement>, handle: LayoutHandle) {
+    // Hand navigation keeps working when it starts over a spacing handle.
+    if (event.button === 1 || spaceRef.current || tool === "pan") return;
+    event.stopPropagation();
+    if (event.button !== 0 || event.ctrlKey || menuOpen || !selectedId) return;
+    event.preventDefault();
+    finishInteraction(true);
+    endPropertyPreview(true);
+    const frame = document.getFrame(selectedId);
+    if (
+      !frame ||
+      (frame.kind && frame.kind !== "frame") ||
+      !frame.layout ||
+      isNodeLocked(document, frame.id)
+    )
+      return;
+    const descendants = document.getDescendantIds([frame.id]);
+    const related = new Set(descendants);
+    let parent = frame.parentId;
+
+    while (parent && !related.has(parent)) {
+      related.add(parent);
+      parent = document.getFrame(parent)?.parentId;
+    }
+
+    const start = localPoint(event.clientX, event.clientY);
+    const viewport = camera.getCurrent().viewport;
+    interactionRef.current = {
+      kind: "spacing",
+      pointerId: event.pointerId,
+      start,
+      viewport,
+      worldStart: screenToWorld(start, viewport),
+      frame,
+      frames: [...related].map((id) => document.getFrame(id)!),
+      roots: [frame.id],
+      spacing: {
+        property: handle.property,
+        axis: handle.axis,
+        sign: handle.sign,
+        value: handle.value,
+        inverse: inverseMatrix(worldTransform(document, frame)),
+      },
+    };
+    document.beginGesture(descendants);
+    setActiveSpacing(handle.key);
+    setHoveredId(null);
+    surfaceRef.current?.focus({ preventScroll: true });
+    surfaceRef.current?.setPointerCapture(event.pointerId);
   }
 
   function startInteraction(event: PointerEvent<HTMLDivElement>) {
@@ -1489,6 +1605,9 @@ export function DesignCanvas({
       handle,
       frames,
       geometryFrames: all,
+      geometrySource,
+      transformed,
+      snapState: {},
       roots: [...roots],
       bounds,
       initialSelection: [...selectedIds],
@@ -1627,15 +1746,44 @@ export function DesignCanvas({
         x: active.viewport.x + delta.x,
         y: active.viewport.y + delta.y,
       });
+    } else if (active.kind === "spacing" && active.spacing && active.frames && active.roots) {
+      active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
+      if (!active.moved) return;
+
+      const localDelta = transformVector(
+        active.spacing.inverse,
+        pointerWorldDelta(active.worldStart!, point, view),
+      );
+
+      const step = modifiers.shiftKey ? 10 : 1;
+
+      const value = Math.max(
+        0,
+        Math.round(
+          (active.spacing.value + localDelta[active.spacing.axis] * active.spacing.sign) / step,
+        ) * step,
+      );
+
+      previewBatch.schedule(
+        changeCanvasProperty(
+          active.frames,
+          active.roots,
+          active.spacing.property,
+          value,
+          measureCanvasTextHeight,
+        ),
+      );
+      guides.clear();
     } else if (active.bounds && active.frames && active.roots) {
       active.moved ||= Math.hypot(delta.x, delta.y) >= 3;
       if (!active.moved) return;
       const worldDelta = pointerWorldDelta(active.worldStart!, point, view);
 
       if (modifiers.shiftKey && active.kind === "move") {
-        if (Math.abs(worldDelta.x) > Math.abs(worldDelta.y)) worldDelta.y = 0;
+        active.axisLock ??= Math.abs(worldDelta.x) >= Math.abs(worldDelta.y) ? "x" : "y";
+        if (active.axisLock === "x") worldDelta.y = 0;
         else worldDelta.x = 0;
-      }
+      } else active.axisLock = undefined;
 
       const onlyFrame =
         active.roots.length === 1
@@ -1643,15 +1791,9 @@ export function DesignCanvas({
           : undefined;
 
       const geometry = active.geometryFrames ?? active.frames;
-      const source = frameSource(geometry);
+      const source = active.geometrySource ?? frameSource(geometry);
 
-      const transformed = active.roots.some((id) => {
-        const node = source.getFrame(id);
-
-        return node && hasRotation(source, node);
-      });
-
-      if (transformed) {
+      if (active.transformed) {
         let updates: CanvasFrame[];
         if (active.kind === "move")
           updates = moveSelectionWorld(geometry, active.roots, worldDelta);
@@ -1664,7 +1806,7 @@ export function DesignCanvas({
             modifiers.shiftKey || onlyFrame.kind === "group"
               ? resizeFrameProportionally
               : resizeFrame
-          )(onlyFrame, active.handle, localDelta, minimum);
+          )(onlyFrame, active.handle, localDelta, minimum, false);
 
           const centerDelta = {
             x: rect.x - onlyFrame.x + (rect.width - onlyFrame.width) / 2,
@@ -1702,11 +1844,12 @@ export function DesignCanvas({
               active.handle,
               worldDelta,
               minimum,
+              false,
             )
           : {
               ...active.bounds,
-              x: Math.round(active.bounds.x + worldDelta.x),
-              y: Math.round(active.bounds.y + worldDelta.y),
+              x: active.bounds.x + worldDelta.x,
+              y: active.bounds.y + worldDelta.y,
             };
 
       if (active.guideTargets && active.guideViewport !== view) {
@@ -1716,17 +1859,22 @@ export function DesignCanvas({
         );
       }
 
+      if (modifiers.altKey || (modifiers.shiftKey && active.kind === "resize"))
+        active.snapState = {};
+
       const snapped =
         modifiers.altKey || (modifiers.shiftKey && active.kind === "resize")
           ? { rect: next, guides: [] }
-          : active.guides!.snap(next, active.viewport.zoom, active.handle, minimum);
+          : active.guides!.snap(next, view.zoom, active.handle, minimum, active.snapState);
 
       if (modifiers.shiftKey && active.kind === "move") {
-        if (worldDelta.y === 0) {
+        if (active.axisLock === "x") {
           snapped.rect.y = active.bounds.y;
+          if (active.snapState) active.snapState.y = undefined;
           snapped.guides = snapped.guides.filter((guide) => guide.axis === "x");
         } else {
           snapped.rect.x = active.bounds.x;
+          if (active.snapState) active.snapState.x = undefined;
           snapped.guides = snapped.guides.filter((guide) => guide.axis === "y");
         }
       }
@@ -1968,13 +2116,7 @@ export function DesignCanvas({
           ),
         };
 
-        if (
-          data.internal ||
-          data.text ||
-          data.images.length ||
-          isPaperSnapshot(data.html) ||
-          /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(data.html)
-        ) {
+        if (data.internal || data.text || data.images.length || data.html) {
           event.preventDefault();
           void pasteClipboard(data);
         }
@@ -2204,6 +2346,18 @@ export function DesignCanvas({
             document={document}
             camera={camera}
             ids={editingId || draft || tool !== "select" ? [] : selectedIds}
+          />
+          <CanvasLayoutOverlay
+            document={document}
+            camera={camera}
+            id={
+              editingId || draft || tool !== "select" || isPanning || spaceHeld || menuOpen
+                ? null
+                : selectedId
+            }
+            activeHandle={activeSpacing}
+            onStart={startSpacingInteraction}
+            onChange={(property, value) => void changeProperty(property, value)}
           />
           {marquee && (
             <div

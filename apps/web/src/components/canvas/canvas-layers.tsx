@@ -30,6 +30,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { loadWorkspaceSession, patchWorkspaceSession } from "@/lib/workspace-session";
 
+import { revealLayerSelection, type LayerExpansion } from "./canvas-layer-expansion";
 import { CanvasThemePanel } from "./canvas-theme-panel";
 import "./canvas-layers.css";
 
@@ -82,6 +83,8 @@ type LayerDrag = {
 const ROW_HEIGHT = 30;
 const TREE_PADDING = 8;
 const OVERSCAN = 8;
+// Keep view preferences when the sidebar is hidden or a live document changes tabs.
+const documentExpansions = new WeakMap<CanvasDocument, LayerExpansion>();
 
 function SvgLayerIcon({ className }: { className?: string; size?: number; strokeWidth?: number }) {
   return (
@@ -101,7 +104,7 @@ const NODE_ICONS = {
   pen: PenLineIcon,
 };
 
-function layerRows(document: CanvasDocument, collapsed: ReadonlySet<string>): LayerRow[] {
+function layerRows(document: CanvasDocument, expanded: ReadonlySet<string>): LayerRow[] {
   const rows: LayerRow[] = [];
   const stack: LayerRow[] = [];
 
@@ -133,7 +136,7 @@ function layerRows(document: CanvasDocument, collapsed: ReadonlySet<string>): La
   while (stack.length > 0) {
     const row = stack.pop()!;
     rows.push(row);
-    if (!collapsed.has(row.node.id))
+    if (expanded.has(row.node.id))
       addChildren(
         row.node.id,
         row.depth + 1,
@@ -210,12 +213,14 @@ export const CanvasLayers = memo(function CanvasLayers({
 
   const selectionKey = JSON.stringify(selectedIds);
 
-  const [expansion, setExpansion] = useState({
+  const [expansion, setExpansion] = useState(() => ({
+    document,
     selectionKey,
-    collapsed: new Set<string>(),
-  });
+    ...revealLayerSelection(document, selectedIds, documentExpansions.get(document)),
+  }));
 
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [initialSidebarTab] = useState(() => loadWorkspaceSession().sidebarTab);
   const [editingId, setEditingId] = useState<string | null>(null);
   const rowElements = useRef(new Map<string, HTMLDivElement>());
   const treeRef = useRef<HTMLDivElement>(null);
@@ -234,25 +239,25 @@ export const CanvasLayers = memo(function CanvasLayers({
       collapseButton.current?.focus();
   }, []);
 
-  // Reveal a canvas selection without undoing a user's subsequent manual collapse.
-  if (expansion.selectionKey !== selectionKey) {
-    const collapsed = new Set(expansion.collapsed);
-
-    for (const id of selectedIds) {
-      let parentId = document.getFrame(id)?.parentId;
-
-      while (parentId) {
-        collapsed.delete(parentId);
-        parentId = document.getFrame(parentId)?.parentId;
-      }
-    }
-
-    setExpansion({ selectionKey, collapsed });
+  if (expansion.document !== document || expansion.selectionKey !== selectionKey) {
+    setExpansion({
+      document,
+      selectionKey,
+      ...revealLayerSelection(
+        document,
+        selectedIds,
+        expansion.document === document ? expansion : documentExpansions.get(document),
+      ),
+    });
   }
 
+  useLayoutEffect(() => {
+    documentExpansions.set(expansion.document, expansion);
+  }, [expansion]);
+
   const rows = useMemo(
-    () => (snapshot.ids.length > 0 ? layerRows(document, expansion.collapsed) : []),
-    [document, snapshot, expansion.collapsed],
+    () => (snapshot.ids.length > 0 ? layerRows(document, expansion.expanded) : []),
+    [document, snapshot, expansion.expanded],
   );
 
   const visibleIds = useMemo(() => rows.map(({ node }) => node.id), [rows]);
@@ -374,17 +379,17 @@ export const CanvasLayers = memo(function CanvasLayers({
     draggingIds.length &&
     drop?.placement === "inside" &&
     drop.id &&
-    expansion.collapsed.has(drop.id)
+    !expansion.expanded.has(drop.id)
       ? drop.id
       : null;
 
   useEffect(() => {
     hoverExpansion.update(expandTarget, (id) => {
       setExpansion((previous) => {
-        const collapsed = new Set(previous.collapsed);
-        collapsed.delete(id);
+        const expanded = new Set(previous.expanded);
+        expanded.add(id);
 
-        return { ...previous, collapsed };
+        return { ...previous, expanded };
       });
     });
   }, [expandTarget, hoverExpansion]);
@@ -469,11 +474,11 @@ export const CanvasLayers = memo(function CanvasLayers({
 
   function toggleExpanded(id: string) {
     setExpansion((previous) => {
-      const collapsed = new Set(previous.collapsed);
-      if (collapsed.has(id)) collapsed.delete(id);
-      else collapsed.add(id);
+      const expanded = new Set(previous.expanded);
+      if (expanded.has(id)) expanded.delete(id);
+      else expanded.add(id);
 
-      return { ...previous, collapsed };
+      return { ...previous, expanded };
     });
   }
 
@@ -500,7 +505,7 @@ export const CanvasLayers = memo(function CanvasLayers({
     if (event.target !== event.currentTarget) return;
     const { node, hasChildren, inheritedLock } = row;
     const index = visibleIds.indexOf(node.id);
-    const expanded = !expansion.collapsed.has(node.id);
+    const expanded = expansion.expanded.has(node.id);
     let next: string | undefined;
 
     switch (event.key) {
@@ -560,7 +565,7 @@ export const CanvasLayers = memo(function CanvasLayers({
   return (
     <aside className="canvas-layers" aria-label="Design sidebar" data-canvas-ui="">
       <Tabs
-        defaultValue={loadWorkspaceSession().sidebarTab}
+        defaultValue={initialSidebarTab}
         className="canvas-sidebar-tabs"
         onValueChange={(value) => {
           if (value === "design" || value === "theme") patchWorkspaceSession({ sidebarTab: value });
@@ -663,10 +668,10 @@ export const CanvasLayers = memo(function CanvasLayers({
                   onMove(drag.ids, target.id, target.placement);
                   if (target.placement === "inside" && target.id)
                     setExpansion((previous) => {
-                      const collapsed = new Set(previous.collapsed);
-                      collapsed.delete(target.id!);
+                      const expanded = new Set(previous.expanded);
+                      expanded.add(target.id!);
 
-                      return { ...previous, collapsed };
+                      return { ...previous, expanded };
                     });
                 }
 
@@ -704,7 +709,7 @@ export const CanvasLayers = memo(function CanvasLayers({
                     inheritedHidden,
                   } = row;
 
-                  const expanded = !expansion.collapsed.has(node.id);
+                  const expanded = expansion.expanded.has(node.id);
                   const locked = Boolean(node.locked) || inheritedLock;
                   const onlyParentLocked = inheritedLock && !node.locked;
                   const Icon = NODE_ICONS[node.kind ?? "frame"];

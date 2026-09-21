@@ -1,4 +1,5 @@
 import {
+  canvasSizingLabel,
   inverseMatrix,
   multiplyMatrix,
   pointBounds,
@@ -93,6 +94,19 @@ export function CanvasTransformedOutline({
     return false;
   });
 
+  const label = single ? canvasSizingLabel(single) : `${Math.round(width)} × ${Math.round(height)}`;
+  const halfLabelWidth = (label.length * 7 + 14) / (2 * viewport.zoom);
+
+  const showDimensions =
+    selection &&
+    [width / 2 - halfLabelWidth, width / 2 + halfLabelWidth].every((x) =>
+      [12, 32].every((offset) => {
+        const point = transformPoint(matrix, { x, y: height + offset / viewport.zoom });
+
+        return clips.every((clip) => worldPointInFrame(document, clip, point));
+      }),
+    );
+
   return (
     <div
       className={selection ? "canvas-selection" : "canvas-hover"}
@@ -149,6 +163,7 @@ export function CanvasTransformedOutline({
             title={`Resize ${NAMES[handle]}`}
           />
         ))}
+      {showDimensions && <span className="canvas-dimensions">{label}</span>}
     </div>
   );
 }

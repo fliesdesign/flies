@@ -19,8 +19,9 @@ export function htmlColor(value: string): string {
 
 export { resolveCanvasFontFamily as resolveFontFamily } from "@flies/canvas";
 
-export function textStyle(
+function textStyle(
   style: CSSStyleDeclaration,
+  lineHeight: number,
 ): Pick<
   CanvasText,
   | "fontFamily"
@@ -49,7 +50,7 @@ export function textStyle(
     fontStyle: style.fontStyle === "normal" ? "normal" : "italic",
     textDecoration: decoration as CanvasText["textDecoration"],
     color: htmlColor(style.color),
-    lineHeight: style.lineHeight === "normal" ? 1.25 : parseFloat(style.lineHeight) / fontSize,
+    lineHeight,
     letterSpacing: style.letterSpacing === "normal" ? 0 : parseFloat(style.letterSpacing),
     textAlign:
       style.textAlign === "center"
@@ -57,6 +58,73 @@ export function textStyle(
         : ["right", "end"].includes(style.textAlign)
           ? "right"
           : "left",
+  };
+}
+
+/** Browser line boxes and glyph-range offsets include font fallback and pixel rounding.
+ * Measure them after fonts load instead of guessing normal leading or half-leading. */
+export function createTextMeasurer(ownerDocument: Document) {
+  const cache = new Map<string, { lineHeight: number; rangeTop: number }>();
+
+  return (style: CSSStyleDeclaration, value: string) => {
+    const fontSize = parseFloat(style.fontSize);
+    const sample = value.replace(/[\r\n]/g, " ") || "Hg";
+
+    const key = JSON.stringify([
+      style.fontFamily,
+      style.fontSize,
+      style.fontWeight,
+      style.fontStyle,
+      style.lineHeight,
+      sample,
+    ]);
+
+    let metrics = cache.get(key);
+
+    if (!metrics) {
+      const probe = ownerDocument.createElement("span");
+
+      const properties = {
+        all: "initial",
+        display: "block",
+        position: "fixed",
+        left: "0",
+        top: "0",
+        width: "max-content",
+        height: "auto",
+        margin: "0",
+        padding: "0",
+        border: "0",
+        visibility: "hidden",
+        "white-space": "pre",
+        "font-family": style.fontFamily,
+        "font-size": style.fontSize,
+        "font-weight": style.fontWeight,
+        "font-style": style.fontStyle,
+        "line-height": style.lineHeight,
+      };
+
+      for (const [property, propertyValue] of Object.entries(properties))
+        probe.style.setProperty(property, propertyValue, "important");
+      probe.textContent = sample;
+      ownerDocument.body.append(probe);
+
+      try {
+        const rect = probe.getBoundingClientRect();
+        const range = ownerDocument.createRange();
+        range.selectNodeContents(probe);
+        metrics = {
+          lineHeight:
+            (style.lineHeight === "normal" ? rect.height : parseFloat(style.lineHeight)) / fontSize,
+          rangeTop: range.getBoundingClientRect().top - rect.top,
+        };
+        cache.set(key, metrics);
+      } finally {
+        probe.remove();
+      }
+    }
+
+    return { typography: textStyle(style, metrics.lineHeight), rangeTop: metrics.rangeTop };
   };
 }
 

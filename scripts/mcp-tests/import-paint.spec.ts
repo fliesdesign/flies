@@ -11,7 +11,7 @@ test("HTML paint preserves nested rotation, origin, gradient, ordered filters an
 <div data-name="Radial" style="position:absolute;left:15px;top:280px;width:120px;height:80px;background:radial-gradient(ellipse at center,#ff000080 0%,#0000ff00 100%) #88bb88"></div></main>`;
 
   const result = await page.evaluate(async (html) => {
-    const htmlPath = "/src/lib/mcp/html.ts",
+    const htmlPath = "/packages/html/src/html.ts",
       exportPath = "/src/components/canvas/canvas-export.tsx";
 
     const { importHtml } = await import(/* @vite-ignore */ htmlPath);
@@ -204,7 +204,7 @@ test("gradient import preserves corner directions, stop fixup and modern color i
 }) => {
   await page.goto("/");
   await page.evaluate(async () => {
-    const path = "/src/lib/mcp/html.ts",
+    const path = "/packages/html/src/html.ts",
       paintPath = "/packages/canvas/src/canvas-paint.ts";
 
     const { importHtml } = await import(/* @vite-ignore */ path),

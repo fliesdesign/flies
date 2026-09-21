@@ -93,7 +93,7 @@ test("responsive utilities use import width and remain isolated across calls and
   await page.goto("/");
 
   const result = await page.evaluate(async () => {
-    const path = "/src/lib/mcp/html.ts";
+    const path = "/packages/html/src/html.ts";
     const { importHtml } = await import(/* @vite-ignore */ path);
     const before = getComputedStyle(document.body).backgroundColor;
     document.documentElement.style.fontSize = "20px";

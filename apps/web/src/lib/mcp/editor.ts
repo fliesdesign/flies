@@ -10,15 +10,17 @@ import {
   isTokenBindings,
   THEME_PROPERTIES,
   canonicalThemeProperty,
+  type CanvasLayout,
   type ThemeProperty,
 } from "@flies/canvas";
 import { ensureCanvasFont, ensureCanvasFonts } from "@flies/canvas";
 import { CanvasDocument, type CanvasFrame, agentActivity } from "@flies/canvas";
+import { importSource, type SourceFormat } from "@flies/html";
 
+import { measureCanvasTextHeight } from "@/components/canvas/canvas-node-content";
 import type { CanvasControls } from "@/components/canvas/design-canvas";
 import { updateDocumentTheme, prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 
-import { importHtml } from "./html";
 import { htmlWarnings } from "./html-diagnostics";
 import { inheritedStyles, validateSharedCss } from "./styles";
 
@@ -48,6 +50,27 @@ function numberArg(args: Record<string, unknown>, key: string, fallback: number)
     throw new Error(`${key} must be a finite number.`);
 
   return value;
+}
+
+function layoutPatch(value: unknown, current?: CanvasLayout): CanvasLayout | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value))
+    throw new Error("layout must be an object or null.");
+
+  for (const key of Object.keys(value)) {
+    if (!["direction", "gap", "padding", "align", "justify"].includes(key))
+      throw new Error(`Unsupported layout property: ${key}`);
+  }
+
+  return {
+    direction: "row",
+    gap: 16,
+    padding: 16,
+    align: "start",
+    justify: "start",
+    ...current,
+    ...value,
+  };
 }
 
 export async function editorTool(
@@ -222,7 +245,16 @@ export async function editorTool(
         width: numberArg(args, "width", 800),
         height: numberArg(args, "height", 600),
         fill: args.fill === undefined ? "#ffffff" : stringArg(args, "fill"),
-      };
+        ...(args.widthSizing !== undefined &&
+          args.widthSizing !== null && {
+            widthSizing: args.widthSizing,
+          }),
+        ...(args.heightSizing !== undefined &&
+          args.heightSizing !== null && {
+            heightSizing: args.heightSizing,
+          }),
+        ...(args.layout !== undefined && { layout: layoutPatch(args.layout) }),
+      } as CanvasFrame;
 
       commit([node]);
       controls.select(node.id);
@@ -314,6 +346,8 @@ export async function editorTool(
 
       const updated = {
         ...node,
+        ...(axis !== "height" && { widthSizing: "fixed" }),
+        ...(axis !== "width" && { heightSizing: "fixed" }),
         width:
           axis === "height"
             ? node.width
@@ -355,7 +389,9 @@ export async function editorTool(
       return textResult({ node: doc.getFrame(node.id) });
     }
 
-    case "write_html": {
+    case "write_html":
+
+    case "write_source": {
       const target = args.targetId === undefined ? undefined : getNode(stringArg(args, "targetId"));
       if (target && (args.parentId !== undefined || args.replace !== undefined))
         throw new Error("Use targetId alone to replace one node, or parentId to edit children.");
@@ -372,14 +408,24 @@ export async function editorTool(
       const descendants = replacing ? doc.getDescendantIds(doc.getChildren(replacing.id)) : [];
       const originals = descendants.map(getNode);
 
-      let nodes = await importHtml(stringArg(args, "html"), {
-        css: inheritedStyles(doc, anchor?.id),
-        parentId: target ? target.parentId : parent?.id,
-        x: (anchor?.x ?? 0) + numberArg(args, "x", 0),
-        y: (anchor?.y ?? 0) + numberArg(args, "y", 0),
-        width: numberArg(args, "width", Math.max(40, anchor?.width ?? 800)),
-        height: args.height === undefined ? anchor?.height : numberArg(args, "height", 600),
-      });
+      const requestedFormat = name === "write_html" ? "html" : (args.format ?? "auto");
+      if (typeof requestedFormat !== "string" || !["auto", "html", "jsx"].includes(requestedFormat))
+        throw new Error("Source format must be auto, html or jsx (including TSX).");
+
+      const imported = await importSource(
+        stringArg(args, name === "write_html" ? "html" : "source"),
+        {
+          format: requestedFormat as SourceFormat,
+          css: inheritedStyles(doc, anchor?.id),
+          parentId: target ? target.parentId : parent?.id,
+          x: (anchor?.x ?? 0) + numberArg(args, "x", 0),
+          y: (anchor?.y ?? 0) + numberArg(args, "y", 0),
+          width: numberArg(args, "width", Math.max(40, anchor?.width ?? 800)),
+          height: args.height === undefined ? anchor?.height : numberArg(args, "height", 600),
+        },
+      );
+
+      let nodes = imported.nodes;
 
       // Isolated HTML measurement loads fonts into its iframe; native diagnostics use this document.
       await ensureCanvasFonts(nodes.filter((node) => node.kind === "text"));
@@ -446,6 +492,8 @@ export async function editorTool(
 
       return textResult({
         applied: !args.validateOnly,
+        format: imported.format,
+        sourceWarnings: imported.warnings,
         nodeIds: args.validateOnly ? [] : nodes.map((node) => node.id),
         roots: nodes
           .filter((node) => !node.parentId || !importedIds.has(node.parentId))
@@ -473,6 +521,8 @@ export async function editorTool(
         "y",
         "width",
         "height",
+        "widthSizing",
+        "heightSizing",
         "parentId",
         "hidden",
         "locked",
@@ -520,32 +570,31 @@ export async function editorTool(
       if (patch.htmlStyles !== undefined && patch.htmlStyles !== null)
         validateSharedCss(patch.htmlStyles);
 
-      if (
-        patch.layout &&
-        typeof patch.layout === "object" &&
-        !Array.isArray(patch.layout) &&
-        (!before.kind || before.kind === "frame")
-      ) {
-        for (const key of Object.keys(patch.layout)) {
-          if (!["direction", "gap", "padding", "align", "justify"].includes(key))
-            throw new Error(`Unsupported layout property: ${key}`);
-        }
-
-        patch.layout = {
-          direction: "row",
-          gap: 16,
-          padding: 16,
-          align: "start",
-          justify: "start",
-          ...before.layout,
-          ...patch.layout,
-        };
+      if (patch.layout !== undefined && (!before.kind || before.kind === "frame")) {
+        patch.layout = layoutPatch(patch.layout, before.layout);
       }
 
-      const updated = { ...before, ...patch } as CanvasFrame;
+      for (const axis of ["width", "height"] as const) {
+        const sizing = `${axis}Sizing` as const;
+        if (patch[axis] !== undefined && patch[sizing] === undefined) patch[sizing] = "fixed";
+
+        if (
+          props &&
+          "layout" in props &&
+          patch.layout === undefined &&
+          before[sizing] === "hug" &&
+          patch[sizing] === undefined
+        ) {
+          patch[sizing] = "fixed";
+        }
+      }
+
+      let updated = { ...before, ...patch } as CanvasFrame;
 
       const optional = new Set([
         "parentId",
+        "widthSizing",
+        "heightSizing",
         "hidden",
         "locked",
         "opacity",
@@ -573,7 +622,7 @@ export async function editorTool(
         if (value === null && optional.has(key)) Reflect.deleteProperty(updated, key);
       }
 
-      validate([], [updated], []);
+      const staged = validate([], [updated], []);
 
       if (updated.kind === "text") {
         await ensureCanvasFont(updated);
@@ -581,6 +630,31 @@ export async function editorTool(
           throw new Error(
             "Target changed while loading its font. Read the node again before retrying.",
           );
+        const reflowWidth = staged.getFrame(updated.id)!.width;
+
+        // Match the editor's typography measurement, while keeping generous text boxes
+        // and respecting an explicit crop or height controlled by its layout parent.
+        if (
+          before.kind === "text" &&
+          patch.height === undefined &&
+          updated.heightSizing !== "fill" &&
+          (updated.text !== before.text ||
+            reflowWidth !== before.width ||
+            updated.fontSize !== before.fontSize ||
+            updated.fontFamily !== before.fontFamily ||
+            updated.fontWeight !== before.fontWeight ||
+            updated.fontStyle !== before.fontStyle ||
+            updated.lineHeight !== before.lineHeight ||
+            updated.letterSpacing !== before.letterSpacing)
+        ) {
+          updated = {
+            ...updated,
+            height: Math.max(
+              updated.height,
+              measureCanvasTextHeight({ ...updated, width: reflowWidth }),
+            ),
+          };
+        }
       }
 
       const updates = [updated];
@@ -613,7 +687,12 @@ export async function editorTool(
 
       commit([], updates);
 
-      return textResult({ node: doc.getFrame(before.id) });
+      const committed = doc.getFrame(before.id)!;
+
+      return textResult({
+        node: committed,
+        ...(committed.kind === "text" && { warnings: htmlWarnings(doc, [committed]) }),
+      });
     }
 
     case "delete_nodes": {

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 
-import { CanvasDocument, type CanvasFrame } from "@flies/canvas";
+import { CanvasDocument, DEFAULT_CANVAS_LAYOUT, type CanvasFrame } from "@flies/canvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vite-plus/test";
 
@@ -67,6 +67,23 @@ function button(markup: string, label: string) {
 }
 
 describe("canvas properties panel", () => {
+  it("offers fit only for auto-layout frames and fill only for their eligible children", () => {
+    const layoutFrame = { ...frame, layout: DEFAULT_CANVAS_LAYOUT };
+    const ordinary = render([frame, rectangle], [rectangle.id]);
+    assert.match(ordinary, /aria-label="Width sizing"/);
+    assert.match(ordinary, /aria-label="Height sizing"/);
+    assert.doesNotMatch(ordinary, /Fill container|Fit contents/);
+    const container = render([layoutFrame, rectangle], [frame.id]);
+    assert.match(container, /Fit contents/);
+    assert.doesNotMatch(container, /Fill container/);
+    const child = render([layoutFrame, { ...rectangle, widthSizing: "fill" }], [rectangle.id]);
+    assert.match(child, /value="fill" selected=""/);
+    assert.match(child, /Fill container/);
+    assert.doesNotMatch(child, /Fit contents/);
+    const group = { ...rectangle, kind: "group" as const };
+    assert.doesNotMatch(render([layoutFrame, group], [group.id]), /Fill container|Fit contents/);
+  });
+
   it("provides a quiet empty state with no inapplicable editing controls", () => {
     const markup = render([frame], []);
     assert.match(markup, /Select a layer to edit its properties/);

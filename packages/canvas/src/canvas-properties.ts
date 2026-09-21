@@ -1,6 +1,6 @@
 import type { CanvasFrame, CanvasText } from "./canvas-document";
 import { isFontFamily } from "./canvas-fonts";
-import { DEFAULT_CANVAS_LAYOUT } from "./canvas-layout";
+import { DEFAULT_CANVAS_LAYOUT, isCanvasSizing } from "./canvas-layout";
 import {
   moveSelection,
   resizeSelection,
@@ -39,6 +39,8 @@ export type CanvasProperty =
   | "y"
   | "width"
   | "height"
+  | "widthSizing"
+  | "heightSizing"
   | "opacity"
   | "cornerRadius"
   | "fill"
@@ -314,7 +316,11 @@ function styleChange(
       if (value === "none") {
         const { layout: _layout, ...withoutLayout } = node;
 
-        return withoutLayout;
+        return {
+          ...withoutLayout,
+          ...(node.widthSizing === "hug" ? { widthSizing: "fixed" } : {}),
+          ...(node.heightSizing === "hug" ? { heightSizing: "fixed" } : {}),
+        };
       }
 
       return value === "row" || value === "column"
@@ -433,6 +439,29 @@ export function changeCanvasProperty(
 
   const single = selected.length === 1 ? selected[0] : undefined;
 
+  if (property === "widthSizing" || property === "heightSizing") {
+    if (!isCanvasSizing(value)) return [];
+
+    return selected.flatMap((node) => {
+      if (
+        value === "hug" &&
+        ((node.kind && node.kind !== "frame") || !("layout" in node && node.layout))
+      )
+        return [];
+      const parent = node.parentId ? byId.get(node.parentId) : undefined;
+      if (
+        value === "fill" &&
+        (node.kind === "group" ||
+          !parent ||
+          (parent.kind && parent.kind !== "frame") ||
+          !parent.layout)
+      )
+        return [];
+
+      return [{ ...node, [property]: value }];
+    });
+  }
+
   if (property === "x" || property === "y") {
     if (typeof value !== "number" || !Number.isFinite(value)) return [];
     const parent = single?.parentId ? byId.get(single.parentId) : undefined;
@@ -468,7 +497,24 @@ export function changeCanvasProperty(
       }
     }
 
-    return updates;
+    // oxlint-disable-next-line oxc/no-map-spread -- Geometry updates are immutable snapshots.
+    return updates.map((node) => {
+      // Resizing rotated frames also moves descendants to compensate for the
+      // changed rotation center. Those descendants retain their sizing modes.
+      if (!roots.includes(node.id)) return node;
+
+      return {
+        ...node,
+        ...((property === "width" || options.preserveAspect || rotatedMultiple) &&
+        node.widthSizing !== undefined
+          ? { widthSizing: "fixed" as const }
+          : {}),
+        ...((property === "height" || options.preserveAspect || rotatedMultiple) &&
+        node.heightSizing !== undefined
+          ? { heightSizing: "fixed" as const }
+          : {}),
+      };
+    });
   }
 
   const reflow = [

@@ -4,7 +4,7 @@ test("HTML import, document history and screenshot use the real renderer", async
   await page.goto("/");
 
   const result = await page.evaluate(async () => {
-    const htmlModule = "/src/lib/mcp/html.ts";
+    const htmlModule = "/packages/html/src/html.ts";
     const docModule = "/packages/canvas/src/canvas-document.ts";
     const exportModule = "/src/components/canvas/canvas-export.tsx";
     const { importHtml } = await import(/* @vite-ignore */ htmlModule);
@@ -62,7 +62,7 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
   await page.goto("/");
 
   const errors = await page.evaluate(async () => {
-    const path = "/src/lib/mcp/html.ts";
+    const path = "/packages/html/src/html.ts";
     const { importHtml } = await import(/* @vite-ignore */ path);
 
     const sources = [

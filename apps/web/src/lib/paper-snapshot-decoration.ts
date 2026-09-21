@@ -1,6 +1,5 @@
 import type { CanvasFrame } from "@flies/canvas";
-
-import { nodeName } from "@/lib/mcp/html-style";
+import { nodeName } from "@flies/html";
 
 type Corner = { x: number; y: number };
 type Decoration = { src: string; name: string; borders: number[] };

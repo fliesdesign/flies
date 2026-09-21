@@ -81,6 +81,13 @@ describe("frame resizing", () => {
     });
   }
 
+  it("preserves fractional pointer motion at high zoom when pixel rounding is disabled", () => {
+    const next = resizeFrame(start, "nw", { x: 0.25, y: 0.5 }, 40, false);
+    assert.deepEqual(next, { x: -99.75, y: -49.5, width: 199.75, height: 119.5 });
+    assert.equal(next.x + next.width, start.x + start.width);
+    assert.equal(next.y + next.height, start.y + start.height);
+  });
+
   it("rounds fractional movement and supports custom minimum dimensions", () => {
     assert.deepEqual(resizeFrame(start, "nw", { x: -15.2, y: -20.7 }), {
       x: -115,

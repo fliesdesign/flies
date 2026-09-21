@@ -606,6 +606,7 @@ export function FileWorkspace({
             [
               "create_artboard",
               "write_html",
+              "write_source",
               "update_node",
               "set_styles",
               "set_theme",
@@ -615,7 +616,7 @@ export function FileWorkspace({
               "undo",
               "redo",
             ].includes(name) &&
-            !(name === "write_html" && args.validateOnly === true)
+            !(["write_html", "write_source"].includes(name) && args.validateOnly === true)
           ) {
             saving();
             await session.flush();
