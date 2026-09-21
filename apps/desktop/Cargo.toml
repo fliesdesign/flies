@@ -1,6 +1,6 @@
 [package]
 name = "flies"
-version = "0.2.10"
+version = "0.2.11"
 description = "Flies design canvas"
 authors = ["you"]
 edition = "2021"

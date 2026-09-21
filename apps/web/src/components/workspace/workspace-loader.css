@@ -1,0 +1,43 @@
+.workspace-loader {
+  display: block;
+  width: 148px;
+  max-width: 100%;
+}
+
+.workspace-loader-fly {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.workspace-loader-surface {
+  opacity: 0.72;
+}
+
+.workspace-loader-traces {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px #ffffffb3) drop-shadow(0 0 12px #ffffff59);
+}
+
+.workspace-loader-traces path {
+  stroke-dasharray: 9 91;
+  animation: workspace-fly-shine 1.8s linear infinite;
+}
+
+@keyframes workspace-fly-shine {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-loader-traces path {
+    animation: none;
+    stroke-dasharray: none;
+    opacity: 0.3;
+  }
+}

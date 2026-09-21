@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
+  <title>Flies</title>
+  <desc>A symmetrical pixel-style fly with white and gray wings on a near-black background.</desc>
+  <rect width="1254" height="1254" fill="#0D0D0C"/>
+  <g fill="#EBEBEB">
+    <path d="M263 369H365V431H424V491H483V551H541V605H564V665H429V605H321V551H263Z"/>
+    <path d="M992 369H890V431H830V491H771V551H713V605H690V665H825V605H934V551H992Z"/>
+  </g>
+  <g fill="#ADADAD">
+    <path d="M321 605H429V665H564V705H541V763H498V801H429V732H379V670H321Z"/>
+    <path d="M934 605H825V665H690V705H713V763H756V801H825V732H875V670H934Z"/>
+  </g>
+  <g fill="#BCBCBB">
+    <path d="M554 419H593V458H554Z"/>
+    <path d="M661 419H700V458H661Z"/>
+    <path d="M583 467H671V554H583Z"/>
+  </g>
+  <g fill="#959594">
+    <path d="M580 571H674V705H580Z"/>
+    <path d="M580 721H674V825H661V886H593V825H580Z"/>
+  </g>
+</svg>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { api, ApiError, signIn, type Account } from "@/lib/api";
 
 import { FileWorkspace } from "./file-workspace";
+import { WorkspaceLoader } from "./workspace-loader";
 import "./auth-gate.css";
 
 export function AuthGate() {
@@ -37,7 +38,7 @@ export function AuthGate() {
   if (loading)
     return (
       <main className="auth-screen">
-        <output>Opening your workspace…</output>
+        <WorkspaceLoader />
       </main>
     );
   if (account)
