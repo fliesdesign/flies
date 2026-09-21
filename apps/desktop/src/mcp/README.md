@@ -133,6 +133,10 @@ report the pages and `activePageId`; `set_page` switches canvases, `create_page`
 and makes it active, and `delete_page` removes a page with all of its layers as a single
 undoable operation. A file always keeps at least one page.
 
+Selection, selection outlines and drag selection are scoped to the active page. When a
+layer moves to another page, it leaves the current selection. `set_selection` rejects
+layers on other pages; call `set_page` first to select them.
+
 Use separate pages for genuinely separate surfaces, and separate artboards within one page
 for screens that belong together. An artboard is a frame on a page, not a page.
 

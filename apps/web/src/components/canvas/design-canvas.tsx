@@ -72,6 +72,7 @@ import { PanelLeftOpenIcon, PanelRightOpenIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -136,6 +137,8 @@ export type CanvasControls = {
   removePage: (pageId: string) => void;
   flushPreview: () => void;
   prepare: () => void;
+  /** A live text draft must finish before a remote snapshot can replace its input. */
+  hasTextDraft: () => boolean;
   surface: HTMLDivElement;
 };
 
@@ -246,6 +249,8 @@ export function DesignCanvas({
 
   const snapshot = useCanvasSnapshot(document);
   const { ids, canUndo, canRedo } = snapshot;
+  const scene = document.getSceneIds();
+  const sceneIds = useMemo(() => new Set(scene), [scene]);
   // Recomputed per snapshot, which a page add, rename, delete or switch always bumps.
   const pages = document.getPageIds().map((id) => document.getFrame(id) as CanvasPage);
   const activePageId = document.getActivePageId();
@@ -285,6 +290,10 @@ export function DesignCanvas({
   const reopenLayersRef = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<CanvasTool>("select");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const textDraftRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    textDraftRef.current = editingId;
+  }, [editingId]);
   const [importing, setImporting] = useState(false);
   const [draft, setDraft] = useState<CanvasFrame | null>(null);
   const [draftBatch] = useState(() => new LatestValueFrameBatch<CanvasFrame>(setDraft));
@@ -306,10 +315,8 @@ export function DesignCanvas({
 
   const propertyIds = useMemo(
     () =>
-      snapshot.ids.length
-        ? document.getRootIds(selection.filter((id) => document.getFrame(id)))
-        : [],
-    [document, selection, snapshot],
+      snapshot.ids.length ? document.getRootIds(selection.filter((id) => sceneIds.has(id))) : [],
+    [document, selection, snapshot, sceneIds],
   );
 
   const hasPropertySelection = propertyIds.length > 0;
@@ -319,17 +326,19 @@ export function DesignCanvas({
     () =>
       snapshot.ids.length
         ? document.getRootIds(
-            selection.filter((id) => document.getFrame(id) && !isNodeLocked(document, id)),
+            selection.filter((id) => sceneIds.has(id) && !isNodeLocked(document, id)),
           )
         : [],
-    [document, selection, snapshot],
+    [document, selection, snapshot, sceneIds],
   );
 
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
   const [storedGroupScope, setGroupScope] = useState<string | null>(null);
 
   const groupScope =
-    storedGroupScope && document.getFrame(storedGroupScope)?.kind === "group"
+    storedGroupScope &&
+    sceneIds.has(storedGroupScope) &&
+    document.getFrame(storedGroupScope)?.kind === "group"
       ? storedGroupScope
       : null;
 
@@ -801,6 +810,7 @@ export function DesignCanvas({
       onReady?.({
         getSelection: () => mcpSelection.current,
         prepare: prepareFileAction,
+        hasTextDraft: () => textDraftRef.current !== null,
         document,
         camera,
         select: selectOne,
@@ -1689,7 +1699,11 @@ export function DesignCanvas({
       bounds,
       initialSelection: [...selectedIds],
       candidates:
-        kind === "marquee" ? all.filter((node) => !isNodeLocked(document, node.id)) : undefined,
+        kind === "marquee"
+          ? document
+              .getSceneFrames()
+              .filter((node) => !isNodeLocked(document, node.id) && !document.isHidden(node.id))
+          : undefined,
       collapseTo: kind === "move" && roots.length > 1 ? frame?.id : undefined,
       guideTargets,
       guideViewport: view,

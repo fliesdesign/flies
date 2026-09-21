@@ -48,6 +48,26 @@ function fixture() {
   return { document, controls };
 }
 
+test("MCP selection rejects other pages and page containers", async () => {
+  const { document, controls } = fixture();
+  document.replaceAll([
+    canvasPage("Default", "home"),
+    { id: "first", name: "First", parentId: "home", x: 0, y: 0, width: 100, height: 100 },
+    canvasPage("Drafts", "drafts"),
+    { id: "second", name: "Second", parentId: "drafts", x: 0, y: 0, width: 100, height: 100 },
+  ]);
+  await editorTool(controls, "set_selection", { nodeId: "first" });
+  assert.deepEqual(controls.getSelection(), ["first"]);
+  await assert.rejects(editorTool(controls, "set_selection", { nodeId: "second" }), /active page/);
+  await assert.rejects(editorTool(controls, "set_selection", { nodeId: "home" }), /active page/);
+  assert.deepEqual(controls.getSelection(), ["first"]);
+  document.setActivePage("drafts");
+  await editorTool(controls, "set_selection", { nodeId: "second" });
+  assert.deepEqual(controls.getSelection(), ["second"]);
+  await editorTool(controls, "set_selection", {});
+  assert.deepEqual(controls.getSelection(), []);
+});
+
 test("MCP edits share undo history and validate before changing the document", async () => {
   const { document, controls } = fixture();
   await editorTool(controls, "update_node", { nodeId: "text", properties: { text: "Changed" } });

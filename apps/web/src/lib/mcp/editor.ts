@@ -764,6 +764,8 @@ export async function editorTool(
 
     case "set_selection": {
       const id = args.nodeId === undefined ? null : getNode(stringArg(args, "nodeId")).id;
+      if (id !== null && !doc.getSceneIds().includes(id))
+        throw new Error("Select a layer on the active page. Use set_page to switch pages first.");
       controls.select(id);
 
       return textResult({ nodeId: id });

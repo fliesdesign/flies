@@ -46,6 +46,7 @@ export class RealtimeFile {
   private observed: SyncSnapshot;
   private controls: CanvasControls | null = null;
   private applying = false;
+  private deferredSnapshot: DesignFile | null = null;
   private queue: DocumentDelta[] = [];
   private inFlight: { mutationId: string; delta: DocumentDelta; count: number } | null = null;
   private running: Promise<void> | null = null;
@@ -127,6 +128,7 @@ export class RealtimeFile {
     this.presenceTimer = setInterval(() => {
       this.sendPresence();
       this.publish();
+      if (this.deferredSnapshot && !controls.hasTextDraft()) this.apply(this.deferredSnapshot);
       if (this.requestedRevision > this.base.revision) void this.pull().catch(() => {});
     }, 100);
     void this.connect();
@@ -281,6 +283,19 @@ export class RealtimeFile {
     if ([...this.controls.document.getPreviewIds()].length) return;
     this.base = file;
     const merged = this.queue.reduce(applyDocumentDelta, snapshot(file));
+
+    if (this.controls.hasTextDraft()) {
+      // Advance the server baseline so saves/revisions keep flowing, but leave the
+      // mounted editor and observed local state intact until blur or cancellation.
+      // The subsequent commit is diffed against that local state and rebased onto
+      // this snapshot, preserving both the typed text and unrelated remote edits.
+      this.deferredSnapshot = file;
+      this.onSaved({ ...file, name: merged.name });
+
+      return;
+    }
+
+    this.deferredSnapshot = null;
     this.applying = true;
 
     try {

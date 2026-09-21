@@ -296,7 +296,9 @@ export function reparentSelection(
         path.push(order.get(parents[index])!);
       path.push(order.get(node.id)!);
 
-      return { node, parents, path };
+      const pageId = parents.find((id) => byId.get(id)?.kind === "page");
+
+      return { node, parents, path, pageId };
     });
 
   const updates: CanvasFrame[] = [];
@@ -305,6 +307,7 @@ export function reparentSelection(
     if (!roots.has(node.id)) continue;
     // Groups express explicit membership; their bounds grow when an edited child moves.
     if (node.parentId && byId.get(node.parentId)?.kind === "group") continue;
+    const pageId = ancestors(node, byId).find((id) => byId.get(id)?.kind === "page");
     const source = { getFrame: (id: string) => byId.get(id) };
 
     const center = transformPoint(worldTransform(source, node), {
@@ -316,6 +319,7 @@ export function reparentSelection(
     let path: readonly number[] = [];
 
     for (const candidate of candidates) {
+      if (candidate.pageId !== pageId) continue;
       if (
         !(options.requireContainment
           ? worldCorners(source, node).every((point) =>
@@ -342,8 +346,10 @@ export function reparentSelection(
       }
     }
 
-    if (node.parentId !== parent?.id)
-      updates.push(...reparentTransformed(nodes, node.id, parent?.id));
+    // Empty canvas is the current page's root, not the document root. Keeping this
+    // ownership also keeps layers visible before a save reload normalizes pages.
+    const parentId = parent?.id ?? pageId;
+    if (node.parentId !== parentId) updates.push(...reparentTransformed(nodes, node.id, parentId));
   }
 
   return updates;

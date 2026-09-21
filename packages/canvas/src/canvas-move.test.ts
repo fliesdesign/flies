@@ -6,6 +6,7 @@ import { describe, it } from "vite-plus/test";
 import { CanvasDocument, type CanvasFrame, type CanvasFrameNode } from "./canvas-document";
 import { finalizeCanvasMove } from "./canvas-move";
 import { moveSelection } from "./canvas-operations";
+import { canvasPage } from "./canvas-pages";
 
 const parent: CanvasFrameNode = {
   id: "parent",
@@ -39,6 +40,47 @@ function previewMove(document: CanvasDocument, roots: string[], delta: { x: numb
 }
 
 describe("final canvas move geometry", () => {
+  it("keeps a root layer on its page after dropping on empty canvas", () => {
+    const document = new CanvasDocument([
+      canvasPage("Default", "home"),
+      canvasPage("Drafts", "drafts"),
+      { ...child, parentId: "drafts" },
+    ]);
+
+    document.setActivePage("drafts");
+    const requested = previewMove(document, [child.id], { x: 500, y: 100 });
+    document.endGesture(false, finalizeCanvasMove(document.getFrames(), [child.id], requested));
+    assert.equal(document.getFrame(child.id)?.parentId, "drafts");
+    assert.deepEqual(document.getChildren(), [child.id]);
+    assert.equal(document.getFrame(child.id)?.x, 520);
+    document.undo();
+    assert.equal(document.getFrame(child.id)?.x, 20);
+    document.redo();
+    assert.deepEqual(document.getChildren(), [child.id]);
+  });
+
+  it("returns a detached child to its own page and ignores overlapping frames on other pages", () => {
+    const document = new CanvasDocument([
+      canvasPage("Default", "home"),
+      { ...parent, id: "other-page-frame", parentId: "home", x: 500 },
+      canvasPage("Drafts", "drafts"),
+      { ...parent, parentId: "drafts" },
+      child,
+    ]);
+
+    document.setActivePage("drafts");
+    const before = document.getFrames();
+    const requested = previewMove(document, [child.id], { x: 500, y: 100 });
+    document.endGesture(false, finalizeCanvasMove(document.getFrames(), [child.id], requested));
+    assert.equal(document.getFrame(child.id)?.parentId, "drafts");
+    assert.equal(document.getFrame(child.id)?.x, 520);
+    assert.deepEqual(document.getChildren(), [parent.id, child.id]);
+    document.undo();
+    assert.deepEqual(document.getFrames(), before);
+    document.redo();
+    assert.equal(document.getFrame(child.id)?.parentId, "drafts");
+  });
+
   it("keeps a layout slot when the requested move stays inside its parent", () => {
     const document = new CanvasDocument([parent, child]);
     const before = document.getFrames();

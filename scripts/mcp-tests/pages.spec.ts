@@ -33,6 +33,55 @@ const frameOf = (page: Page, id: string) =>
     id,
   );
 
+test("drag selection on an empty page cannot select or delete another page's layers", async ({
+  page,
+}) => {
+  const sidebar = await mount(page);
+  await page.evaluate(() => Reflect.get(window, "pagesFixture").controls.document.remove("sketch"));
+  await pageTabs(sidebar).filter({ hasText: "Drafts" }).click();
+  await expect(sidebar.getByRole("treeitem")).toHaveCount(0);
+  const surface = page.getByRole("application", { name: "Design canvas" });
+  const bounds = (await surface.boundingBox())!;
+  await page.mouse.move(bounds.x + 100, bounds.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 760, bounds.y + 500, { steps: 10 });
+  await page.mouse.up();
+  expect(
+    await page.evaluate(() => Reflect.get(window, "pagesFixture").controls.getSelection()),
+  ).toEqual([]);
+  await expect(page.locator(".canvas-selection")).toHaveCount(0);
+  await expect(page.locator(".canvas-properties")).toHaveCount(0);
+  await page.keyboard.press("Backspace");
+  expect(await frameOf(page, "hero")).toMatchObject({ parentId: "home" });
+  expect(await frameOf(page, "card")).toMatchObject({ parentId: "hero" });
+});
+
+test("remote page moves clear selection and properties for layers that left the canvas", async ({
+  page,
+}) => {
+  const sidebar = await mount(page);
+  await sidebar.getByRole("treeitem", { name: "Hero", exact: true }).click();
+  await page.evaluate(() => {
+    const { document } = Reflect.get(window, "pagesFixture").controls;
+
+    const nodes = document
+      .getCommittedFrames()
+      .map((node: { id: string }) =>
+        node.id === "hero" ? Object.assign({}, node, { parentId: "drafts" }) : node,
+      );
+
+    document.replaceAll(nodes, document.getTheme(), true);
+  });
+  await expect(sidebar.getByRole("treeitem")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => Reflect.get(window, "pagesFixture").controls.getSelection()),
+  ).toEqual([]);
+  await expect(page.locator(".canvas-selection")).toHaveCount(0);
+  await expect(page.locator(".canvas-properties")).toHaveCount(0);
+  await page.keyboard.press("Backspace");
+  expect(await frameOf(page, "hero")).toMatchObject({ parentId: "drafts" });
+});
+
 test("each page lists its own layers and switching swaps the canvas", async ({ page }) => {
   const sidebar = await mount(page);
   const pages = pageTabs(sidebar);
