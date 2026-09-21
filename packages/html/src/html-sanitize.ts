@@ -1,6 +1,7 @@
 import { readCanvasSvg } from "@flies/canvas";
 
 import { resolveFontFamily } from "./html-style";
+import { publicImageUrl, rememberRemoteImage } from "./remote-image";
 
 const TAGS = new Set(
   "div section article main header footer nav aside span p h1 h2 h3 h4 h5 h6 button label ul ol li img a strong b em i small code br input textarea".split(
@@ -15,6 +16,7 @@ const STYLES = new Set(
 );
 
 const RASTER = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z\d+/]+={0,2}$/i;
+const SVG = /^data:image\/svg\+xml;base64,[a-z\d+/]+={0,2}$/i;
 
 /** Build fresh, passive elements. Never mount caller markup or copy event/URL attributes. */
 export function sanitizeHtml(source: string, allowVariables = false): DocumentFragment {
@@ -100,13 +102,20 @@ export function sanitizeHtml(source: string, allowVariables = false): DocumentFr
         throw new Error(
           `Unsupported HTML attribute: ${attribute.name}. Use Tailwind classes, inline styles and data-name.`,
         );
-      if (
-        attribute.name === "src" &&
-        (node.localName !== "img" ||
-          (!RASTER.test(attribute.value) &&
-            !/^data:image\/svg\+xml;base64,[a-z\d+/]+={0,2}$/i.test(attribute.value)))
-      )
-        throw new Error("Images must use embedded raster or SVG data URLs.");
+
+      if (attribute.name === "src") {
+        const remote = publicImageUrl(attribute.value);
+        const embedded = RASTER.test(attribute.value) || SVG.test(attribute.value);
+
+        if (node.localName !== "img" || (!embedded && !remote))
+          throw new Error(
+            "Images must use an embedded raster or SVG data URL, or a public HTTP or HTTPS URL.",
+          );
+        if (remote) rememberRemoteImage(element, remote);
+        else element.setAttribute("src", attribute.value);
+        continue;
+      }
+
       // Names and typography remain useful; links and form actions are never interactive.
       if (!["style", "href", "type"].includes(attribute.name))
         element.setAttribute(attribute.name, attribute.value);

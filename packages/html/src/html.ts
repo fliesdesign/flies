@@ -16,6 +16,7 @@ import {
   nodeName,
   resolveFontFamily,
 } from "./html-style";
+import { embedRemoteImages, loadRemoteImage } from "./remote-image";
 import { validateSharedCss } from "./styles";
 export { sanitizeHtml } from "./html-sanitize";
 
@@ -43,11 +44,13 @@ export async function importHtml(
     width: number;
     height?: number;
     css?: string;
+    loadImage?: (url: string) => Promise<string>;
   },
 ): Promise<CanvasFrame[]> {
-  if (options.width < 40 || options.width > 8192)
+  const { loadImage, ...layout } = options;
+  if (layout.width < 40 || layout.width > 8192)
     throw new Error("HTML layout width must be between 40 and 8192px.");
-  if (options.height !== undefined && (options.height < 1 || options.height > 8192))
+  if (layout.height !== undefined && (layout.height < 1 || layout.height > 8192))
     throw new Error("HTML layout height must be between 1 and 8192px.");
   if (new TextEncoder().encode(source).length > 200_000)
     throw new Error("HTML is limited to 200KB.");
@@ -69,13 +72,14 @@ export async function importHtml(
 
   const css = validateSharedCss(sheets.filter(Boolean).join("\n"));
   const fragment = sanitizeHtml(template.innerHTML, Boolean(css));
+  await embedRemoteImages(fragment, loadImage ?? loadRemoteImage);
 
   const tailwind = fragment.querySelector("[class]")
     ? await (await import("./tailwind")).compileTailwind(fragment)
     : undefined;
 
   return importHtmlFragment(fragment, {
-    ...options,
+    ...layout,
     stylesheet: [tailwind, css].filter(Boolean).join("\n"),
     sharedStyles: Boolean(css),
   });
@@ -229,7 +233,17 @@ export async function importHtmlFragment(
       await options.prepare(layout);
     } else {
       await measurementDocument.fonts.ready;
-      await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
+      await Promise.all(
+        Array.from(layout.querySelectorAll("img"), async (img) => {
+          try {
+            await img.decode();
+          } catch {
+            throw new Error(
+              "This image could not be decoded. Use a PNG, JPEG, WebP, GIF, or AVIF file.",
+            );
+          }
+        }),
+      );
     }
 
     // Measure layout boxes and text ranges without transformed axis-aligned bounds.

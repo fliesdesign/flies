@@ -36,7 +36,9 @@ hooks, runtime APIs, class components and `dangerouslySetInnerHTML` are unsuppor
 handlers and refs are omitted with warnings. Generated markup always passes the HTML sanitizer.
 
 HTML supports the canvas's existing passive elements and CSS subset, Tailwind classes, embedded
-plain `<style>` blocks, and embedded raster/SVG images. Scripts, remote assets, unsupported CSS
+plain `<style>` blocks, and raster/SVG images. A raster image may be an embedded data URL or a
+public HTTP or HTTPS URL; the import downloads it and stores the pixels. Private hosts,
+credentials, and non-raster responses are refused. Scripts, external CSS, unsupported CSS
 effects and custom elements fail before editing. Limits: 200KB input/output, 500 HTML elements,
 30 nested levels; static JSX also bounds operations, arrays and intermediate string growth.
 

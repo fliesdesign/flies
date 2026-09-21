@@ -198,7 +198,7 @@ Layers; their geometry and styling cannot be edited until unlocked. **Unlock all
 
 Images decode locally with a 20 MiB input limit and a maximum stored dimension of 2048 px.
 Small raster originals are preserved; larger images are compressed, and SVGs are rasterized.
-Imported images use embedded data URLs without uploads or remote image requests. Tauri's
+Imported images are stored as embedded data URLs. Public HTTP and HTTPS raster URLs are downloaded at import and saved with the file; private hosts are refused. Tauri's
 window sets `dragDropEnabled: false` so HTML5 file dropping can reach the frontend on Windows.
 
 The browser and desktop app require WorkOS sign-in and open the same API-backed file library.

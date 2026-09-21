@@ -101,6 +101,7 @@ import {
   type CanvasCodeFormat,
 } from "@/lib/canvas-code-export";
 import { importPaperSnapshot, isPaperSnapshot } from "@/lib/paper-snapshot";
+import { loadSnapshotImage } from "@/lib/paper-snapshot-assets";
 import type { RealtimeFile } from "@/lib/realtime";
 
 import { CanvasAgentActivity } from "./canvas-agent-activity";
@@ -1233,6 +1234,7 @@ export function DesignCanvas({
             x: 0,
             y: 0,
             width: 800,
+            loadImage: loadSnapshotImage,
             css: document.getTheme().tokens.length ? themeCss(document.getTheme()) : undefined,
           });
 

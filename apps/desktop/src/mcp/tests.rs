@@ -67,7 +67,8 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 27);
+    assert_eq!(tools.len(), 28);
+    assert!(tools.iter().any(|tool| tool["name"] == "get_request"));
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
     assert_eq!(tools[0]["name"], "get_guide");
@@ -176,7 +177,7 @@ async fn initialize_and_discovery_do_not_unlock_editor_tools() {
             .contains("Call get_guide first"));
     }
     assert!(bridge.receiver.lock().await.try_recv().is_err());
-    assert!(bridge.pending.lock().await.is_empty());
+    assert!(bridge.requests.lock().await.entries.is_empty());
 }
 
 #[tokio::test]
@@ -243,13 +244,11 @@ async fn repeated_guide_reads_preserve_the_stateless_clients_open_file() {
     });
     let forwarded = bridge.next().await.unwrap();
     bridge
-        .pending
-        .lock()
-        .await
-        .remove(&forwarded.id)
-        .unwrap()
-        .send(json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\"}"}]}))
-        .unwrap();
+        .finish(
+            &forwarded.id,
+            json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\"}"}]}),
+        )
+        .await;
     json(open.await.unwrap()).await;
     let reread = json(
         service
@@ -277,14 +276,7 @@ async fn repeated_guide_reads_preserve_the_stateless_clients_open_file() {
     });
     let forwarded = bridge.next().await.unwrap();
     assert_eq!(forwarded.arguments, json!({"fileId":"poster"}));
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&forwarded.id)
-        .unwrap()
-        .send(json!({"content":[]}))
-        .unwrap();
+    bridge.finish(&forwarded.id, json!({"content":[]})).await;
     json(next.await.unwrap()).await;
 }
 
@@ -303,13 +295,11 @@ async fn stateless_guide_sessions_keep_separate_open_files() {
         let open = tokio::spawn(async move { client.oneshot(request).await.unwrap() });
         let forwarded = bridge.next().await.unwrap();
         bridge
-            .pending
-            .lock()
-            .await
-            .remove(&forwarded.id)
-            .unwrap()
-            .send(json!({"content":[{"type":"text","text":json!({"fileId":file}).to_string()}]}))
-            .unwrap();
+            .finish(
+                &forwarded.id,
+                json!({"content":[{"type":"text","text":json!({"fileId":file}).to_string()}]}),
+            )
+            .await;
         json(open.await.unwrap()).await;
     }
     for (guide, file) in [(alpha, "alpha"), (beta, "beta")] {
@@ -321,14 +311,7 @@ async fn stateless_guide_sessions_keep_separate_open_files() {
         let inspect = tokio::spawn(async move { client.oneshot(request).await.unwrap() });
         let forwarded = bridge.next().await.unwrap();
         assert_eq!(forwarded.arguments, json!({"fileId":file}));
-        bridge
-            .pending
-            .lock()
-            .await
-            .remove(&forwarded.id)
-            .unwrap()
-            .send(json!({"content":[]}))
-            .unwrap();
+        bridge.finish(&forwarded.id, json!({"content":[]})).await;
         json(inspect.await.unwrap()).await;
     }
 }
@@ -377,14 +360,7 @@ async fn transport_guide_status_is_isolated_from_other_clients() {
     });
     let forwarded = bridge.next().await.unwrap();
     assert_eq!(forwarded.name, "list_files");
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&forwarded.id)
-        .unwrap()
-        .send(json!({"content":[]}))
-        .unwrap();
+    bridge.finish(&forwarded.id, json!({"content":[]})).await;
     json(next.await.unwrap()).await;
 }
 
@@ -440,21 +416,14 @@ async fn sdk_roundtrips_live_editor_request_and_image() {
     assert_eq!(request.arguments["nodeId"], "frame");
     assert!(request.arguments.get("guideSessionId").is_none());
     let result = json!({"content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]});
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&request.id)
-        .unwrap()
-        .send(result)
-        .unwrap();
+    bridge.finish(&request.id, result).await;
     let body = json(response.await.unwrap()).await;
     assert_eq!(body["result"]["content"][0]["type"], "image");
     assert!(
         body["result"].get("resultType").is_none(),
         "legacy responses omit resultType"
     );
-    assert!(bridge.pending.lock().await.is_empty());
+    assert!(bridge.requests.lock().await.entries.is_empty());
 }
 
 #[tokio::test]
@@ -503,13 +472,8 @@ async fn tool_failures_are_returned_as_tool_errors() {
     });
     let request = bridge.next().await.unwrap();
     bridge
-        .pending
-        .lock()
-        .await
-        .remove(&request.id)
-        .unwrap()
-        .send(tool_error("No active file"))
-        .unwrap();
+        .finish(&request.id, tool_error("No active file"))
+        .await;
     let body = json(response.await.unwrap()).await;
     assert_eq!(body["result"]["isError"], true);
     assert!(body.get("error").is_none());
@@ -558,7 +522,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 27);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 28);
 }
 
 #[tokio::test]
@@ -600,14 +564,7 @@ async fn modern_tool_calls_mark_text_images_and_errors_complete() {
         let response = tokio::spawn(async move { service.oneshot(req).await.unwrap() });
         let forwarded = bridge.next().await.expect("tool dispatched");
         assert_eq!(forwarded.name, name);
-        bridge
-            .pending
-            .lock()
-            .await
-            .remove(&forwarded.id)
-            .unwrap()
-            .send(payload.clone())
-            .unwrap();
+        bridge.finish(&forwarded.id, payload.clone()).await;
         let response = json(response.await.unwrap()).await;
         assert_eq!(
             response["result"]["resultType"], "complete",
@@ -630,25 +587,11 @@ async fn overlapping_write_and_screenshot_wait_in_order() {
     tokio::task::yield_now().await;
     assert!(!screenshot.is_finished());
     assert!(bridge.receiver.lock().await.try_recv().is_err());
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&first.id)
-        .unwrap()
-        .send(json!({"content":[]}))
-        .unwrap();
+    bridge.finish(&first.id, json!({"content":[]})).await;
     assert_eq!(write.await.unwrap(), json!({"content":[]}));
     let second = bridge.next().await.unwrap();
     assert_eq!(second.name, "get_screenshot");
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&second.id)
-        .unwrap()
-        .send(json!({"content":[]}))
-        .unwrap();
+    bridge.finish(&second.id, json!({"content":[]})).await;
     assert_eq!(screenshot.await.unwrap(), json!({"content":[]}));
 }
 
@@ -675,25 +618,15 @@ async fn different_files_dispatch_without_waiting() {
         .unwrap();
     assert_eq!(beta.arguments["fileId"], "beta");
     bridge
-        .pending
-        .lock()
-        .await
-        .remove(&beta.id)
-        .unwrap()
-        .send(json!({"content":[{"type":"text","text":"b"}]}))
-        .unwrap();
+        .finish(&beta.id, json!({"content":[{"type":"text","text":"b"}]}))
+        .await;
     assert_eq!(
         second.await.unwrap(),
         json!({"content":[{"type":"text","text":"b"}]})
     );
     bridge
-        .pending
-        .lock()
-        .await
-        .remove(&alpha.id)
-        .unwrap()
-        .send(json!({"content":[{"type":"text","text":"a"}]}))
-        .unwrap();
+        .finish(&alpha.id, json!({"content":[{"type":"text","text":"a"}]}))
+        .await;
     assert_eq!(
         first.await.unwrap(),
         json!({"content":[{"type":"text","text":"a"}]})
@@ -715,14 +648,7 @@ async fn a_session_remembers_its_opened_file() {
     });
     let request = bridge.next().await.unwrap();
     assert_eq!(request.name, "open_file");
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&request.id)
-        .unwrap()
-        .send(json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\",\"name\":\"Poster\"}"}]}))
-        .unwrap();
+    bridge.finish(&request.id, json!({"content":[{"type":"text","text":"{\"fileId\":\"poster\",\"name\":\"Poster\"}"}]})).await;
     assert_eq!(open.await.unwrap().get("isError"), None);
     let writer = bridge.clone();
     let write = tokio::spawn(async move {
@@ -736,14 +662,7 @@ async fn a_session_remembers_its_opened_file() {
     });
     let forwarded = bridge.next().await.unwrap();
     assert_eq!(forwarded.arguments["fileId"], "poster");
-    bridge
-        .pending
-        .lock()
-        .await
-        .remove(&forwarded.id)
-        .unwrap()
-        .send(json!({"content":[]}))
-        .unwrap();
+    bridge.finish(&forwarded.id, json!({"content":[]})).await;
     assert_eq!(write.await.unwrap(), json!({"content":[]}));
 }
 
@@ -753,8 +672,68 @@ async fn full_queue_rejects_without_dispatching() {
     let _capacity = bridge.capacity.acquire_many(17).await.unwrap();
     let response = bridge.call("write_html".into(), json!({})).await;
     assert_eq!(response["isError"], true);
-    assert!(bridge.pending.lock().await.is_empty());
+    assert!(bridge.requests.lock().await.entries.is_empty());
     assert!(bridge.receiver.lock().await.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn a_timed_out_dispatch_keeps_its_result_for_get_request() {
+    let bridge = Bridge::create(Duration::from_millis(80));
+    let writer = bridge.clone();
+    let write = tokio::spawn(async move {
+        writer
+            .call("write_html".into(), json!({"fileId":"hero"}))
+            .await
+    });
+    let request = bridge.next().await.unwrap();
+    let timed_out = write.await.unwrap();
+    let text = timed_out["content"][0]["text"].as_str().unwrap();
+    assert_eq!(timed_out["isError"], true);
+    assert!(text.contains(&request.id));
+    assert!(text.contains("get_request"));
+
+    let started = std::time::Instant::now();
+    let inspection = bridge
+        .call("get_tree".into(), json!({"fileId":"hero"}))
+        .await;
+    assert!(started.elapsed() < Duration::from_millis(500));
+    let inspection_text = inspection["content"][0]["text"].as_str().unwrap();
+    assert_eq!(inspection["isError"], true);
+    assert!(inspection_text.contains(&request.id));
+    assert!(bridge.receiver.lock().await.try_recv().is_err());
+
+    let status = bridge
+        .call("get_request".into(), json!({"id": request.id}))
+        .await;
+    let body: Value = serde_json::from_str(status["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(body["status"], "running");
+    assert_eq!(body["tool"], "write_html");
+
+    let payload = json!({"content":[{"type":"text","text":"{\"applied\":true}"}]});
+    bridge.finish(&request.id, payload.clone()).await;
+    let stored = bridge
+        .call("get_request".into(), json!({"id": request.id}))
+        .await;
+    assert_eq!(stored, payload);
+    assert_eq!(
+        bridge
+            .call("get_request".into(), json!({"id": request.id}))
+            .await["isError"],
+        true
+    );
+
+    let follow = bridge.clone();
+    let tree = tokio::spawn(async move {
+        follow
+            .call("get_tree".into(), json!({"fileId":"hero"}))
+            .await
+    });
+    let next = bridge.next().await.unwrap();
+    assert_eq!(next.name, "get_tree");
+    bridge
+        .finish(&next.id, json!({"content":[{"type":"text","text":"tree"}]}))
+        .await;
+    assert_eq!(tree.await.unwrap()["content"][0]["text"], "tree");
 }
 
 #[test]
@@ -793,6 +772,8 @@ fn update_schema_describes_geometry_clipping_and_layout() {
         create["inputSchema"]["properties"]["layout"],
         properties["properties"]["layout"]
     );
+    assert!(tools::GUIDE.contains("public HTTP or HTTPS URL"));
+    assert!(tools::GUIDE.contains("get_request"));
     assert!(tools::GUIDE.contains("layout.gap"));
     assert!(tools::GUIDE.contains("widthSizing/heightSizing"));
     for name in ["fit_node", "set_styles", "preview_html", "close_preview"] {

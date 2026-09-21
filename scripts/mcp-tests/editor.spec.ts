@@ -67,7 +67,7 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
 
     const sources = [
       "<script>window.pwned=true</script>",
-      '<img src="https://example.com/test.png">',
+      '<img src="http://127.0.0.1/secret.png">',
       '<div onclick="alert(1)">Hi</div>',
       '<div style="background:image-set(&quot;https://example.com/image.png&quot;)">Hi</div>',
       '<div style="transform:skewX(20deg)">Hi</div>',
@@ -87,6 +87,57 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
   });
 
   expect(errors).toEqual([true, true, true, true, true]);
+});
+
+test("a public image URL is downloaded once and stored as embedded pixels", async ({ page }) => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=",
+    "base64",
+  );
+
+  let downloads = 0;
+
+  await page.route("https://cdn.example.com/mark.png", async (route) => {
+    downloads += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "access-control-allow-origin": "*" },
+      body: png,
+    });
+  });
+  await page.goto("/");
+
+  const result = await page.evaluate(async () => {
+    const { importHtml } = await import(/* @vite-ignore */ "/packages/html/src/html.ts");
+
+    const nodes = await importHtml(
+      '<img alt="Mark" src="https://cdn.example.com/mark.png" style="width:80px;height:40px">',
+      { x: 0, y: 0, width: 400 },
+    );
+
+    let blocked = "";
+
+    try {
+      await importHtml(
+        '<img src="https://user:secret@cdn.example.com/mark.png" style="width:80px;height:40px">',
+        { x: 0, y: 0, width: 400 },
+      );
+    } catch (error) {
+      blocked = error instanceof Error ? error.message : String(error);
+    }
+
+    const image = nodes.find((node: { kind: string }) => node.kind === "image");
+
+    return { src: image?.src as string, width: image?.width, height: image?.height, blocked };
+  });
+
+  expect(downloads).toBe(1);
+  expect(result.src.startsWith("data:image/png;base64,")).toBe(true);
+  expect(result.src.includes("cdn.example.com")).toBe(false);
+  expect(result.width).toBe(80);
+  expect(result.height).toBe(40);
+  expect(result.blocked).toMatch(/public HTTP or HTTPS URL/);
 });
 
 test("write_html replacement is atomic and undo restores the old children", async ({ page }) => {

@@ -14,16 +14,64 @@ use rmcp::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::Path,
     sync::Arc,
     time::Duration,
 };
 use tauri::Manager;
-use tokio::sync::{mpsc, oneshot, Mutex, Semaphore};
+use tokio::sync::{mpsc, oneshot, Mutex, OwnedMutexGuard, Semaphore};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
-type Reply = oneshot::Sender<Value>;
+type Reply = oneshot::Sender<()>;
+
+struct FileHold {
+    key: String,
+    id: String,
+    busy: Arc<std::sync::Mutex<HashMap<String, String>>>,
+    _guard: OwnedMutexGuard<()>,
+}
+
+impl FileHold {
+    fn new(
+        busy: Arc<std::sync::Mutex<HashMap<String, String>>>,
+        key: String,
+        id: String,
+        guard: OwnedMutexGuard<()>,
+    ) -> Self {
+        busy.lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(key.clone(), id.clone());
+        Self {
+            key,
+            id,
+            busy,
+            _guard: guard,
+        }
+    }
+}
+
+impl Drop for FileHold {
+    fn drop(&mut self) {
+        let mut busy = self.busy.lock().unwrap_or_else(|error| error.into_inner());
+        if busy.get(&self.key).map(String::as_str) == Some(self.id.as_str()) {
+            busy.remove(&self.key);
+        }
+    }
+}
+
+struct Outstanding {
+    name: String,
+    session: Option<String>,
+    reply: Option<Reply>,
+    result: Option<Value>,
+    hold: Option<FileHold>,
+}
+
+struct Requests {
+    entries: HashMap<String, Outstanding>,
+    stored: VecDeque<String>,
+}
 
 #[derive(Clone, Serialize)]
 pub struct EditorRequest {
@@ -35,24 +83,35 @@ pub struct EditorRequest {
 pub struct Bridge {
     sender: mpsc::Sender<EditorRequest>,
     receiver: Mutex<mpsc::Receiver<EditorRequest>>,
-    pending: Mutex<HashMap<String, Reply>>,
+    requests: Mutex<Requests>,
     sessions: Mutex<HashMap<String, String>>,
     guided_sessions: Mutex<HashSet<String>>,
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    busy: Arc<std::sync::Mutex<HashMap<String, String>>>,
     capacity: Semaphore,
+    timeout: Duration,
 }
 
 impl Bridge {
     fn new() -> Arc<Self> {
+        Self::create(TIMEOUT)
+    }
+
+    fn create(timeout: Duration) -> Arc<Self> {
         let (sender, receiver) = mpsc::channel(16);
         Arc::new(Self {
             sender,
             receiver: Mutex::new(receiver),
-            pending: Mutex::new(HashMap::new()),
+            requests: Mutex::new(Requests {
+                entries: HashMap::new(),
+                stored: VecDeque::new(),
+            }),
             sessions: Mutex::new(HashMap::new()),
             guided_sessions: Mutex::new(HashSet::new()),
             locks: Mutex::new(HashMap::new()),
+            busy: Arc::new(std::sync::Mutex::new(HashMap::new())),
             capacity: Semaphore::new(17),
+            timeout,
         })
     }
 
@@ -62,29 +121,36 @@ impl Bridge {
     }
 
     async fn call_on(&self, name: String, mut arguments: Value, session: Option<&str>) -> Value {
+        if name == "get_request" {
+            return self.read_stored_request(&arguments).await;
+        }
         // Bound queued HTTP tools. Same-file calls stay FIFO; other files run together.
         let Ok(_capacity) = self.capacity.try_acquire() else {
             return tool_error("Desktop request queue is full (16 waiting tools). Wait for pending calls to finish.");
         };
         self.bind_session_file(&name, &mut arguments, session).await;
-        let file_lock = self.file_lock(&name, &arguments).await;
-        let _serial = match file_lock.as_ref() {
-            Some(lock) => match tokio::time::timeout(TIMEOUT, lock.lock()).await {
-                Ok(guard) => Some(guard),
-                Err(_) => {
-                    return tool_error(
-                        "Request waited 45 seconds in the queue and was not dispatched. It is safe to retry.",
-                    );
-                }
-            },
-            None => None,
-        };
         let id = uuid::Uuid::new_v4().to_string();
+        let hold = if let Some(key) = lock_key(&name, &arguments) {
+            match self.acquire_file(&key).await {
+                Ok(guard) => Some(FileHold::new(self.busy.clone(), key, id.clone(), guard)),
+                Err(error) => return error,
+            }
+        } else {
+            None
+        };
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = self.pending.lock().await;
-            pending.retain(|_, reply| !reply.is_closed());
-            pending.insert(id.clone(), tx);
+            let mut requests = self.requests.lock().await;
+            requests.entries.insert(
+                id.clone(),
+                Outstanding {
+                    name: name.clone(),
+                    session: session.map(str::to_owned),
+                    reply: Some(tx),
+                    result: None,
+                    hold,
+                },
+            );
         }
         let request = EditorRequest {
             id: id.clone(),
@@ -92,19 +158,138 @@ impl Bridge {
             arguments,
         };
         if self.sender.try_send(request).is_err() {
-            self.pending.lock().await.remove(&id);
+            self.requests.lock().await.entries.remove(&id);
             return tool_error(
                 "Desktop request queue is full. Wait for the editor to finish loading.",
             );
         }
-        let result = tokio::time::timeout(TIMEOUT, rx).await;
-        self.pending.lock().await.remove(&id);
-        match result {
-            Ok(Ok(value)) => {
-                self.remember_opened_file(session, &name, &value).await;
-                value
+        let signaled = tokio::time::timeout(self.timeout, rx).await.is_ok();
+        if signaled {
+            if let Some(value) = self.take_ready(&id).await {
+                return value;
             }
-            _ => tool_error("Desktop editor did not reply within 45 seconds. If an edit was dispatched, inspect the document before retrying."),
+        } else {
+            let mut requests = self.requests.lock().await;
+            if let Some(entry) = requests.entries.get_mut(&id) {
+                // Keep the file lock until the editor replies, then store that reply.
+                entry.reply.take();
+            }
+        }
+        if let Some(value) = self.take_ready(&id).await {
+            return value;
+        }
+        let tool_name = self
+            .requests
+            .lock()
+            .await
+            .entries
+            .get(&id)
+            .map(|entry| entry.name.clone())
+            .unwrap_or(name);
+        still_running(&id, &tool_name)
+    }
+
+    async fn acquire_file(&self, key: &str) -> Result<OwnedMutexGuard<()>, Value> {
+        let mutex = {
+            let mut locks = self.locks.lock().await;
+            locks
+                .entry(key.to_owned())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        if let Some((id, name)) = self.detached_holder(key).await {
+            return Err(file_busy(&id, &name));
+        }
+        match tokio::time::timeout(self.timeout, mutex.lock_owned()).await {
+            Ok(guard) => Ok(guard),
+            Err(_) => {
+                if let Some((id, name)) = self.detached_holder(key).await {
+                    Err(file_busy(&id, &name))
+                } else {
+                    Err(tool_error(
+                        "Request waited 45 seconds in the queue and was not dispatched. It is safe to retry.",
+                    ))
+                }
+            }
+        }
+    }
+
+    async fn detached_holder(&self, key: &str) -> Option<(String, String)> {
+        let id = {
+            let busy = self.busy.lock().unwrap_or_else(|error| error.into_inner());
+            busy.get(key).cloned()
+        }?;
+        let requests = self.requests.lock().await;
+        let entry = requests.entries.get(&id)?;
+        (entry.reply.is_none() && entry.result.is_none()).then(|| (id, entry.name.clone()))
+    }
+
+    async fn read_stored_request(&self, arguments: &Value) -> Value {
+        let Some(id) = arguments
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            return tool_error("get_request requires the id from a desktop timeout.");
+        };
+        if let Some(result) = self.take_ready(id).await {
+            return result;
+        }
+        let requests = self.requests.lock().await;
+        requests.entries.get(id).map_or_else(
+            || tool_error("No editor request with that id is running or stored."),
+            |entry| running_status(id, &entry.name),
+        )
+    }
+
+    async fn take_ready(&self, id: &str) -> Option<Value> {
+        let ready = {
+            let mut requests = self.requests.lock().await;
+            let entry = requests.entries.get_mut(id)?;
+            let result = entry.result.take()?;
+            let name = entry.name.clone();
+            let session = entry.session.clone();
+            requests.entries.remove(id);
+            requests.stored.retain(|stored| stored != id);
+            (session, name, result)
+        };
+        self.remember_opened_file(ready.0.as_deref(), &ready.1, &ready.2)
+            .await;
+        Some(ready.2)
+    }
+
+    async fn finish(&self, id: &str, result: Value) {
+        let reply = {
+            let mut requests = self.requests.lock().await;
+            let Some(entry) = requests.entries.get_mut(id) else {
+                return;
+            };
+            entry.result = Some(result);
+            let reply = entry.reply.take();
+            if reply.is_none() {
+                // The caller already timed out, so release the file and keep the result.
+                entry.hold.take();
+                requests.stored.push_back(id.to_owned());
+                while requests.stored.len() > 8 {
+                    let Some(old) = requests.stored.pop_front() else {
+                        break;
+                    };
+                    if old == id {
+                        requests.stored.push_back(old);
+                        break;
+                    }
+                    if requests.entries.get(&old).is_some_and(|entry| {
+                        entry.result.is_some() && entry.hold.is_none() && entry.reply.is_none()
+                    }) {
+                        requests.entries.remove(&old);
+                    }
+                }
+            }
+            reply
+        };
+        if let Some(reply) = reply {
+            let _ = reply.send(());
         }
     }
 
@@ -138,28 +323,11 @@ impl Bridge {
             .insert(session.to_owned(), file_id);
     }
 
-    async fn file_lock(&self, name: &str, arguments: &Value) -> Option<Arc<Mutex<()>>> {
-        let key = lock_key(name, arguments)?;
-        let mut locks = self.locks.lock().await;
-        Some(
-            locks
-                .entry(key)
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone(),
-        )
-    }
-
     async fn next(&self) -> Option<EditorRequest> {
         let mut receiver = self.receiver.lock().await;
         tokio::time::timeout(Duration::from_secs(20), async {
             while let Some(request) = receiver.recv().await {
-                if self
-                    .pending
-                    .lock()
-                    .await
-                    .get(&request.id)
-                    .is_some_and(|reply| !reply.is_closed())
-                {
+                if self.requests.lock().await.entries.contains_key(&request.id) {
                     return Some(request);
                 }
             }
@@ -178,6 +346,27 @@ struct FliesServer {
 
 fn tool_error(message: &str) -> Value {
     json!({"isError":true,"content":[{"type":"text","text":message}]})
+}
+
+fn still_running(id: &str, name: &str) -> Value {
+    tool_error(&format!(
+        "Desktop editor did not reply within 45 seconds. Request {id} ({name}) is still running and its result will be kept. Call get_request with id \"{id}\". It returns immediately with status running, or the original result once the editor finishes. Other tools for this file also return immediately with that id until then."
+    ))
+}
+
+fn file_busy(id: &str, name: &str) -> Value {
+    tool_error(&format!(
+        "This file is still running {name} request {id}. Call get_request with id \"{id}\". It returns immediately and does not use the editor. The original result is kept until that read."
+    ))
+}
+
+fn running_status(id: &str, tool: &str) -> Value {
+    json!({
+        "content": [{
+            "type": "text",
+            "text": json!({"status":"running","id":id,"tool":tool}).to_string()
+        }]
+    })
 }
 
 fn argument_file_id(arguments: &Value) -> Option<&str> {
@@ -444,9 +633,7 @@ pub async fn mcp_reply(
     if window.label() != "main" {
         return Err("MCP bridge is only available to the main editor".into());
     }
-    if let Some(reply) = state.pending.lock().await.remove(&id) {
-        let _ = reply.send(result);
-    }
+    state.finish(&id, result).await;
     Ok(())
 }
 

@@ -20,6 +20,7 @@ import { importSource, type SourceFormat } from "@flies/html";
 import { measureCanvasTextHeight } from "@/components/canvas/canvas-node-content";
 import type { CanvasControls } from "@/components/canvas/design-canvas";
 import { updateDocumentTheme, prepareTokenUpdates } from "@/lib/canvas-theme-actions";
+import { loadSnapshotImage } from "@/lib/paper-snapshot-assets";
 
 import { htmlWarnings } from "./html-diagnostics";
 import { inheritedStyles, validateSharedCss } from "./styles";
@@ -416,6 +417,7 @@ export async function editorTool(
         stringArg(args, name === "write_html" ? "html" : "source"),
         {
           format: requestedFormat as SourceFormat,
+          loadImage: loadSnapshotImage,
           css: inheritedStyles(doc, anchor?.id),
           parentId: target ? target.parentId : parent?.id,
           x: (anchor?.x ?? 0) + numberArg(args, "x", 0),
