@@ -42,7 +42,11 @@ import {
 import { CanvasHitTester } from "@flies/canvas";
 import { canvasPage, nextPageName, type CanvasPage } from "@flies/canvas";
 import { readCanvasImage } from "@flies/canvas";
-import { getCanvasInspection, setCanvasInspection, subscribeCanvasInspection } from "@flies/canvas";
+import {
+  getCanvasInspection,
+  getCanvasInspectionServerSnapshot,
+  subscribeCanvasInspection,
+} from "@flies/canvas";
 import { finalizeCanvasMove } from "@flies/canvas";
 import {
   CANVAS_CLIPBOARD_MIME,
@@ -261,7 +265,7 @@ export function DesignCanvas({
   const inspectHtml = useSyncExternalStore(
     subscribeCanvasInspection,
     getCanvasInspection,
-    () => false,
+    getCanvasInspectionServerSnapshot,
   );
 
   const hitTester = useMemo(() => new CanvasHitTester(document), [document]);
@@ -2651,8 +2655,6 @@ export function DesignCanvas({
             fileActions={fileActions}
             document={document}
             selectedIds={propertyIds}
-            inspectHtml={inspectHtml}
-            onInspectHtmlChange={setCanvasInspection}
             onPrepare={prepareFileAction}
             onOpen={openProject}
             onNotice={setNotice}

@@ -34,8 +34,9 @@ apps/web/components.json     shadcn config (style base-nova, baseColor zinc, ali
 
 ## Rendering
 
-Artwork uses an explicit PixiJS WebGPU renderer when the browser or desktop webview provides a
-working adapter. The renderer retains shapes, text, images, and pen strokes, updates the camera
+Artwork is temporarily forced onto the HTML/CSS renderer while WebGPU bugs are fixed. The intended
+path is an explicit PixiJS WebGPU renderer when the browser or desktop webview provides a working
+adapter. The renderer retains shapes, text, images, and pen strokes, updates the camera
 transform during navigation, and draws only when something changes. Labels, selection controls, and
 the active text editor remain HTML overlays. Pointer picking uses the document's spatial index,
 including rounded frame clipping.
@@ -47,9 +48,8 @@ export still uses the HTML renderer, so small typography differences are possibl
 use Chromium's software adapter to verify drawing and editing; they do not measure native GPU
 performance. Editing runs entirely in the frontend, without native IPC.
 
-To inspect individual artwork elements in DevTools, enable **Project menu (…) → Inspect HTML**.
-This switches to real HTML/CSS elements while preserving the document, selection, and viewport. The
-preference is remembered locally. Disable it to return to WebGPU when supported.
+Artwork elements are real HTML/CSS nodes in DevTools while the DOM renderer is forced. The saved
+Inspect HTML preference is left untouched and applies again when the GPU renderer returns.
 
 In the DOM renderer, one shared camera transform pans and zooms the scene; a spatial index mounts
 visible objects plus a 200-pixel buffer and the ancestor paths needed to render them. Selected roots

@@ -14,12 +14,13 @@ async function mount(page: Page) {
   });
 }
 
-async function toggleInspection(page: Page, currentlyEnabled: boolean) {
-  await page.getByRole("button", { name: "Project menu" }).click();
-  const item = page.getByRole("menuitemcheckbox", { name: "Inspect HTML" });
-  await expect(item).toHaveAttribute("aria-checked", String(currentlyEnabled));
-  await item.click();
-  await page.keyboard.press("Escape");
+async function setInspection(page: Page, enabled: boolean) {
+  await page.evaluate((value) => {
+    const fixture = Reflect.get(window, "gpuFixture");
+    // The removed menu committed the active text draft before changing renderers.
+    fixture.controls.prepare();
+    fixture.setInspection(value);
+  }, enabled);
 }
 
 async function editorState(page: Page) {
@@ -35,9 +36,8 @@ async function editorState(page: Page) {
   });
 }
 
-test("HTML inspection exposes actual node elements, retains editor state, and persists across reload", async ({
-  page,
-}) => {
+test("HTML inspection exposes actual node elements and retains editor state", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("flies.canvas.inspect-html", "false"));
   await mount(page);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await expect(page.locator(redLayer)).toHaveCount(0);
@@ -54,7 +54,7 @@ test("HTML inspection exposes actual node elements, retains editor state, and pe
     .poll(() => page.evaluate(() => Reflect.get(window, "gpuFixture").controls.getSelection()))
     .toEqual(["red"]);
   const before = await editorState(page);
-  await toggleInspection(page, false);
+  await setInspection(page, true);
   await expect(page.locator(redLayer)).toBeVisible();
   await expect(page.locator("[data-gpu-fixture] .canvas-gpu-surface")).toHaveCount(0);
   expect(await editorState(page)).toEqual(before);
@@ -62,19 +62,17 @@ test("HTML inspection exposes actual node elements, retains editor state, and pe
     "background-color",
     "rgb(0, 255, 255)",
   );
+  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.inspect-html"))).toBe(
+    "false",
+  );
 
-  await toggleInspection(page, true);
+  await setInspection(page, false);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await expect(page.locator(redLayer)).toHaveCount(0);
   expect(await editorState(page)).toEqual(before);
-
-  await toggleInspection(page, false);
-  await expect(page.locator(redLayer)).toBeVisible();
-  await mount(page);
-  await expect(page.locator(redLayer)).toBeVisible();
-  await expect(page.locator("[data-gpu-fixture] .canvas-gpu-surface")).toHaveCount(0);
-  await toggleInspection(page, true);
-  await expect(page.locator(gpuArtwork)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.inspect-html"))).toBe(
+    "false",
+  );
 });
 
 test("switching to HTML inspection commits an active GPU text draft", async ({ page }) => {
@@ -84,7 +82,7 @@ test("switching to HTML inspection commits an active GPU text draft", async ({ p
   const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
   await expect(draft).toBeVisible();
   await draft.fill("Draft retained for HTML inspection");
-  await toggleInspection(page, false);
+  await setInspection(page, true);
   await expect(
     page.locator('[data-gpu-fixture] .canvas-frame-position[data-frame-id="text"]'),
   ).toHaveText("Draft retained for HTML inspection");
@@ -96,7 +94,7 @@ test("switching to HTML inspection commits an active GPU text draft", async ({ p
       ),
     )
     .toBe("Draft retained for HTML inspection");
-  await toggleInspection(page, true);
+  await setInspection(page, false);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await expect
     .poll(() =>

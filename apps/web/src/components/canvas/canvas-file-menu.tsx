@@ -12,7 +12,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -32,8 +31,6 @@ type CanvasFileMenuProps = {
   fileActions?: CanvasFileActions;
   document: CanvasDocument;
   selectedIds: readonly string[];
-  inspectHtml: boolean;
-  onInspectHtmlChange: (enabled: boolean) => void;
   onPrepare: () => void;
   onOpen: (nodes: CanvasFrame[], theme: CanvasTheme) => void;
   onNotice: (message: string) => void;
@@ -43,8 +40,6 @@ export function CanvasFileMenu({
   fileActions,
   document,
   selectedIds,
-  inspectHtml,
-  onInspectHtmlChange,
   onPrepare,
   onOpen,
   onNotice,
@@ -242,16 +237,6 @@ export function CanvasFileMenu({
           <DropdownMenuItem disabled={!selectedIds.length} onClick={() => void exportPng()}>
             Export as PNG<DropdownMenuShortcut>⇧ ⌘ E</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={inspectHtml}
-            onCheckedChange={(enabled) => {
-              prepare();
-              onInspectHtmlChange(enabled);
-            }}
-          >
-            Inspect HTML
-          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <input

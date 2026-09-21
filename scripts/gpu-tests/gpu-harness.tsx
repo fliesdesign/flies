@@ -167,6 +167,8 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
   });
   document.body.append(host);
   const root = createRoot(host);
+  // The product forces the DOM renderer. Opt this fixture back into WebGPU without saving that.
+  setCanvasInspection(false);
 
   const controls = await new Promise<CanvasControls>((resolve) => {
     const editor = (
