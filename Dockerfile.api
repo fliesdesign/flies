@@ -1,14 +1,15 @@
 FROM oven/bun:1.4.2
 WORKDIR /app
 COPY package.json bun.lock ./
-COPY patches ./patches
 COPY apps/web/package.json apps/web/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
+COPY packages/firefly/package.json packages/firefly/package.json
 COPY packages/html/package.json packages/html/package.json
 RUN bun install --frozen-lockfile
 COPY packages/canvas packages/canvas
+COPY packages/firefly packages/firefly
 COPY apps/api apps/api
 WORKDIR /app/apps/api
 EXPOSE 3001
