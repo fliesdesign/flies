@@ -290,7 +290,12 @@ export function createApp(
   });
   app.post("/api/files/:id/archive", async (c) => {
     const { archived } = v.parse(v.object({ archived: v.boolean() }), await c.req.json());
-    await files.archive(c.get("workspace").id, v.parse(idSchema, c.req.param("id")), archived);
+    await files.archive(
+      c.get("workspace").id,
+      v.parse(idSchema, c.req.param("id")),
+      archived,
+      archived ? undefined : await billing.entitlements(c.get("workspace").id),
+    );
 
     return c.json({ archived });
   });

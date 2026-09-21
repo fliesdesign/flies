@@ -525,6 +525,22 @@ describe("Polar billing boundaries", () => {
 
     expect(creates.filter((response) => response.status === 201)).toHaveLength(5);
     expect(creates.filter((response) => response.status === 403)).toHaveLength(3);
+    const activeFiles = await (await call("/api/files")).json();
+    const firstId = activeFiles.files[0].id;
+    const secondId = activeFiles.files[1].id;
+    expect((await call(`/api/files/${firstId}/archive`, { archived: true })).status).toBe(200);
+    const replacement = await call("/api/files", snapshot);
+    expect(replacement.status).toBe(201);
+    expect((await call(`/api/files/${firstId}/archive`, { archived: false })).status).toBe(403);
+    expect((await call(`/api/files/${secondId}/archive`, { archived: false })).status).toBe(200);
+    expect((await call(`/api/files/${secondId}/archive`, { archived: true })).status).toBe(200);
+
+    const restores = await Promise.all(
+      [firstId, secondId].map((id) => call(`/api/files/${id}/archive`, { archived: false })),
+    );
+
+    expect(restores.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(restores.filter((response) => response.status === 403)).toHaveLength(1);
     await db.insert(mcpUsage).values({ workspaceId, week: weekStart(), calls: 299 });
 
     const consumes = await Promise.all(

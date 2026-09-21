@@ -122,6 +122,26 @@ function notFound(): never {
 const scope = (workspaceId: string, id: string) =>
   and(eq(files.workspaceId, workspaceId), eq(files.id, id));
 
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+async function assertFileCapacity(
+  tx: Transaction,
+  workspaceId: string,
+  entitlements: Entitlements,
+) {
+  if (!entitlements.enabled) return;
+
+  const [usage] = await tx
+    .select({ total: count() })
+    .from(files)
+    .where(and(eq(files.workspaceId, workspaceId), eq(files.archived, false)));
+
+  if (usage.total >= entitlements.limits.designFiles)
+    throw new HTTPException(403, {
+      message: `Your ${entitlements.plan} plan allows ${entitlements.limits.designFiles} active design files. Archive a file to free up space.`,
+    });
+}
+
 export function fileService(db: Database, storage: RevisionStorage, prefix: string) {
   return {
     async list(workspaceId: string) {
@@ -165,15 +185,7 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
         if (!existing && entitlements.enabled) {
           await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
 
-          const [usage] = await tx
-            .select({ total: count() })
-            .from(files)
-            .where(eq(files.workspaceId, workspaceId));
-
-          if (usage.total >= entitlements.limits.designFiles)
-            throw new HTTPException(403, {
-              message: `Your ${entitlements.plan} plan allows ${entitlements.limits.designFiles} design files.`,
-            });
+          await assertFileCapacity(tx, workspaceId, entitlements);
         }
 
         let createdAt = new Date();
@@ -252,14 +264,26 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
         return document;
       });
     },
-    async archive(workspaceId: string, id: string, archived: boolean) {
-      const rows = await db
-        .update(files)
-        .set({ archived })
-        .where(scope(workspaceId, id))
-        .returning({ id: files.id });
+    async archive(
+      workspaceId: string,
+      id: string,
+      archived: boolean,
+      entitlements: Entitlements = BILLING_DISABLED,
+    ) {
+      await db.transaction(async (tx) => {
+        // Use the same workspace lock as creation so concurrent restores cannot exceed the limit.
+        if (!archived && entitlements.enabled)
+          await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
 
-      if (!rows.length) notFound();
+        const [file] = await tx.select().from(files).where(scope(workspaceId, id)).for("update");
+        if (!file) notFound();
+        if (file.archived === archived) return;
+
+        if (!archived && entitlements.enabled)
+          await assertFileCapacity(tx, workspaceId, entitlements);
+
+        await tx.update(files).set({ archived }).where(scope(workspaceId, id));
+      });
     },
     async history(workspaceId: string, id: string) {
       const [file] = await db.select({ id: files.id }).from(files).where(scope(workspaceId, id));

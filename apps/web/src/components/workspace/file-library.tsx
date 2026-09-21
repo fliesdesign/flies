@@ -346,7 +346,7 @@ export function FileLibraryView({
                 desktop={desktop}
                 account={account}
                 workspaceName={library?.workspace.name}
-                fileCount={library?.files.length ?? 0}
+                fileCount={library?.files.filter((file) => !file.archived).length ?? 0}
                 onSignOut={onSignOut}
               />
             )}
