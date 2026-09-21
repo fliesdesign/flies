@@ -26,6 +26,10 @@ The provisioned development database is Neon project `blue-art-89162937`, branch
 
 `GET /auth/login` redirects to hosted WorkOS AuthKit. The callback verifies a single-use state bound to an HttpOnly browser cookie and exchanges the code using PKCE. WorkOS credentials are sealed with the server-only cookie password and stored in Postgres. The browser receives an opaque HttpOnly, SameSite=Lax session cookie. HTTPS deployments use Secure cookies. Session tokens are hashed in the session table; every authenticated request validates the sealed WorkOS session and refreshes it under a database row lock when needed.
 
+AuthKit MFA is optional. Account settings enrolls a TOTP authenticator through WorkOS User Management, shows a QR code and secret, and confirms a 6-digit code before the factor stays on the account. After enrollment, AuthKit challenges for that code at sign-in. Turning 2FA off deletes the WorkOS factor. SSO sign-in does not require MFA.
+
+Passkeys are enabled on hosted AuthKit, including progressive enrollment after a password sign-in. Account settings starts that AuthKit sign-in so the user can add a passkey. WorkOS only registers passkeys on the AuthKit domain; a custom AuthKit domain should be configured before relying on them in production.
+
 Desktop opens AuthKit in the system browser. A random verifier held in the webview claims the finished login through `/auth/desktop/complete`; only its hash appears in the login URL. No session token is put in a URL. The desktop app keeps its opaque token in memory, so restarting requires signing in again. The encrypted WorkOS refresh credentials stay on the server.
 
 The first authenticated login creates one default workspace, guarded by a unique owner constraint, and provisions its WorkOS organization with an active owner membership. The workspace ID is the WorkOS external ID; row locks and idempotency keys make provisioning retryable without duplicate organizations. The linked WorkOS ID is stored on the workspace. Existing unlinked workspaces are linked on their next authenticated request, or with `bun src/db/backfill-organizations.ts` inside the API image. All file operations derive the workspace from the authenticated user, never from client-supplied ownership fields. Requests from unapproved browser origins are rejected. Cross-origin desktop requests use a bearer token; browser mutations require the configured origin and JSON content type.
@@ -38,6 +42,10 @@ New workspace, file, revision, and save-operation IDs are ULIDs. WorkOS assigns 
 | ------ | -------------------------- | ---------------------------------------------------- |
 | GET    | `/health`                  | Process health                                       |
 | GET    | `/api/me`                  | Current user and default workspace                   |
+| GET    | `/api/account/mfa`         | Whether the user has an authenticator enrolled       |
+| POST   | `/api/account/mfa`         | Start TOTP enrollment and return a QR code           |
+| POST   | `/api/account/mfa/verify`  | Confirm enrollment with a 6-digit authenticator code |
+| POST   | `/api/account/mfa/remove`  | Turn off two-factor authentication                   |
 | GET    | `/api/files`               | Workspace file summaries, including archived entries |
 | POST   | `/api/files`               | Create from `{ name, nodes, theme }`                 |
 | GET    | `/api/files/:id`           | Read the current document from S3                    |
@@ -169,7 +177,10 @@ still need verification after credentials and deployment are configured.
 
 ## Workspace members and seats
 
-Settings has Appearance, Billing, Members, Updates, and Account tabs. The sidebar
+Settings has Appearance, Billing, Members, Updates, and Account tabs. Account settings
+can enroll an optional authenticator app; AuthKit then asks for that code at sign-in.
+Passkeys are added through hosted AuthKit after a password sign-in.
+The sidebar
 keeps the Upgrade to Pro action for Free workspace owners. Checkout lets the owner
 choose seats; existing subscribers manage seats in the Polar billing portal.
 

@@ -5,6 +5,8 @@ import {
   worldTransform,
   inverseMatrix,
   transformPoint,
+  canvasPage,
+  nextPageName,
   CanvasDocument,
   type CanvasFrame,
 } from "@flies/canvas";
@@ -12,7 +14,7 @@ import { test } from "vite-plus/test";
 
 import type { CanvasControls } from "@/components/canvas/design-canvas";
 
-import { editorTool } from "./editor";
+import { editorTool, type McpResult } from "./editor";
 
 function fixture() {
   const document = new CanvasDocument([
@@ -589,4 +591,111 @@ test("MCP creates native auto layout artboards and validates sizing modes atomic
   assert.equal(Reflect.get(node, "layout").gap, 16);
   await editorTool(controls, "undo", {});
   assert.deepEqual(document.getFrames(), original);
+});
+
+function pagedFixture() {
+  const document = new CanvasDocument([
+    canvasPage("Default", "home"),
+    { id: "frame", name: "Frame", parentId: "home", x: 0, y: 0, width: 400, height: 300 },
+    canvasPage("Drafts", "drafts"),
+    { id: "sketch", name: "Sketch", parentId: "drafts", x: 0, y: 0, width: 400, height: 300 },
+  ]);
+
+  let selected: string[] = [];
+
+  const controls = {
+    document,
+    prepare: () => {},
+    select: (id: string | null) => {
+      selected = id ? [id] : [];
+    },
+    getSelection: () => selected,
+    showPage: (pageId: string) => {
+      document.setActivePage(pageId);
+    },
+    addPage: (name?: string) => {
+      const page = canvasPage(name?.trim() || nextPageName(document.getFrames()));
+      document.add(page);
+      document.setActivePage(page.id);
+
+      return page.id;
+    },
+    removePage: (pageId: string) => {
+      document.removeMany([pageId]);
+    },
+  } as unknown as CanvasControls;
+
+  return { document, controls };
+}
+
+const payload = (result: McpResult) =>
+  JSON.parse((result.content[0] as { text: string }).text) as Record<string, unknown>;
+
+test("MCP page tools list, switch and scope every read to one canvas", async () => {
+  const { document, controls } = pagedFixture();
+  const listed = payload(await editorTool(controls, "list_pages", {}));
+  assert.equal(listed.activePageId, "home");
+  assert.deepEqual(listed.pages, [
+    { pageId: "home", name: "Default", nodeCount: 1, active: true },
+    { pageId: "drafts", name: "Drafts", nodeCount: 1, active: false },
+  ]);
+
+  const home = payload(await editorTool(controls, "get_tree", {}));
+  assert.equal(home.activePageId, "home");
+  assert.deepEqual(
+    (home.nodes as { id: string }[]).map((node) => node.id),
+    ["frame"],
+  );
+
+  await editorTool(controls, "set_page", { pageId: "drafts" });
+  const drafts = payload(await editorTool(controls, "get_tree", {}));
+  assert.equal(drafts.activePageId, "drafts");
+  assert.deepEqual(
+    (drafts.nodes as { id: string }[]).map((node) => node.id),
+    ["sketch"],
+  );
+  assert.equal(document.getActivePageId(), "drafts");
+
+  await assert.rejects(editorTool(controls, "set_page", { pageId: "frame" }), /is not a page/);
+});
+
+test("MCP create_page starts an empty canvas that later edits land on", async () => {
+  const { document, controls } = pagedFixture();
+  const created = payload(await editorTool(controls, "create_page", { name: "Ideas" }));
+  const pageId = created.pageId as string;
+  assert.equal(created.name, "Ideas");
+  assert.equal(document.getActivePageId(), pageId);
+  assert.deepEqual(document.getChildren(), []);
+
+  const board = payload(
+    await editorTool(controls, "create_artboard", { name: "Home", width: 800, height: 600 }),
+  );
+
+  // An artboard created without a parent belongs to the page being edited.
+  assert.equal(document.getFrame(board.nodeId as string)!.parentId, pageId);
+  assert.deepEqual(document.getChildren("home"), ["frame"]);
+});
+
+test("MCP delete_page removes its layers and keeps the last canvas", async () => {
+  const { document, controls } = pagedFixture();
+  const deleted = payload(await editorTool(controls, "delete_page", { pageId: "drafts" }));
+  assert.equal(deleted.deletedNodes, 1);
+  assert.equal(document.getFrame("sketch"), undefined);
+  assert.equal(document.getActivePageId(), "home");
+
+  await assert.rejects(
+    editorTool(controls, "delete_page", { pageId: "home" }),
+    /at least one page/,
+  );
+  assert.ok(document.getFrame("frame"));
+});
+
+test("MCP renames a page and refuses to give it geometry", async () => {
+  const { document, controls } = pagedFixture();
+  await editorTool(controls, "update_node", { nodeId: "home", properties: { name: "Marketing" } });
+  assert.equal(document.getFrame("home")!.name, "Marketing");
+  await assert.rejects(
+    editorTool(controls, "update_node", { nodeId: "home", properties: { width: 400 } }),
+    /Unsupported property for page/,
+  );
 });

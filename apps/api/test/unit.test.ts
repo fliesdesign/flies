@@ -5,6 +5,7 @@ import * as v from "valibot";
 import { configSchema } from "../src/config";
 import { parseSnapshot } from "../src/files";
 import { idSchema } from "../src/ids";
+import { totpCodeSchema } from "../src/mfa";
 
 describe("API input validation", () => {
   test("accepts ULIDs and legacy UUIDs but rejects invalid file IDs", () => {
@@ -35,5 +36,10 @@ describe("API input validation", () => {
   });
   test("configuration requires secrets and a valid database URL", () => {
     expect(v.safeParse(configSchema, {}).success).toBe(false);
+  });
+  test("TOTP codes are exactly six digits", () => {
+    expect(v.safeParse(totpCodeSchema, "123456").success).toBe(true);
+    for (const code of ["12345", "1234567", "abcdef", "12 456", ""])
+      expect(v.safeParse(totpCodeSchema, code).success).toBe(false);
   });
 });

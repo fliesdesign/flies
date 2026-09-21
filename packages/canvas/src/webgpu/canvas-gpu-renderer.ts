@@ -21,6 +21,7 @@ import type {
   CanvasText,
 } from "../canvas-document";
 import { ensureCanvasFont, fontFamilyCss } from "../canvas-fonts";
+import { isCanvasRoot } from "../canvas-pages";
 import { viewportBounds } from "../canvas-spatial-index";
 import { SVG_DATA_URL } from "../canvas-svg";
 import { localTransform, worldBounds } from "../canvas-transform";
@@ -109,6 +110,7 @@ function sameVisual(first: CanvasFrame, second: CanvasFrame) {
         first.stroke === second.stroke &&
         first.strokeWidth === second.strokeWidth
       );
+    case "page":
     case "group":
       return true;
     default:
@@ -477,7 +479,8 @@ export class CanvasGpuRenderer {
 
   private reconcile() {
     this.hierarchyDirty = false;
-    const ids = this.options.document.getIds();
+    // Only the active page is drawn; other canvases keep no GPU resources at all.
+    const ids = this.options.document.getSceneIds();
     const membership = new Set(ids);
 
     for (const [id, node] of this.nodes) {
@@ -502,8 +505,9 @@ export class CanvasGpuRenderer {
       }
 
       if (node.frame !== frame) this.dirty.add(id);
-      const parent = frame.parentId ? this.nodes.get(frame.parentId)?.children : this.world;
-      if (parent && node.outer.parent !== parent) parent.addChild(node.outer);
+      // The only absent parent is the active page, whose children are the world's roots.
+      const parent = (frame.parentId && this.nodes.get(frame.parentId)?.children) || this.world;
+      if (node.outer.parent !== parent) parent.addChild(node.outer);
     }
 
     // Document ids are in paint order; sibling ordering changes need no resource rebuilds.
@@ -797,7 +801,9 @@ export class CanvasGpuRenderer {
 
     const shadows =
       frame.shadows ??
-      (isFrame(frame) && !frame.parentId ? DEFAULT_ARTBOARD_SHADOW : EMPTY_SHADOWS);
+      (isFrame(frame) && isCanvasRoot(this.options.document, frame)
+        ? DEFAULT_ARTBOARD_SHADOW
+        : EMPTY_SHADOWS);
 
     node.outerShadow = createShadowSprite(frame, shadows, false, this.resolution);
     if (node.outerShadow) node.outer.addChildAt(node.outerShadow, 0);

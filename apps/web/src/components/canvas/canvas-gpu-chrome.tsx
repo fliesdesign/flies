@@ -3,6 +3,7 @@ import { useCanvasFrame } from "@flies/canvas";
 import type { CanvasCamera } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import { clippingRadius } from "@flies/canvas";
+import { isCanvasRoot } from "@flies/canvas";
 import type { CanvasScene } from "@flies/canvas";
 import {
   memo,
@@ -56,7 +57,7 @@ const RootLabel = memo(function RootLabel({
   if (
     !frame ||
     frame.hidden ||
-    frame.parentId ||
+    !isCanvasRoot(document, frame) ||
     (frame.kind !== undefined && frame.kind !== "frame" && frame.kind !== "group")
   )
     return null;

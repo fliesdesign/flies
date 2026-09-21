@@ -7,6 +7,7 @@ import {
   saveCanvasFrames,
   type CanvasFrame,
 } from "./canvas-document";
+import { ensureCanvasPages } from "./canvas-pages";
 import { EMPTY_THEME, type CanvasTheme } from "./canvas-theme";
 
 export type { CanvasFrame } from "./canvas-document";
@@ -27,7 +28,10 @@ export function useCanvasDocument({
   const [canvasDocument] = useState(
     () =>
       new CanvasDocument(
-        initialFrames ?? (persist ? loadCanvasFrames(undefined, { migrateLegacy: true }) : []),
+        // Every edited document has at least one page, including ones saved before pages existed.
+        ensureCanvasPages(
+          initialFrames ?? (persist ? loadCanvasFrames(undefined, { migrateLegacy: true }) : []),
+        ),
         initialTheme ?? (persist && !initialFrames ? loadCanvasTheme() : EMPTY_THEME),
       ),
   );

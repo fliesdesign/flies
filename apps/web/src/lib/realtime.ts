@@ -11,7 +11,7 @@ import { ulid } from "ulid";
 import type { CanvasControls } from "@/components/canvas/design-canvas";
 
 import { apiUrl, ApiError, post } from "./api";
-import { openFile, saveFile, type DesignFile } from "./files";
+import { openFile, saveFile, withPages, type DesignFile } from "./files";
 
 export type Peer = {
   connectionId: string;
@@ -33,7 +33,9 @@ export type RealtimeState = {
 
 const snapshot = (file: DesignFile): SyncSnapshot => ({
   name: file.name,
-  nodes: file.nodes,
+  // Server state predating pages is migrated identically on every client, so the
+  // first save of either one converges instead of creating rival pages.
+  nodes: withPages(file).nodes,
   theme: file.theme ?? EMPTY_THEME,
 });
 

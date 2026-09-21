@@ -233,7 +233,52 @@ export async function editorTool(
       const roots =
         args.nodeId === undefined ? doc.getChildren() : [getNode(stringArg(args, "nodeId")).id];
 
-      return textResult({ nodes: roots.map((id) => tree(id, 0)) });
+      return textResult({
+        activePageId: doc.getActivePageId(),
+        nodes: roots.map((id) => tree(id, 0)),
+      });
+    }
+
+    case "list_pages": {
+      const pages = doc.getPageIds().map((id) => ({
+        pageId: id,
+        name: getNode(id).name,
+        nodeCount: doc.getChildren(id).length,
+        active: id === doc.getActivePageId(),
+      }));
+
+      return textResult({ pages, activePageId: doc.getActivePageId() });
+    }
+
+    case "create_page": {
+      const pageId = controls.addPage(
+        args.name === undefined ? undefined : stringArg(args, "name"),
+      );
+
+      return textResult({ pageId, name: getNode(pageId).name, activePageId: pageId });
+    }
+
+    case "set_page": {
+      const pageId = stringArg(args, "pageId");
+      if (getNode(pageId).kind !== "page") throw new Error(`Node ${pageId} is not a page.`);
+      controls.showPage(pageId);
+
+      return textResult({ activePageId: doc.getActivePageId() });
+    }
+
+    case "delete_page": {
+      const pageId = stringArg(args, "pageId");
+      if (getNode(pageId).kind !== "page") throw new Error(`Node ${pageId} is not a page.`);
+      if (doc.getPageIds().length < 2)
+        throw new Error("A file keeps at least one page. Delete its contents instead.");
+      const removed = doc.getDescendantIds([pageId]).length - 1;
+      controls.removePage(pageId);
+
+      return textResult({
+        deletedPageId: pageId,
+        deletedNodes: removed,
+        activePageId: doc.getActivePageId(),
+      });
     }
 
     case "create_artboard": {
@@ -540,6 +585,7 @@ export async function editorTool(
       ];
 
       const byKind = {
+        page: [],
         frame: ["fill", "clipContent", "layout", "htmlStyles"],
         group: [],
         rectangle: ["fill"],
@@ -560,7 +606,10 @@ export async function editorTool(
         pen: ["points", "stroke", "strokeWidth", "pathWidth", "pathHeight"],
       };
 
-      const allowed = new Set([...base, ...byKind[before.kind ?? "frame"]]);
+      const allowed = new Set(
+        before.kind === "page" ? ["name"] : [...base, ...byKind[before.kind ?? "frame"]],
+      );
+
       for (const key of Object.keys(props))
         if (!allowed.has(key))
           throw new Error(

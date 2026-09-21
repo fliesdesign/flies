@@ -54,6 +54,16 @@ const provider: AuthProvider = {
     return user ? { user, sealedSession: id } : null;
   },
   async revoke() {},
+  async listFactors() {
+    return [];
+  },
+  async enrollFactor() {
+    throw new Error("unused");
+  },
+  async verifyEnrollment() {
+    return false;
+  },
+  async deleteFactor() {},
 };
 
 const blobs = new Map<string, unknown>();

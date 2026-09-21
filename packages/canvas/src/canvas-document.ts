@@ -67,6 +67,11 @@ export type CanvasFrameNode = CanvasNodeBase & {
   readonly layout?: CanvasLayout;
   readonly htmlStyles?: string;
 };
+/**
+ * A page is a separate canvas within one document. Pages are the only root nodes, hold no
+ * geometry of their own, and never paint; every other node lives inside exactly one page.
+ */
+export type CanvasPage = CanvasNodeBase & { readonly kind: "page" };
 export type CanvasGroup = CanvasNodeBase & { readonly kind: "group" };
 export type CanvasRectangle = CanvasNodeBase & {
   readonly kind: "rectangle";
@@ -99,6 +104,7 @@ export type CanvasPen = CanvasNodeBase & {
   readonly pathHeight: number;
 };
 export type CanvasFrame =
+  | CanvasPage
   | CanvasFrameNode
   | CanvasGroup
   | CanvasRectangle
@@ -233,6 +239,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         first.pathHeight === second.pathHeight &&
         pointsEqual(first.points, second.points)
       );
+    case "page":
     case "group":
       return true;
     default:
@@ -304,7 +311,10 @@ function isShadows(value: unknown): value is readonly CanvasShadow[] {
 function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
   if (typeof value !== "object" || value === null) return false;
   const frame = value as Record<string, unknown>;
-  const minimumSize = frame.kind === undefined || frame.kind === "frame" ? 40 : 1;
+
+  const minimumSize =
+    frame.kind === "page" ? 0 : frame.kind === undefined || frame.kind === "frame" ? 40 : 1;
+
   if (
     typeof frame.id !== "string" ||
     typeof frame.name !== "string" ||
@@ -353,6 +363,15 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
         (frame.htmlStyles === undefined ||
           (typeof frame.htmlStyles === "string" && frame.htmlStyles.length <= 50_000)) &&
         (frame.layout === undefined || isCanvasLayout(frame.layout))
+      );
+    case "page":
+      // Pages never paint, so neutral bounds keep every descendant's world transform intact.
+      return (
+        frame.parentId === undefined &&
+        frame.x === 0 &&
+        frame.y === 0 &&
+        frame.width === 0 &&
+        frame.height === 0
       );
     case "group":
       return true;
@@ -521,6 +540,18 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         pathWidth: frame.pathWidth,
         pathHeight: frame.pathHeight,
       });
+    case "page":
+      return Object.freeze({
+        id: frame.id,
+        name: frame.name,
+        ...(frame.locked !== undefined && { locked: frame.locked }),
+        ...(frame.hidden !== undefined && { hidden: frame.hidden }),
+        kind: frame.kind,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      });
     case "group":
       return Object.freeze({ ...base, kind: frame.kind });
     default:
@@ -560,7 +591,10 @@ function hierarchyFor(
       if (
         !parent ||
         parent.id === id ||
-        (parent.kind && parent.kind !== "frame" && parent.kind !== "group")
+        (parent.kind &&
+          parent.kind !== "frame" &&
+          parent.kind !== "group" &&
+          parent.kind !== "page")
       ) {
         return undefined;
       }
@@ -611,6 +645,11 @@ export class CanvasDocument {
   private past: DocumentOperation[] = [];
   private future: DocumentOperation[] = [];
   private gesture: Map<string, CanvasFrame> | undefined;
+  private activePageId: string | undefined;
+  private pageListeners = new Set<Listener>();
+  private sceneIds: readonly string[] = EMPTY_IDS;
+  private sceneSource: readonly string[] | undefined;
+  private scenePage: string | undefined;
 
   constructor(initial: readonly CanvasFrame[] = [], theme: CanvasTheme = EMPTY_THEME) {
     this.theme = normalizeTheme(theme);
@@ -631,6 +670,7 @@ export class CanvasDocument {
     this.children = hierarchy.children;
     this.order = new Map(this.ids.map((id, index) => [id, index]));
     this.snapshot = Object.freeze({ ids: this.ids, revision: 0, canUndo: false, canRedo: false });
+    this.activePageId = this.getPageIds()[0];
 
     const layouts = [...this.frames.values()].filter(
       (node) => (!node.kind || node.kind === "frame") && node.layout,
@@ -704,7 +744,83 @@ export class CanvasDocument {
 
   getIds = () => this.ids;
   getSnapshot = () => this.snapshot;
-  getChildren = (parentId?: string): readonly string[] => this.children.get(parentId) ?? EMPTY_IDS;
+  /**
+   * Root-level requests resolve against the active page, so layers, rendering, hit testing
+   * and agents all see one canvas at a time. Pages themselves come from getPageIds.
+   */
+  getChildren = (parentId?: string): readonly string[] =>
+    this.children.get(parentId === undefined ? this.activePageId : parentId) ?? EMPTY_IDS;
+
+  /** Document order; empty for single-canvas documents that predate pages. */
+  getPageIds = (): readonly string[] =>
+    (this.children.get(undefined) ?? EMPTY_IDS).filter(
+      (id) => this.frames.get(id)?.kind === "page",
+    );
+
+  getActivePageId = () => this.activePageId;
+
+  /** Viewing state only: it is never recorded in history and never sent to collaborators. */
+  setActivePage = (pageId: string | undefined): boolean => {
+    const next =
+      pageId !== undefined && this.frames.get(pageId)?.kind === "page" ? pageId : undefined;
+
+    if (next === this.activePageId) return false;
+    this.endGesture();
+    this.activePageId = next;
+    // A new snapshot identity is what makes subscribed views re-read the scoped tree.
+    this.snapshot = Object.freeze({
+      ids: this.ids,
+      revision: this.snapshot.revision + 1,
+      canUndo: this.past.length > 0,
+      canRedo: this.future.length > 0,
+    });
+    this.pageListeners.forEach((listener) => listener());
+    this.listeners.forEach((listener) => listener());
+
+    return true;
+  };
+
+  /** Painted ids in paint order: the active page's subtree, without the page node itself. */
+  getSceneIds = (): readonly string[] => {
+    if (this.sceneSource === this.ids && this.scenePage === this.activePageId) return this.sceneIds;
+    this.sceneSource = this.ids;
+    this.scenePage = this.activePageId;
+
+    if (this.activePageId === undefined) {
+      // Documents without pages keep their original flat root list.
+      this.sceneIds = this.getPageIds().length
+        ? EMPTY_IDS
+        : this.ids.filter((id) => this.frames.get(id)!.kind !== "page");
+
+      return this.sceneIds;
+    }
+
+    const inside = new Set<string>([this.activePageId]);
+    const ids: string[] = [];
+
+    // Parent-before-child order means one pass resolves the whole subtree.
+    for (const id of this.ids) {
+      const parentId = this.frames.get(id)!.parentId;
+      if (parentId === undefined || !inside.has(parentId)) continue;
+      inside.add(id);
+      ids.push(id);
+    }
+
+    this.sceneIds = Object.freeze(ids);
+
+    return this.sceneIds;
+  };
+
+  getSceneFrames = (): CanvasFrame[] => this.getSceneIds().map((id) => this.frames.get(id)!);
+
+  subscribeActivePage = (listener: Listener) => {
+    this.pageListeners.add(listener);
+
+    return () => {
+      this.pageListeners.delete(listener);
+    };
+  };
+
   /** Includes derived layout changes so viewport culling can use their live preview bounds. */
   getPreviewIds = (): Iterable<string> => this.gesture?.keys() ?? EMPTY_IDS;
 
@@ -912,7 +1028,19 @@ export class CanvasDocument {
     const seen = new Set<string>();
     const patches: FramePatch[] = [];
 
-    for (const frame of add) {
+    // New artwork belongs to the canvas being edited, unless this same transaction
+    // replaces the document and removes that page along with everything else.
+    const home =
+      this.activePageId !== undefined && !remove.includes(this.activePageId)
+        ? this.activePageId
+        : undefined;
+
+    for (const raw of add) {
+      const frame =
+        raw.parentId === undefined && raw.kind !== "page" && home !== undefined
+          ? ({ ...raw, parentId: home } as CanvasFrame)
+          : raw;
+
       if (seen.has(frame.id) || this.frames.has(frame.id) || !isFrame(frame)) return false;
       seen.add(frame.id);
       patches.push({ id: frame.id, before: undefined, after: immutableFrame(frame) });
@@ -1175,10 +1303,24 @@ export class CanvasDocument {
     if (targetId && subtree.has(targetId)) return false;
     if (
       placement === "inside" &&
-      (!target || (target.kind && target.kind !== "frame" && target.kind !== "group"))
+      (!target ||
+        (target.kind &&
+          target.kind !== "frame" &&
+          target.kind !== "group" &&
+          target.kind !== "page"))
     )
       return false;
-    const parentId = placement === "inside" ? targetId! : target?.parentId;
+    const movingPages = roots.every((id) => this.frames.get(id)!.kind === "page");
+
+    // Dropping onto empty canvas means the page being edited, never the page list itself.
+    const parentId =
+      placement === "inside"
+        ? targetId!
+        : target
+          ? target.parentId
+          : movingPages
+            ? undefined
+            : this.activePageId;
 
     const isLocked = (id: string | undefined) => {
       let node = id ? this.frames.get(id) : undefined;
@@ -1216,7 +1358,7 @@ export class CanvasDocument {
     const hierarchy = hierarchyFor(next, prepared.afterIds ?? this.ids);
     if (!hierarchy) return false;
     const moving = new Set(roots);
-    const siblings = this.getChildren(parentId).filter((id) => !moving.has(id));
+    const siblings = (this.children.get(parentId) ?? EMPTY_IDS).filter((id) => !moving.has(id));
     // Keep a disappearing empty group as an insertion anchor until after the splice.
     const anchor = targetId ? siblings.indexOf(targetId) : -1;
 
@@ -1612,6 +1754,8 @@ export class CanvasDocument {
   }
 
   private notifyCommit(operation: DocumentOperation) {
+    if (this.activePageId === undefined || this.frames.get(this.activePageId)?.kind !== "page")
+      this.activePageId = this.getPageIds()[0];
     this.snapshot = Object.freeze({
       ids: this.ids,
       revision: this.snapshot.revision + 1,

@@ -67,7 +67,7 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 28);
+    assert_eq!(tools.len(), 32);
     assert!(tools.iter().any(|tool| tool["name"] == "get_request"));
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
@@ -522,7 +522,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 28);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 32);
 }
 
 #[tokio::test]
@@ -779,6 +779,42 @@ fn update_schema_describes_geometry_clipping_and_layout() {
     for name in ["fit_node", "set_styles", "preview_html", "close_preview"] {
         assert!(catalog.iter().any(|tool| tool["name"] == name));
     }
+}
+
+#[test]
+fn page_tools_scope_every_edit_to_one_canvas() {
+    let catalog = tools::catalog();
+
+    for name in ["list_pages", "create_page", "set_page", "delete_page"] {
+        let tool = catalog
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is missing from the catalog"));
+        // Page tools address a file like every other editor tool.
+        assert_eq!(tool["inputSchema"]["properties"]["fileId"]["type"], "string");
+    }
+
+    let set = catalog
+        .iter()
+        .find(|tool| tool["name"] == "set_page")
+        .unwrap();
+    assert_eq!(set["inputSchema"]["required"], json!(["pageId"]));
+    assert_eq!(set["inputSchema"]["properties"]["pageId"]["type"], "string");
+    let delete = catalog
+        .iter()
+        .find(|tool| tool["name"] == "delete_page")
+        .unwrap();
+    assert_eq!(delete["inputSchema"]["required"], json!(["pageId"]));
+    let create = catalog
+        .iter()
+        .find(|tool| tool["name"] == "create_page")
+        .unwrap();
+    // A name is optional; the editor falls back to the next free "Page N".
+    assert_eq!(create["inputSchema"]["required"], json!([]));
+    assert_eq!(create["inputSchema"]["properties"]["name"]["type"], "string");
+    assert!(tools::GUIDE.contains("each page is a separate canvas"));
+    assert!(tools::GUIDE.contains("An artboard is a frame on a page, not a page."));
+    assert!(!tools::GUIDE.contains("PAGE_ID"));
 }
 
 #[test]

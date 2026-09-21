@@ -29,9 +29,11 @@ Set `FLIES_MCP_PORT` before launching Flies to change the port. The generated co
 | -------------------------------------------- | ----------------------------------------------------------------------- |
 | `get_guide`                                  | Required first call: design workflow and supported HTML/CSS             |
 | `list_files`, `create_file`, `open_file`     | Discover or open local documents                                        |
-| `get_basic_info`                             | Active document, root nodes and camera                                  |
+| `get_basic_info`                             | Active document, pages, active page roots and camera                    |
 | `get_tree`, `get_node_info`, `get_selection` | Inspect layers and selection                                            |
-| `create_artboard`                            | Create an editable frame                                                |
+| `list_pages`, `set_page`                     | List the document's canvases and choose the active one                  |
+| `create_page`, `delete_page`                 | Add or remove a canvas                                                  |
+| `create_artboard`                            | Create an editable frame on the active page                             |
 | `write_source`                               | Convert HTML, React/JSX or TSX snippets using the canvas paste importer |
 | `write_html`                                 | Convert Tailwind or inline-styled HTML into editable layers             |
 | `update_node`, `delete_nodes`                | Modify existing nodes                                                   |
@@ -123,9 +125,24 @@ Tokens are available as `var(--brand)`, `var(--body-font)`, and `var(--space-md)
 `write_html` and `preview_html`. HTML import resolves CSS to literal values; call
 `apply_tokens` on imported nodes to retain live links.
 
-### Build a page across calls
+### Pages
 
-Create the page shell first, then build one semantic section per `write_html` call. Every successful call appears in the editor and saves independently. Use `data-name` and explicit dimensions for section placeholders; named or semantic containers at least 40px wide and high remain frames even when empty.
+A file holds one or more pages, and each page is a separate canvas with its own artwork.
+Every other tool reads and writes the active page only. `get_basic_info` and `list_pages`
+report the pages and `activePageId`; `set_page` switches canvases, `create_page` adds one
+and makes it active, and `delete_page` removes a page with all of its layers as a single
+undoable operation. A file always keeps at least one page.
+
+Use separate pages for genuinely separate surfaces, and separate artboards within one page
+for screens that belong together. An artboard is a frame on a page, not a page.
+
+Files saved before pages existed open with their artwork inside one `Default` page. That
+migration is derived from the file id, so collaborators agree on the page without a
+conflicting edit.
+
+### Build an artboard across calls
+
+Create the artboard shell first, then build one semantic section per `write_html` call. Every successful call appears in the editor and saves independently. Use `data-name` and explicit dimensions for section placeholders; named or semantic containers at least 40px wide and high remain frames even when empty.
 
 Plan typography, line heights, container widths and spacing before importing. Desktop
 and mobile designs need separate artboards and imports at their actual viewport widths.
@@ -134,11 +151,11 @@ responsive CSS. Keep complete copy and fix its layout when text is clipped; do n
 remove words or pad text with spaces to compensate. Check screenshots for missing
 words, overlap, wrapping, clipping, alignment and readability after each section.
 
-For example, call `create_artboard` with `{"name":"Home","width":960,"height":600}`. Use its returned ID as `PAGE_ID` in a shell call:
+For example, call `create_artboard` with `{"name":"Home","width":960,"height":600}`. Use its returned ID as `BOARD_ID` in a shell call:
 
 ```json
 {
-  "parentId": "PAGE_ID",
+  "parentId": "BOARD_ID",
   "html": "<header data-name='Header' style='width:960px;height:64px'></header><main data-name='Search' style='width:960px;height:480px'></main><footer data-name='Footer' style='width:960px;height:56px'></footer>"
 }
 ```
@@ -152,7 +169,7 @@ Read the returned `containers` to get the real IDs for Header, Search and Footer
 }
 ```
 
-Inspect it with `get_screenshot({"nodeId":"PAGE_ID"})`, then populate Search separately:
+Inspect it with `get_screenshot({"nodeId":"BOARD_ID"})`, then populate Search separately:
 
 ```json
 {
@@ -215,14 +232,14 @@ Sizes and positions remain a measured snapshot. Use `set_styles` to retain CSS r
 
 ```js
 set_styles({
-  nodeId: PAGE_ID,
+  nodeId: BOARD_ID,
   css: ":root { --space:24px; font-family:Inter; color:#172033; } .section { padding:var(--space); }",
 });
 write_html({
   parentId: SECTION_ID,
   html: "<section class='section'><h2>Shared typography</h2></section>",
 });
-fit_node({ nodeId: PAGE_ID, axis: "height", padding: 24, clipContent: true });
+fit_node({ nodeId: BOARD_ID, axis: "height", padding: 24, clipContent: true });
 ```
 
 Styles are stored with the frame and survive undo, copying and save/reopen. They affect future imports and previews; existing measured native layers are unchanged. Set empty CSS to clear a frame's defaults. Nested frame styles override ancestor defaults. Shared CSS must be self-contained; fonts load by family name.
@@ -272,7 +289,7 @@ update_node({
 
 ### Interactive prototypes
 
-`preview_html({nodeId: PAGE_ID, html: "...", css: "...", width: 1280, height: 800})` opens an opaque-origin sandbox with gradients, hover/focus, CSS animations, Tailwind and inline JavaScript. `nodeId` inherits saved CSS; extra CSS is preview-only. Scripts cannot access the editor, Tauri or editor storage. Fetch, external scripts/assets and form submissions are blocked, with Google Fonts allowed. The preview is transient and does not create native layers. Download HTML keeps a standalone copy; `close_preview` returns to canvas editing. `get_screenshot` continues to capture native canvas layers, not this interactive preview.
+`preview_html({nodeId: BOARD_ID, html: "...", css: "...", width: 1280, height: 800})` opens an opaque-origin sandbox with gradients, hover/focus, CSS animations, Tailwind and inline JavaScript. `nodeId` inherits saved CSS; extra CSS is preview-only. Scripts cannot access the editor, Tauri or editor storage. Fetch, external scripts/assets and form submissions are blocked, with Google Fonts allowed. The preview is transient and does not create native layers. Download HTML keeps a standalone copy; `close_preview` returns to canvas editing. `get_screenshot` continues to capture native canvas layers, not this interactive preview.
 
 `write_html` supports three scopes, each applied in one undoable transaction:
 

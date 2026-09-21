@@ -16,6 +16,7 @@ export * from "./canvas-layout";
 export * from "./canvas-move";
 export * from "./canvas-operations";
 export * from "./canvas-outline";
+export * from "./canvas-pages";
 export * from "./canvas-project";
 export * from "./canvas-properties";
 export * from "./canvas-render-node";

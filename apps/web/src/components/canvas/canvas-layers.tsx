@@ -1,7 +1,8 @@
-import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
+import type { CanvasDocument, CanvasFrame, CanvasPage } from "@flies/canvas";
 import { LayerHoverExpansion } from "@flies/canvas";
 import {
   ChevronRightIcon,
+  FileIcon,
   FrameIcon,
   EyeIcon,
   EyeOffIcon,
@@ -31,6 +32,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { loadWorkspaceSession, patchWorkspaceSession } from "@/lib/workspace-session";
 
 import { revealLayerSelection, type LayerExpansion } from "./canvas-layer-expansion";
+import { CanvasNameEditor } from "./canvas-name-editor";
+import { CanvasPages } from "./canvas-pages";
 import { CanvasThemePanel } from "./canvas-theme-panel";
 import "./canvas-layers.css";
 
@@ -51,6 +54,12 @@ type CanvasLayersProps = {
   ) => void;
   onHover: (id: string | null) => void;
   onCollapse: () => void;
+  pages: readonly CanvasPage[];
+  activePageId: string | undefined;
+  onSelectPage: (id: string) => void;
+  onAddPage: () => void;
+  onRenamePage: (id: string, name: string) => void;
+  onRemovePage: (id: string) => void;
 };
 
 type LayerRow = {
@@ -95,6 +104,8 @@ function SvgLayerIcon({ className }: { className?: string; size?: number; stroke
 }
 
 const NODE_ICONS = {
+  // Pages are listed above the tree rather than inside it, but the map stays total.
+  page: FileIcon,
   frame: FrameIcon,
   group: GroupIcon,
   rectangle: SquareIcon,
@@ -148,51 +159,6 @@ function layerRows(document: CanvasDocument, expanded: ReadonlySet<string>): Lay
   return rows;
 }
 
-function LayerNameEditor({
-  name,
-  onSave,
-  onCancel,
-}: {
-  name: string;
-  onSave: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const finished = useRef(false);
-  const [value, setValue] = useState(name);
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
-
-  const finish = (cancel: boolean) => {
-    if (finished.current) return;
-    finished.current = true;
-    if (cancel || !value.trim()) onCancel();
-    else onSave(value.trim());
-  };
-
-  return (
-    <input
-      ref={inputRef}
-      className="canvas-layer-name-input"
-      aria-label="Layer name"
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onClick={(event) => event.stopPropagation()}
-      onBlur={() => finish(false)}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-
-        if (event.key === "Enter" || event.key === "Escape") {
-          event.preventDefault();
-          finish(event.key === "Escape");
-        }
-      }}
-    />
-  );
-}
-
 /** The layer list follows committed changes; dragging geometry does not rebuild it. */
 export const CanvasLayers = memo(function CanvasLayers({
   document,
@@ -204,6 +170,12 @@ export const CanvasLayers = memo(function CanvasLayers({
   onMove,
   onHover,
   onCollapse,
+  pages,
+  activePageId,
+  onSelectPage,
+  onAddPage,
+  onRenamePage,
+  onRemovePage,
 }: CanvasLayersProps) {
   const snapshot = useSyncExternalStore(
     document.subscribe,
@@ -588,6 +560,14 @@ export const CanvasLayers = memo(function CanvasLayers({
           </button>
         </header>
         <TabsContent value="design" className="canvas-sidebar-design" keepMounted>
+          <CanvasPages
+            pages={pages}
+            activePageId={activePageId}
+            onSelect={onSelectPage}
+            onAdd={onAddPage}
+            onRename={onRenamePage}
+            onRemove={onRemovePage}
+          />
           {rows.length === 0 ? (
             <p className="canvas-layers-empty">Your layers will appear here.</p>
           ) : (
@@ -782,8 +762,9 @@ export const CanvasLayers = memo(function CanvasLayers({
                         aria-hidden="true"
                       />
                       {editingId === node.id ? (
-                        <LayerNameEditor
+                        <CanvasNameEditor
                           name={node.name}
+                          label="Layer name"
                           onSave={(name) => finishRename(node.id, name)}
                           onCancel={() => finishRename(node.id)}
                         />

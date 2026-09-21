@@ -1,6 +1,8 @@
 import {
   CanvasDocument,
+  DEFAULT_PAGE_NAME,
   EMPTY_THEME,
+  ensureCanvasPages,
   unpackCanvasProject,
   MAX_PROJECT_BYTES,
   type CanvasFrame,
@@ -66,8 +68,18 @@ export const createFile = (
   theme: CanvasTheme = EMPTY_THEME,
 ) => post<DesignFile>("/api/files", { name, nodes, theme });
 
+/** Derived from the file id so collaborators migrating the same file agree on the page. */
+export const migratedPageId = (fileId: string) => `page-${fileId}`;
+
+export function withPages(file: DesignFile): DesignFile {
+  return {
+    ...file,
+    nodes: ensureCanvasPages(file.nodes, DEFAULT_PAGE_NAME, () => migratedPageId(file.id)),
+  };
+}
+
 export async function openFile(id: string) {
-  const file = await api<DesignFile>(`/api/files/${id}`);
+  const file = withPages(await api<DesignFile>(`/api/files/${id}`));
   file.nodes = new CanvasDocument(file.nodes, file.theme).getCommittedFrames();
 
   return file;

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Account } from "@/lib/api";
 
+import { AccountMfa } from "./account-mfa";
+import { AccountPasskeys } from "./account-passkeys";
 import { AppearanceSettings } from "./appearance-settings";
 import { UpdateSettings } from "./update-settings";
 import { BillingSettings } from "./workspace-billing";
@@ -75,7 +77,7 @@ export function WorkspaceSettings({
     <Tabs
       defaultValue={
         typeof window !== "undefined" &&
-        ["billing", "members"].includes(window.location.hash.slice(1))
+        ["billing", "members", "account"].includes(window.location.hash.slice(1))
           ? window.location.hash.slice(1)
           : "appearance"
       }
@@ -140,6 +142,8 @@ export function WorkspaceSettings({
               </dd>
             </div>
           </dl>
+          <AccountMfa />
+          <AccountPasskeys />
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

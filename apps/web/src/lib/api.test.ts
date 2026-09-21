@@ -122,6 +122,16 @@ describe("web sign-in routing", () => {
     expect(assign).toHaveBeenCalledWith("https://api.example.test/auth/login?returnTo=%2Frecents");
     expect(native.invoke).not.toHaveBeenCalled();
   });
+  it("opens AuthKit passkey enrollment from account settings", async () => {
+    native.isTauri.mockReturnValue(false);
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { pathname: "/settings", hash: "#account", assign } });
+    const { signIn } = await import("./api");
+    await signIn(false, { returnTo: "/settings#account", passkey: true });
+    expect(assign).toHaveBeenCalledWith(
+      "https://api.example.test/auth/login?returnTo=%2Fsettings%23account&passkey=1",
+    );
+  });
   it("keeps the editor open while signing in in another tab", async () => {
     native.isTauri.mockReturnValue(false);
     vi.useFakeTimers();

@@ -35,7 +35,9 @@ async function paste(page: Page, text: string, html = "") {
 }
 
 async function frames(page: Page) {
-  return page.evaluate(() => Reflect.get(window, "sourceFixture").controls.document.getFrames());
+  return page.evaluate(() =>
+    Reflect.get(window, "sourceFixture").controls.document.getSceneFrames(),
+  );
 }
 
 test("SWC loads only for JSX, shares initialization across pastes, and retries a failed WASM fetch", async ({
@@ -103,7 +105,7 @@ test("HTML-only paste measures embedded CSS, centers editable layers and shares 
     const info = await editorTool(controls, "get_node_info", { nodeId: root.id });
     const saved = JSON.stringify(controls.document.getCommittedFrames());
     await editorTool(controls, "undo", {});
-    const empty = !controls.document.getIds().length;
+    const empty = !controls.document.getSceneIds().length;
     await editorTool(controls, "redo", {});
 
     return {
@@ -247,7 +249,7 @@ test("write_source validates, applies and replaces in the same document with war
     };
 
     const preview = await call("write_source", { ...args, validateOnly: true });
-    const empty = doc.getIds().length === 0;
+    const empty = doc.getSceneIds().length === 0;
     const applied = await call("write_source", args);
     const root = doc.getFrame(applied.roots[0].id);
     const saved = JSON.stringify(doc.getCommittedFrames());

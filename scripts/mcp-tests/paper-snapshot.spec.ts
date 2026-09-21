@@ -41,7 +41,16 @@ async function paste(page: Page, source: string, options: { text?: string; image
 }
 
 async function frames(page: Page): Promise<CanvasFrame[]> {
-  return page.evaluate(() => Reflect.get(window, "snapshotFixture").controls.document.getFrames());
+  return page.evaluate(() =>
+    Reflect.get(window, "snapshotFixture").controls.document.getSceneFrames(),
+  );
+}
+
+/** Top level of the page being edited: its parent is the page node, which is not in this list. */
+function canvasRoots(nodes: readonly CanvasFrame[]) {
+  const ids = new Set(nodes.map((node) => node.id));
+
+  return nodes.filter((node) => !node.parentId || !ids.has(node.parentId));
 }
 
 async function routeSnapshotImages(page: Page) {
@@ -178,7 +187,7 @@ test("HTML clipboard paste imports the supplied capture before plain text or an 
   );
   await expect.poll(async () => (await frames(page)).length).toBeGreaterThan(5);
   const imported = await frames(page);
-  expect(imported.filter((node) => !node.parentId)).toHaveLength(1);
+  expect(canvasRoots(imported)).toHaveLength(1);
   expect(imported[0]).toMatchObject({ name: "Paper snapshot", width: 1544, height: 56 });
   expect(
     imported.some((node) => node.kind === "text" && node.text === "Flattened clipboard fallback"),
@@ -251,9 +260,7 @@ test("the context-menu Paste command reads text/html from the Clipboard API", as
     .locator(`${fixture} .design-canvas`)
     .click({ button: "right", position: { x: 320, y: 220 } });
   await page.getByRole("menuitem", { name: /^Paste\s*⌘/ }).click();
-  await expect
-    .poll(async () => (await frames(page)).filter((node) => !node.parentId))
-    .toHaveLength(1);
+  await expect.poll(async () => canvasRoots(await frames(page))).toHaveLength(1);
   const imported = await frames(page);
   expect(imported[0]).toMatchObject({
     name: "Paper snapshot",
@@ -328,9 +335,7 @@ test("a real HTML clipboard round-trip preserves the Paper wrapper and imports t
   }, smallSnapshot);
   await page.locator(`${fixture} .design-canvas`).focus();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+v" : "Control+v");
-  await expect
-    .poll(async () => (await frames(page)).filter((node) => !node.parentId))
-    .toHaveLength(1);
+  await expect.poll(async () => canvasRoots(await frames(page))).toHaveLength(1);
   expect((await frames(page))[0]).toMatchObject({ name: "Paper snapshot", width: 240, height: 80 });
 });
 

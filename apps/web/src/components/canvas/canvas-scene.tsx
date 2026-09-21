@@ -13,6 +13,7 @@ import {
   roundedClipsContainPoint,
   type CanvasClipBounds,
 } from "@flies/canvas";
+import { isCanvasRoot } from "@flies/canvas";
 import { CanvasRenderNodeStore } from "@flies/canvas";
 import { CanvasScene } from "@flies/canvas";
 import {
@@ -163,7 +164,7 @@ const FrameNode = memo(function FrameNode({
   if (!frame || frame.hidden) return null;
   const isFrame = frame.kind === undefined || frame.kind === "frame";
   const isGroup = frame.kind === "group";
-  const isRootContainer = (isFrame || isGroup) && !frame.parentId;
+  const isRootContainer = (isFrame || isGroup) && isCanvasRoot(document, frame);
   const locked = parentLocked || Boolean(frame.locked);
   const selected = selectedIds.has(id);
 

@@ -100,16 +100,19 @@ function preview(nodes: CanvasFrame[]) {
     "text",
   ]);
 
-  return nodes
-    .filter((node) => !node.hidden)
-    .slice(0, 80)
-    .map((node) =>
-      Object.fromEntries(
-        Object.entries(node)
-          .filter(([key]) => fields.has(key))
-          .map(([key, value]) => [key, key === "text" ? String(value).slice(0, 160) : value]),
-      ),
-    );
+  return (
+    nodes
+      // Pages hold no geometry, so they would only consume thumbnail slots.
+      .filter((node) => !node.hidden && node.kind !== "page")
+      .slice(0, 80)
+      .map((node) =>
+        Object.fromEntries(
+          Object.entries(node)
+            .filter(([key]) => fields.has(key))
+            .map(([key, value]) => [key, key === "text" ? String(value).slice(0, 160) : value]),
+        ),
+      )
+  );
 }
 
 function notFound(): never {

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { S3Client } from "bun";
 import { eq, inArray } from "drizzle-orm";
+import { HTTPException } from "hono/http-exception";
 import { ulid } from "ulid";
 
 import { createApp } from "../src/app";
@@ -27,8 +28,14 @@ const identities = ["alice", "bob"].map((name): Identity => ({
 
 let available = true;
 let uploadsFail = false;
+let mfaCode = "123456";
 
 const provisioned = new Map<string, string>();
+
+const mfaFactors = new Map<
+  string,
+  { id: string; createdAt: string; challengeId: string; code: string }[]
+>();
 
 const provider: AuthProvider = {
   async ensureOrganization(workspace) {
@@ -38,7 +45,8 @@ const provider: AuthProvider = {
 
     return id;
   },
-  authorizationUrl: (state) => `https://example.com/authorize?state=${state}`,
+  authorizationUrl: (state, _verifier, options) =>
+    `https://example.com/authorize?state=${state}${options?.prompt ? `&prompt=${options.prompt}` : ""}`,
   async exchange(code) {
     const user = identities.find((u) => u.id === code);
     if (!user) throw new Error("Invalid code");
@@ -51,6 +59,46 @@ const provider: AuthProvider = {
     return available && user ? { user, sealedSession: session } : null;
   },
   async revoke() {},
+  async listFactors(userId) {
+    return (mfaFactors.get(userId) ?? []).map(({ id, createdAt }) => ({ id, createdAt }));
+  },
+  async enrollFactor(user) {
+    if ((mfaFactors.get(user.id) ?? []).length)
+      throw new HTTPException(409, { message: "Two-factor authentication is already on." });
+
+    const factor = {
+      id: `auth_factor_${ulid()}`,
+      createdAt: new Date().toISOString(),
+      challengeId: `auth_challenge_${ulid()}`,
+      code: mfaCode,
+    };
+
+    mfaFactors.set(user.id, [factor]);
+
+    return {
+      factorId: factor.id,
+      challengeId: factor.challengeId,
+      qrCode: "data:image/png;base64,AQID",
+      secret: "JBSWY3DPEHPK3PXP",
+      uri: `otpauth://totp/Flies:${user.email}?secret=JBSWY3DPEHPK3PXP&issuer=Flies`,
+    };
+  },
+  async verifyEnrollment({ userId, factorId, challengeId, code }) {
+    const factor = (mfaFactors.get(userId) ?? []).find(
+      (item) => item.id === factorId && item.challengeId === challengeId,
+    );
+
+    if (!factor) throw new HTTPException(404, { message: "Authenticator is not available." });
+
+    return code === factor.code;
+  },
+  async deleteFactor(userId, factorId) {
+    const current = mfaFactors.get(userId) ?? [];
+    const next = current.filter((item) => item.id !== factorId);
+    if (next.length === current.length)
+      throw new HTTPException(404, { message: "Authenticator is not available." });
+    mfaFactors.set(userId, next);
+  },
 };
 
 const { app, auth } = createApp(
@@ -313,6 +361,61 @@ describe("Neon + Railway revision API", () => {
       );
     }
   }, 20_000);
+  test("passkey sign-in returns to account settings and asks AuthKit to reauthenticate", async () => {
+    const login = await app.request("/auth/login?returnTo=%2Fsettings%23account&passkey=1");
+    expect(new URL(login.headers.get("Location")!).searchParams.get("prompt")).toBe("login");
+    const state = new URL(login.headers.get("Location")!).searchParams.get("state")!;
+    const cookie = login.headers.get("Set-Cookie")!.split(";")[0];
+
+    const callback = await app.request(`/auth/callback?state=${state}&code=${identities[0].id}`, {
+      headers: { Cookie: cookie },
+    });
+
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("Location")).toBe(
+      new URL("/settings#account", config.WEB_URL).href,
+    );
+  }, 20_000);
+  test("users can enroll, confirm, and remove an authenticator", async () => {
+    expect((await (await request("/api/account/mfa")).json()).enrolled).toBe(false);
+    const enrollment = await (await request("/api/account/mfa", 0, {})).json();
+
+    expect(enrollment.qrCode.startsWith("data:image/png;base64,")).toBe(true);
+    expect(enrollment.secret).toBe("JBSWY3DPEHPK3PXP");
+    expect((await request("/api/account/mfa", 0, {})).status).toBe(409);
+    expect(
+      (
+        await request("/api/account/mfa/verify", 0, {
+          factorId: enrollment.factorId,
+          challengeId: enrollment.challengeId,
+          code: "000000",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request("/api/account/mfa/verify", 1, {
+          factorId: enrollment.factorId,
+          challengeId: enrollment.challengeId,
+          code: "123456",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await (
+          await request("/api/account/mfa/verify", 0, {
+            factorId: enrollment.factorId,
+            challengeId: enrollment.challengeId,
+            code: "123456",
+          })
+        ).json()
+      ).enrolled,
+    ).toBe(true);
+    expect((await (await request("/api/account/mfa")).json()).enrolled).toBe(true);
+    expect((await (await request("/api/account/mfa/remove", 0, {})).json()).enrolled).toBe(false);
+    expect((await (await request("/api/account/mfa")).json()).enrolled).toBe(false);
+  });
   test("logout invalidates the local session", async () => {
     expect((await request("/auth/logout", 0, {})).status).toBe(200);
     expect((await request("/api/files")).status).toBe(401);

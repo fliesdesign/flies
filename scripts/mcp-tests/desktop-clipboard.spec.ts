@@ -48,7 +48,7 @@ async function mountDesktopClipboard(page: Page, fail = false) {
 
 async function importedRoot(page: Page) {
   return page.evaluate(
-    () => Reflect.get(window, "snapshotFixture").controls.document.getFrames()[0],
+    () => Reflect.get(window, "snapshotFixture").controls.document.getSceneFrames()[0],
   );
 }
 

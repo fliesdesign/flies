@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { WorkOS } from "@workos-inc/node";
+import { BadRequestException, NotFoundException, WorkOS } from "@workos-inc/node";
 import { and, eq, gt, lt, isNull, isNotNull } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -27,11 +27,28 @@ export type AuthEnv = {
     sessionHash: string;
   };
 };
+export type MfaFactor = { id: string; createdAt: string };
+export type MfaEnrollment = {
+  factorId: string;
+  challengeId: string;
+  qrCode: string;
+  secret: string;
+  uri: string;
+};
 export interface AuthProvider extends OrganizationProvider {
-  authorizationUrl(state: string, verifier: string): string;
+  authorizationUrl(state: string, verifier: string, options?: { prompt?: string }): string;
   exchange(code: string, verifier: string): Promise<{ user: Identity; sealedSession: string }>;
   verify(sealedSession: string): Promise<{ user: Identity; sealedSession: string } | null>;
   revoke(sealedSession: string): Promise<void>;
+  listFactors(userId: string): Promise<MfaFactor[]>;
+  enrollFactor(user: Identity): Promise<MfaEnrollment>;
+  verifyEnrollment(input: {
+    userId: string;
+    factorId: string;
+    challengeId: string;
+    code: string;
+  }): Promise<boolean>;
+  deleteFactor(userId: string, factorId: string): Promise<void>;
 }
 
 const identity = (user: {
@@ -56,15 +73,84 @@ export function workosProvider(config: Config): AuthProvider {
       cookiePassword: config.WORKOS_COOKIE_PASSWORD,
     });
 
+  async function totpFactors(userId: string) {
+    const factors = await workos.multiFactorAuth.listUserAuthFactors({ userId, limit: 100 });
+
+    return factors.data.filter((factor) => factor.type === "totp");
+  }
+
+  async function ownedFactor(userId: string, factorId: string) {
+    const factor = (await totpFactors(userId)).find((item) => item.id === factorId);
+    if (!factor) throw new HTTPException(404, { message: "Authenticator is not available." });
+
+    return factor;
+  }
+
   return {
     ...workosOrganizations(workos),
-    authorizationUrl(state, verifier) {
+    async listFactors(userId) {
+      return (await totpFactors(userId)).map((factor) => ({
+        id: factor.id,
+        createdAt: factor.createdAt,
+      }));
+    },
+    async enrollFactor(user) {
+      if ((await totpFactors(user.id)).length)
+        throw new HTTPException(409, { message: "Two-factor authentication is already on." });
+
+      const { authenticationFactor, authenticationChallenge } =
+        await workos.multiFactorAuth.createUserAuthFactor({
+          userId: user.id,
+          type: "totp",
+          totpIssuer: "Flies",
+          totpUser: user.email,
+        });
+
+      if (
+        !authenticationFactor.totp.qrCode.startsWith("data:image/png;base64,") ||
+        !authenticationFactor.totp.secret ||
+        !authenticationFactor.totp.uri.startsWith("otpauth://")
+      )
+        throw new HTTPException(503, {
+          message: "Could not start two-factor authentication. Please retry.",
+        });
+
+      return {
+        factorId: authenticationFactor.id,
+        challengeId: authenticationChallenge.id,
+        qrCode: authenticationFactor.totp.qrCode,
+        secret: authenticationFactor.totp.secret,
+        uri: authenticationFactor.totp.uri,
+      };
+    },
+    async verifyEnrollment({ userId, factorId, challengeId, code }) {
+      await ownedFactor(userId, factorId);
+
+      try {
+        const result = await workos.multiFactorAuth.verifyChallenge({
+          authenticationChallengeId: challengeId,
+          code,
+        });
+
+        return result.valid && result.challenge.authenticationFactorId === factorId;
+      } catch (error) {
+        if (error instanceof BadRequestException || error instanceof NotFoundException)
+          return false;
+        throw error;
+      }
+    },
+    async deleteFactor(userId, factorId) {
+      await ownedFactor(userId, factorId);
+      await workos.multiFactorAuth.deleteFactor(factorId);
+    },
+    authorizationUrl(state, verifier, options) {
       return workos.userManagement.getAuthorizationUrl({
         provider: "authkit",
         redirectUri: config.WORKOS_REDIRECT_URI,
         state,
         codeChallenge: createHash("sha256").update(verifier).digest("base64url"),
         codeChallengeMethod: "S256",
+        ...(options?.prompt ? { prompt: options.prompt } : {}),
       });
     },
     async exchange(code, codeVerifier) {
@@ -183,7 +269,7 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     const requestedPath = c.req.query("returnTo") ?? "/recents";
 
     const returnPath =
-      /^\/(?:recents|settings(?:#(?:billing|members))?|archive|files(?:\/[A-Za-z0-9-]+)?)$/.test(
+      /^\/(?:recents|settings(?:#(?:billing|members|account))?|archive|files(?:\/[A-Za-z0-9-]+)?)$/.test(
         requestedPath,
       )
         ? requestedPath
@@ -200,7 +286,13 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     });
     setCookie(c, flowCookie, browserToken, { ...cookieOptions, maxAge: 600 });
 
-    return c.redirect(provider.authorizationUrl(state, verifier));
+    return c.redirect(
+      provider.authorizationUrl(
+        state,
+        verifier,
+        c.req.query("passkey") === "1" ? { prompt: "login" } : undefined,
+      ),
+    );
   });
   routes.get("/callback", async (c) => {
     const state = c.req.query("state");

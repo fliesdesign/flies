@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 
-import type { CanvasFrame, CanvasTheme } from "@flies/canvas";
+import { canvasPage, type CanvasFrame, type CanvasTheme } from "@flies/canvas";
 import { describe, test } from "vite-plus/test";
 
 import { ApiError } from "./api";
-import { FileAutosave, type DesignFile } from "./files";
+import { FileAutosave, migratedPageId, withPages, type DesignFile } from "./files";
 
 const file: DesignFile = {
   format: "flies",
@@ -206,5 +206,31 @@ describe("expired sessions", () => {
     await saver.flush();
     assert.equal(saver.needsSignIn, false);
     assert.equal(saver.isDirty(), false);
+  });
+});
+
+describe("page migration", () => {
+  test("derives one page id from the file so collaborators converge", () => {
+    const legacy: DesignFile = { ...file, nodes: [...nodes] };
+    const first = withPages(legacy);
+    const second = withPages(legacy);
+    const page = first.nodes[0];
+    assert.equal(page.kind, "page");
+    assert.equal(page.id, migratedPageId("abc"));
+    assert.equal(page.name, "Default");
+    assert.equal(first.nodes[1].parentId, page.id);
+
+    // Two clients migrating the same server state produce the same page.
+    assert.deepEqual(second.nodes, first.nodes);
+    assert.deepEqual(legacy.nodes, nodes);
+  });
+
+  test("leaves a file that already has pages alone", () => {
+    const paged: DesignFile = {
+      ...file,
+      nodes: [canvasPage("Default", "home"), { ...nodes[0], parentId: "home" }],
+    };
+
+    assert.deepEqual(withPages(paged).nodes, paged.nodes);
   });
 });

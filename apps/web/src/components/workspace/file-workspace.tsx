@@ -100,7 +100,7 @@ function FileEditor({
   return (
     <>
       {avatarTarget && createPortal(<CollaboratorAvatars realtime={save} />, avatarTarget)}
-      <TopLoader active={opening || status === "Saving…"} />
+      <TopLoader active={opening} />
       <DesignCanvas
         initialFrames={file.nodes}
         initialTheme={file.theme}
@@ -576,6 +576,13 @@ export function FileWorkspace({
               fileId,
               name: mcpState.current.files.find((file) => file.id === fileId)?.name,
               nodeCount: controls.document.getIds().length,
+              activePageId: controls.document.getActivePageId(),
+              pages: controls.document.getPageIds().map((id) => ({
+                pageId: id,
+                name: controls.document.getFrame(id)!.name,
+                nodeCount: controls.document.getChildren(id).length,
+              })),
+              // Roots of the active page; other pages are reached with set_page.
               roots: controls.document.getChildren().map((id) => {
                 const node = controls.document.getFrame(id)!;
 
@@ -605,6 +612,8 @@ export function FileWorkspace({
           if (
             [
               "create_artboard",
+              "create_page",
+              "delete_page",
               "write_html",
               "write_source",
               "update_node",

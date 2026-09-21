@@ -11,26 +11,40 @@ export class CanvasHitTester {
   private order = new Map<string, number>();
 
   constructor(private readonly document: CanvasDocument) {
-    this.index = new CanvasSpatialIndex(
-      document
-        .getCommittedFrames()
-        .map((frame) => Object.assign(worldBounds(document, frame), { id: frame.id })),
-    );
+    this.index = this.buildIndex();
     this.refreshOrder();
+  }
+
+  /** Picking only ever reaches the active page; other canvases are not indexed. */
+  private buildIndex() {
+    const committed = new Map(
+      this.document.getCommittedFrames().map((frame) => [frame.id, frame] as const),
+    );
+
+    return new CanvasSpatialIndex(
+      this.document
+        .getSceneIds()
+        .map((id) => committed.get(id))
+        .filter((frame) => frame !== undefined)
+        .map((frame) => Object.assign(worldBounds(this.document, frame), { id: frame.id })),
+    );
   }
 
   connect = () => {
     // Reconnecting after an effect cleanup also catches edits made while disconnected.
-    this.index = new CanvasSpatialIndex(
-      this.document
-        .getCommittedFrames()
-        .map((frame) => Object.assign(worldBounds(this.document, frame), { id: frame.id })),
-    );
+    this.index = this.buildIndex();
     this.refreshOrder();
 
-    return this.document.subscribeChanges((ids) => {
+    const unsubscribePage = this.document.subscribeActivePage(() => {
+      this.index = this.buildIndex();
+      this.refreshOrder();
+    });
+
+    const unsubscribeChanges = this.document.subscribeChanges((ids) => {
+      const scene = new Set(this.document.getSceneIds());
+
       for (const id of new Set([...ids, ...this.document.getDescendantIds(ids)])) {
-        const frame = this.document.getFrame(id);
+        const frame = scene.has(id) ? this.document.getFrame(id) : undefined;
         if (frame)
           this.index.upsert(Object.assign(worldBounds(this.document, frame), { id: frame.id }));
         else this.index.remove(id);
@@ -38,6 +52,11 @@ export class CanvasHitTester {
 
       this.refreshOrder();
     });
+
+    return () => {
+      unsubscribePage();
+      unsubscribeChanges();
+    };
   };
 
   hit = (point: Point): string | undefined => {

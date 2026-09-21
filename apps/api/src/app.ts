@@ -12,6 +12,7 @@ import type { Database } from "./db/client";
 import { latestDesktopDownload } from "./desktop-downloads";
 import { fileService, parseSnapshot } from "./files";
 import { idSchema } from "./ids";
+import { mfaService } from "./mfa";
 import { SyncRedis } from "./realtime/redis";
 import { createRealtime } from "./realtime/server";
 import type { RevisionStorage } from "./storage";
@@ -32,6 +33,7 @@ export function createApp(
   const files = fileService(db, storage, config.S3_PREFIX);
   const billing = billingService(db, config, billingProvider);
   const teams = teamService(db, billing, provider);
+  const mfa = mfaService(provider);
 
   const origins = new Set([
     new URL(config.WEB_URL).origin,
@@ -119,6 +121,7 @@ export function createApp(
         await teams.switch(c.get("workspace").id, c.get("user").id, c.get("sessionHash"));
       } else if (
         !["/api/me", "/api/workspaces", "/api/workspaces/switch"].includes(c.req.path) &&
+        !c.req.path.startsWith("/api/account/") &&
         !c.req.path.endsWith("/accept")
       ) {
         throw new HTTPException(403, {
@@ -157,6 +160,18 @@ export function createApp(
     );
   });
   app.get("/api/me", (c) => c.json({ user: c.get("user"), workspace: c.get("workspace") }));
+  app.get("/api/account/mfa", async (c) => c.json(await mfa.status(c.get("user").id)));
+  app.post("/api/account/mfa", async (c) => {
+    await c.req.json();
+
+    return c.json(await mfa.enroll(c.get("user")), 201);
+  });
+  app.post("/api/account/mfa/verify", async (c) =>
+    c.json(await mfa.verify(c.get("user").id, await c.req.json())),
+  );
+  app.post("/api/account/mfa/remove", async (c) =>
+    c.json(await mfa.remove(c.get("user").id, await c.req.json())),
+  );
   app.get("/api/billing", async (c) => c.json(await billing.entitlements(c.get("workspace").id)));
   app.post("/api/billing/refresh", async (c) =>
     c.json(await billing.entitlements(c.get("workspace").id, true)),

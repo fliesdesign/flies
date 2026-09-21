@@ -40,6 +40,7 @@ import {
   type AlignmentSnapState,
 } from "@flies/canvas";
 import { CanvasHitTester } from "@flies/canvas";
+import { canvasPage, nextPageName, type CanvasPage } from "@flies/canvas";
 import { readCanvasImage } from "@flies/canvas";
 import { getCanvasInspection, setCanvasInspection, subscribeCanvasInspection } from "@flies/canvas";
 import { finalizeCanvasMove } from "@flies/canvas";
@@ -129,6 +130,10 @@ export type CanvasControls = {
   preview: (frame: CanvasFrame) => void;
   previewMany: (frames: readonly CanvasFrame[]) => void;
   setPanelsOpen: (open: boolean) => void;
+  /** Switch the canvas being edited; agents and the sidebar share this one path. */
+  showPage: (pageId: string) => void;
+  addPage: (name?: string) => string;
+  removePage: (pageId: string) => void;
   flushPreview: () => void;
   prepare: () => void;
   surface: HTMLDivElement;
@@ -241,6 +246,9 @@ export function DesignCanvas({
 
   const snapshot = useCanvasSnapshot(document);
   const { ids, canUndo, canRedo } = snapshot;
+  // Recomputed per snapshot, which a page add, rename, delete or switch always bumps.
+  const pages = document.getPageIds().map((id) => document.getFrame(id) as CanvasPage);
+  const activePageId = document.getActivePageId();
   const { undo, redo } = document;
   const [camera] = useState(() => new CanvasCamera());
   const [rendererBackend, setRendererBackend] = useState<"dom" | "webgpu">("dom");
@@ -386,7 +394,7 @@ export function DesignCanvas({
 
   const addNode = useCallback(
     (node: CanvasFrame) => {
-      let all = [...document.getFrames(), node];
+      let all = [...document.getSceneFrames(), node];
 
       const placed =
         reparentSelection(all, [node.id], {
@@ -555,6 +563,56 @@ export function DesignCanvas({
     [document, finishInteraction],
   );
 
+  /** Switching canvases ends any gesture, drops the old selection and frames the new page. */
+  const showPage = useCallback(
+    (pageId: string) => {
+      finishInteraction(true);
+      setEditingId(null);
+      if (!document.setActivePage(pageId)) return;
+      setSelection([]);
+      setHoveredId(null);
+      const content = document.getSceneFrames().filter((node) => !document.isHidden(node.id));
+      const { size } = camera.getCurrent();
+      changeViewport(content.length ? fitViewport(content, size) : { x: 0, y: 0, zoom: 1 });
+    },
+    [camera, changeViewport, document, finishInteraction, setSelection],
+  );
+
+  const addPage = useCallback(
+    (name?: string) => {
+      const page = canvasPage(name?.trim() || nextPageName(document.getFrames()));
+      if (!document.add(page)) throw new Error("This page could not be created.");
+      showPage(page.id);
+
+      return page.id;
+    },
+    [document, showPage],
+  );
+
+  const renamePage = useCallback(
+    (id: string, name: string) => {
+      const page = document.getFrame(id);
+      if (page?.kind === "page" && name.trim()) document.update({ ...page, name: name.trim() });
+    },
+    [document],
+  );
+
+  const removePage = useCallback(
+    (id: string) => {
+      const ordered = document.getPageIds();
+      // A document always keeps one canvas; the last page can only be emptied, not deleted.
+      if (ordered.length < 2 || !ordered.includes(id)) return;
+      const fallback = ordered[ordered.indexOf(id) + 1] ?? ordered[ordered.indexOf(id) - 1];
+      finishInteraction(true);
+      setEditingId(null);
+      setSelection([]);
+      setHoveredId(null);
+      document.removeMany([id]);
+      showPage(fallback);
+    },
+    [document, finishInteraction, setSelection, showPage],
+  );
+
   const collapseLayers = useCallback(() => {
     setLayersOpen(false);
     setHoveredId(null);
@@ -589,7 +647,7 @@ export function DesignCanvas({
     let lastKey = "";
 
     const load = () => {
-      const texts = document.getFrames().filter((node) => node.kind === "text");
+      const texts = document.getSceneFrames().filter((node) => node.kind === "text");
 
       const key = texts
         .map((node) => `${node.fontFamily}:${node.fontWeight}:${node.fontStyle}:${node.text}`)
@@ -737,6 +795,9 @@ export function DesignCanvas({
         preview: previewFrame,
         previewMany: previewBatch.schedule,
         setPanelsOpen,
+        showPage,
+        addPage,
+        removePage,
         flushPreview: previewBatch.flush,
         surface: surfaceRef.current,
       });
@@ -744,9 +805,12 @@ export function DesignCanvas({
     return () => onReady?.(null);
   }, [
     prepareFileAction,
+    addPage,
     document,
     camera,
     onReady,
+    removePage,
+    showPage,
     previewFrame,
     previewBatch,
     selectOne,
@@ -819,10 +883,10 @@ export function DesignCanvas({
 
       if (!initialized) {
         initialized = true;
-        if (document.getIds().length)
+        if (document.getSceneIds().length)
           changeViewport(
             fitViewport(
-              document.getFrames().filter((node) => !document.isHidden(node.id)),
+              document.getSceneFrames().filter((node) => !document.isHidden(node.id)),
               nextSize,
             ),
           );
@@ -903,7 +967,7 @@ export function DesignCanvas({
   function nextName(prefix: string) {
     let number = 0;
 
-    for (const frame of document.getFrames()) {
+    for (const frame of document.getSceneFrames()) {
       if (frame.name.startsWith(`${prefix} `)) {
         const suffix = Number(frame.name.slice(prefix.length + 1));
         if (Number.isFinite(suffix)) number = Math.max(number, suffix);
@@ -945,7 +1009,7 @@ export function DesignCanvas({
     }
 
     const onFrame = document
-      .getFrames()
+      .getSceneFrames()
       .filter((node) => !document.isHidden(node.id))
       .some(
         (frame) =>
@@ -1040,10 +1104,9 @@ export function DesignCanvas({
         const importedIds = additions.map((node) => node.id);
 
         const placed = new Map(
-          reparentSelection([...document.getFrames(), ...additions], importedIds).map((node) => [
-            node.id,
-            node,
-          ]),
+          reparentSelection([...document.getSceneFrames(), ...additions], importedIds).map(
+            (node) => [node.id, node],
+          ),
         );
 
         document.addMany(additions.map((node) => placed.get(node.id) ?? node));
@@ -1195,7 +1258,7 @@ export function DesignCanvas({
       );
     } else {
       const placed = new Map(
-        reparentSelection([...document.getFrames(), ...nodes], copy.selection, {
+        reparentSelection([...document.getSceneFrames(), ...nodes], copy.selection, {
           requireContainment: true,
         }).map((node) => [node.id, node]),
       );
@@ -1396,7 +1459,7 @@ export function DesignCanvas({
 
   function unlockAll() {
     const updates: CanvasFrame[] = [];
-    for (const node of document.getFrames())
+    for (const node of document.getSceneFrames())
       if (node.locked) updates.push({ ...node, locked: false });
     document.updateMany(updates);
     focusCanvas();
@@ -2002,7 +2065,7 @@ export function DesignCanvas({
     } else if (event.shiftKey && event.code === "Digit1") {
       changeViewport(
         fitViewport(
-          document.getFrames().filter((node) => !document.isHidden(node.id)),
+          document.getSceneFrames().filter((node) => !document.isHidden(node.id)),
           size,
         ),
       );
@@ -2135,6 +2198,12 @@ export function DesignCanvas({
           onMove={moveLayers}
           onHover={setHoveredId}
           onCollapse={collapseLayers}
+          pages={pages}
+          activePageId={activePageId}
+          onSelectPage={showPage}
+          onAddPage={() => addPage()}
+          onRenamePage={renamePage}
+          onRemovePage={removePage}
         />
       ) : (
         <button
@@ -2518,7 +2587,7 @@ export function DesignCanvas({
             onClick={() =>
               changeViewport(
                 fitViewport(
-                  document.getFrames().filter((node) => !document.isHidden(node.id)),
+                  document.getSceneFrames().filter((node) => !document.isHidden(node.id)),
                   camera.getCurrent().size,
                 ),
               )

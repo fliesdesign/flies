@@ -226,7 +226,7 @@ export async function mountPerformance({ probe = true }: { probe?: boolean } = {
       frameLabelHeight: round(
         host.querySelector(".canvas-frame-label")!.getBoundingClientRect().height,
       ),
-      totalNodes: controls.document.getFrames().length,
+      totalNodes: controls.document.getSceneFrames().length,
       mountedNodes: endingElements.length,
       frameContentRenders: [...renders.values()].reduce((sum, value) => sum + value, 0),
       stableFrameRenders,

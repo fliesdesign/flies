@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 
-import { CanvasDocument, type CanvasFrame } from "@flies/canvas";
+import { CanvasDocument, canvasPage, type CanvasFrame, type CanvasPage } from "@flies/canvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "vite-plus/test";
 
@@ -46,6 +46,12 @@ function render(document: CanvasDocument, selectedIds: readonly string[] = []) {
       onMove={() => {}}
       onHover={() => {}}
       onCollapse={() => {}}
+      pages={document.getPageIds().map((id) => document.getFrame(id) as CanvasPage)}
+      activePageId={document.getActivePageId()}
+      onSelectPage={() => {}}
+      onAddPage={() => {}}
+      onRenamePage={() => {}}
+      onRemovePage={() => {}}
     />,
   );
 }
@@ -59,6 +65,39 @@ function rows(markup: string) {
     return attributes;
   });
 }
+
+describe("canvas layers pages", () => {
+  const paged = () =>
+    new CanvasDocument([
+      canvasPage("Default", "home"),
+      { ...frame, parentId: "home" },
+      { ...back, parentId: "home" },
+      canvasPage("Drafts", "drafts"),
+      { ...root, id: "sketch", name: "Sketch", parentId: "drafts" },
+    ]);
+
+  it("lists the active page's layers and keeps the other canvas out of the tree", () => {
+    const document = paged();
+    assert.deepEqual(
+      rows(render(document)).map((item) => item["data-layer-id"]),
+      ["back", "frame"],
+    );
+
+    document.setActivePage("drafts");
+    assert.deepEqual(
+      rows(render(document)).map((item) => item["data-layer-id"]),
+      ["sketch"],
+    );
+  });
+
+  it("never shows a page node as a layer row", () => {
+    const markup = render(paged());
+    assert.ok(!markup.includes('data-layer-id="home"'));
+    assert.ok(!markup.includes('data-layer-id="drafts"'));
+    // The page list itself is rendered above the tree.
+    assert.ok(markup.includes('aria-label="Add page"'));
+  });
+});
 
 describe("canvas layers hierarchy", () => {
   it("starts with root rows and collapsed container branches", () => {

@@ -8,7 +8,7 @@ const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
 /** Visibility is independent of React's document and pointer interaction state. */
 export class CanvasScene {
-  private readonly index: CanvasSpatialIndex;
+  private index: CanvasSpatialIndex;
   private visible: readonly string[] = [];
   private visibleChildren = new Map<string | undefined, readonly string[]>();
   private order = new Map<string, number>();
@@ -26,25 +26,39 @@ export class CanvasScene {
     private readonly document: CanvasDocument,
     private readonly camera: CanvasCamera,
   ) {
-    this.index = new CanvasSpatialIndex(
-      document
-        .getFrames()
-        .map((frame) => Object.assign(worldBounds(document, frame), { id: frame.id })),
-    );
+    this.index = this.buildIndex();
     this.refresh();
+  }
+
+  /** Only the active page is indexed, so other canvases never answer a viewport query. */
+  private buildIndex() {
+    return new CanvasSpatialIndex(
+      this.document
+        .getSceneFrames()
+        .map((frame) => Object.assign(worldBounds(this.document, frame), { id: frame.id })),
+    );
   }
 
   connect = () => {
     this.connected = true;
     this.subscribePinned();
 
+    const unsubscribePage = this.document.subscribeActivePage(() => {
+      this.index = this.buildIndex();
+      this.queriedBounds = undefined;
+      this.pinnedSubtree = undefined;
+      this.refresh();
+    });
+
     const unsubscribeDocument = this.document.subscribeChanges((ids) => {
       // Parent changes can preserve document order, so an ids-array comparison is
       // insufficient to invalidate selected descendants after a commit.
       this.pinnedSubtree = undefined;
 
+      const scene = new Set(this.document.getSceneIds());
+
       for (const id of new Set([...ids, ...this.document.getDescendantIds(ids)])) {
-        const frame = this.document.getFrame(id);
+        const frame = scene.has(id) ? this.document.getFrame(id) : undefined;
         if (frame)
           this.index.upsert(Object.assign(worldBounds(this.document, frame), { id: frame.id }));
         else this.index.remove(id);
@@ -60,6 +74,7 @@ export class CanvasScene {
       this.connected = false;
       this.pinnedSubscriptions.forEach((unsubscribe) => unsubscribe());
       this.pinnedSubscriptions = [];
+      unsubscribePage();
       unsubscribeDocument();
       unsubscribeCamera();
     };
@@ -154,11 +169,14 @@ export class CanvasScene {
     this.pinnedFrames = new Map(this.pinnedIds.map((id) => [id, this.document.getFrame(id)]));
     const mounted = new Set<string>();
 
+    const pageId = this.document.getActivePageId();
+
     for (const id of candidates) {
       if (this.document.isHidden(id)) continue;
       let node = this.document.getFrame(id);
 
-      while (node && !mounted.has(node.id)) {
+      // The active page is the mounting root, so its node is never itself mounted.
+      while (node && node.id !== pageId && !mounted.has(node.id)) {
         mounted.add(node.id);
         node = node.parentId ? this.document.getFrame(node.parentId) : undefined;
       }
@@ -176,8 +194,12 @@ export class CanvasScene {
   private refreshVisibleChildren(visible: readonly string[]) {
     const children = new Map<string | undefined, string[]>();
 
+    const pageId = this.document.getActivePageId();
+
     for (const id of visible) {
-      const parentId = this.document.getFrame(id)?.parentId;
+      const owner = this.document.getFrame(id)?.parentId;
+      // Children of the active page mount as scene roots, exactly as before pages existed.
+      const parentId = owner === pageId ? undefined : owner;
       const siblings = children.get(parentId);
       if (siblings) siblings.push(id);
       else children.set(parentId, [id]);
