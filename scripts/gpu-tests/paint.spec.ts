@@ -3,7 +3,7 @@ import type { CanvasFrame } from "@flies/canvas";
 import { test, expect, type Page } from "@playwright/test";
 
 async function mount(page: Page, nodes: CanvasFrame[]) {
-  await page.goto("/");
+  await page.goto("/recents");
   await page.evaluate(async (frames) => {
     const path = "/scripts/gpu-tests/gpu-harness.tsx";
     const { mountGpuFixture } = await import(/* @vite-ignore */ path);
@@ -13,7 +13,7 @@ async function mount(page: Page, nodes: CanvasFrame[]) {
     if (!doc.transact({ remove: [...doc.getIds()], add: frames }))
       throw new Error("Fixture rejected");
   }, nodes);
-  await expect(page.locator(".canvas-gpu-surface[data-renderer=webgpu]")).toBeVisible();
+  await expect(page.locator(".canvas-webgl-surface[data-renderer=webgl2]")).toBeVisible();
 }
 
 async function samples(page: Page, points: { x: number; y: number }[]) {
@@ -38,7 +38,7 @@ async function samples(page: Page, points: { x: number; y: number }[]) {
 
 async function dom(page: Page) {
   await page.evaluate(() => Reflect.get(window, "paintFixture").setInspection(true));
-  await expect(page.locator(".canvas-gpu-surface")).toHaveCount(0);
+  await expect(page.locator(".canvas-webgl-surface")).toHaveCount(0);
 }
 
 const rect = (id: string, x: number, y: number, width = 120, height = 80): CanvasFrame => ({
@@ -52,7 +52,7 @@ const rect = (id: string, x: number, y: number, width = 120, height = 80): Canva
   fill: "#ff0000",
 });
 
-test("gradient angles and radial fills match DOM colors in WebGPU", async ({ page }) => {
+test("gradient angles and radial fills match DOM colors in WebGL2", async ({ page }) => {
   const angles = [0, 45, 90, 135, 180, 225, 270, 315];
 
   const nodes = angles.map((angle, i) => ({

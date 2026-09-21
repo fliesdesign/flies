@@ -1,0 +1,41 @@
+.canvas-webgl-chrome {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-webgl-label-position,
+.canvas-webgl-editor-position {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.canvas-webgl-label-position {
+  height: 0;
+}
+
+.canvas-webgl-label-position > .canvas-frame-label {
+  bottom: 7px;
+  max-width: 100%;
+  transform: none;
+}
+
+.canvas-webgl-label-position[data-node-locked] > .canvas-frame-label {
+  pointer-events: none;
+}
+
+.canvas-webgl-label-position[data-selected] > .canvas-frame-label {
+  color: var(--ring);
+}
+
+.canvas-webgl-editor-position {
+  z-index: 1;
+}
+
+.canvas-webgl-editor-clip {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const gpuArtwork = "[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]";
+const gpuArtwork = "[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]";
 const redLayer = '[data-gpu-fixture] .canvas-frame-position[data-frame-id="red"]';
 
 async function mount(page: Page) {
-  await page.goto("/");
+  await page.goto("/recents");
   await page.evaluate(async () => {
     const path = "/scripts/gpu-tests/gpu-harness.tsx";
     const { mountGpuFixture } = await import(/* @vite-ignore */ path);
@@ -17,7 +17,7 @@ async function mount(page: Page) {
 async function setInspection(page: Page, enabled: boolean) {
   await page.evaluate((value) => {
     const fixture = Reflect.get(window, "gpuFixture");
-    // The removed menu committed the active text draft before changing renderers.
+    // Match the menu: finish the current draft before changing artwork renderers.
     fixture.controls.prepare();
     fixture.setInspection(value);
   }, enabled);
@@ -37,7 +37,7 @@ async function editorState(page: Page) {
 }
 
 test("HTML inspection exposes actual node elements and retains editor state", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("flies.canvas.inspect-html", "false"));
+  await page.addInitScript(() => localStorage.setItem("flies.canvas.renderer", "webgl2"));
   await mount(page);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await expect(page.locator(redLayer)).toHaveCount(0);
@@ -56,23 +56,19 @@ test("HTML inspection exposes actual node elements and retains editor state", as
   const before = await editorState(page);
   await setInspection(page, true);
   await expect(page.locator(redLayer)).toBeVisible();
-  await expect(page.locator("[data-gpu-fixture] .canvas-gpu-surface")).toHaveCount(0);
+  await expect(page.locator("[data-gpu-fixture] .canvas-webgl-surface")).toHaveCount(0);
   expect(await editorState(page)).toEqual(before);
   await expect(page.locator(`${redLayer} .canvas-rectangle-content`)).toHaveCSS(
     "background-color",
     "rgb(0, 255, 255)",
   );
-  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.inspect-html"))).toBe(
-    "false",
-  );
+  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.renderer"))).toBe("dom");
 
   await setInspection(page, false);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await expect(page.locator(redLayer)).toHaveCount(0);
   expect(await editorState(page)).toEqual(before);
-  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.inspect-html"))).toBe(
-    "false",
-  );
+  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.renderer"))).toBe("webgl2");
 });
 
 test("switching to HTML inspection commits an active GPU text draft", async ({ page }) => {
@@ -86,7 +82,7 @@ test("switching to HTML inspection commits an active GPU text draft", async ({ p
   await expect(
     page.locator('[data-gpu-fixture] .canvas-frame-position[data-frame-id="text"]'),
   ).toHaveText("Draft retained for HTML inspection");
-  await expect(page.locator("[data-gpu-fixture] .canvas-gpu-surface")).toHaveCount(0);
+  await expect(page.locator("[data-gpu-fixture] .canvas-webgl-surface")).toHaveCount(0);
   await expect
     .poll(() =>
       page.evaluate(
@@ -103,4 +99,26 @@ test("switching to HTML inspection commits an active GPU text draft", async ({ p
       ),
     )
     .toBe("Draft retained for HTML inspection");
+});
+
+test("WebGL2 is opt-in and the selection persists across editor remounts", async ({ page }) => {
+  await page.goto("/recents");
+  await page.evaluate(async () => {
+    const path = "/scripts/gpu-tests/gpu-harness.tsx";
+    const { mountGpuFixture } = await import(/* @vite-ignore */ path);
+    Reflect.set(window, "gpuFixture", await mountGpuFixture({ inspection: null }));
+  });
+  await expect(page.locator(redLayer)).toBeVisible();
+  await expect(page.locator(gpuArtwork)).toHaveCount(0);
+  await setInspection(page, false);
+  await expect(page.locator(gpuArtwork)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("flies.canvas.renderer"))).toBe("webgl2");
+  await page.reload();
+  await page.evaluate(async () => {
+    const path = "/scripts/gpu-tests/gpu-harness.tsx";
+    const { mountGpuFixture } = await import(/* @vite-ignore */ path);
+    Reflect.set(window, "gpuFixture", await mountGpuFixture({ inspection: null }));
+  });
+  await expect(page.locator(gpuArtwork)).toBeVisible();
+  await expect(page.locator(redLayer)).toHaveCount(0);
 });

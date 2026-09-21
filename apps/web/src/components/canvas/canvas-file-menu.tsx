@@ -2,16 +2,21 @@ import type { CanvasTheme } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import {
   downloadCanvasFile,
+  getCanvasInspection,
+  getCanvasInspectionServerSnapshot,
   MAX_PROJECT_BYTES,
   packCanvasProject,
   projectFilename,
+  setCanvasInspection,
+  subscribeCanvasInspection,
   unpackCanvasProject,
 } from "@flies/canvas";
 import { MoreHorizontalIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -46,6 +51,13 @@ export function CanvasFileMenu({
 }: CanvasFileMenuProps) {
   const [name, setName] = useState("Untitled");
   const [busy, setBusy] = useState(false);
+
+  const inspectHtml = useSyncExternalStore(
+    subscribeCanvasInspection,
+    getCanvasInspection,
+    getCanvasInspectionServerSnapshot,
+  );
+
   const fileRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
   const mounted = useRef(true);
@@ -237,6 +249,16 @@ export function CanvasFileMenu({
           <DropdownMenuItem disabled={!selectedIds.length} onClick={() => void exportPng()}>
             Export as PNG<DropdownMenuShortcut>⇧ ⌘ E</DropdownMenuShortcut>
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={!inspectHtml}
+            onCheckedChange={(enabled) => {
+              prepare();
+              setCanvasInspection(!enabled);
+            }}
+          >
+            Use Firefly renderer
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <input

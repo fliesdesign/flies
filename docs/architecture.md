@@ -2,6 +2,7 @@
 
 Flies is a Bun workspace.
 
+- `packages/firefly` — custom TypeScript WebGL 2 drawing library (`@flies/firefly`)
 - `packages/canvas` — canvas engine (`@flies/canvas`): document model, geometry, GPU renderer, clipboard
 - `packages/html` — shared HTML/JSX/TSX import, sanitization, DOM measurement, and Tailwind (`@flies/html`)
 - `apps/web` — Vite+ React app for the browser and the desktop webview
@@ -34,22 +35,19 @@ apps/web/components.json     shadcn config (style base-nova, baseColor zinc, ali
 
 ## Rendering
 
-Artwork is temporarily forced onto the HTML/CSS renderer while WebGPU bugs are fixed. The intended
-path is an explicit PixiJS WebGPU renderer when the browser or desktop webview provides a working
-adapter. The renderer retains shapes, text, images, and pen strokes, updates the camera
-transform during navigation, and draws only when something changes. Labels, selection controls, and
-the active text editor remain HTML overlays. Pointer picking uses the document's spatial index,
-including rounded frame clipping.
+Artwork defaults to HTML/CSS. Enable **Use Firefly renderer** in the project menu to opt into
+Firefly, the custom TypeScript WebGL 2 library in `packages/firefly`. The preference is saved
+locally and shared between open editor windows. `packages/canvas/src/webgl` connects Firefly to
+the existing document and camera. Labels, selection controls, layout handles, and the active
+text editor remain HTML overlays. Pointer picking uses the document's spatial index, including
+rounded frame clipping.
 
-WebGPU is loaded separately from the editor. Unsupported devices, initialization failures, and
-device loss fall back to the existing HTML/CSS renderer without changing the document. Custom
-`FrameContent` extensions also use that renderer. Text and shadows use cached raster textures; PNG
-export still uses the HTML renderer, so small typography differences are possible. The WebGPU tests
-use Chromium's software adapter to verify drawing and editing; they do not measure native GPU
-performance. Editing runs entirely in the frontend, without native IPC.
-
-Artwork elements are real HTML/CSS nodes in DevTools while the DOM renderer is forced. The saved
-Inspect HTML preference is left untouched and applies again when the GPU renderer returns.
+Unsupported devices, initialization failures, and context loss fall back to HTML/CSS without
+changing the document. Custom `FrameContent` extensions also use that renderer. Switching
+renderers commits an active text draft and preserves selection, undo, autosave, and MCP edits.
+PNG export continues to use the shared HTML renderer. The browser GPU tests verify drawing,
+editing, and fallback with Chromium's software adapter; those tests do not establish native
+hardware frame rates.
 
 In the DOM renderer, one shared camera transform pans and zooms the scene; a spatial index mounts
 visible objects plus a 200-pixel buffer and the ancestor paths needed to render them. Selected roots

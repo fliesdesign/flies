@@ -4,10 +4,10 @@ import { expect, test } from "@playwright/test";
 
 test.use({ deviceScaleFactor: 2 });
 
-test("MCP imports centered button labels and normal-line-height headings without WebGPU clipping", async ({
+test("MCP imports centered button labels and normal-line-height headings without WebGL2 clipping", async ({
   page,
 }, testInfo) => {
-  await page.goto("/");
+  await page.goto("/recents");
 
   const samples = await page.evaluate(async () => {
     const harnessPath = "/scripts/gpu-tests/gpu-harness.tsx";
@@ -81,8 +81,8 @@ test("MCP imports centered button labels and normal-line-height headings without
     });
   });
 
-  const artwork = page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]");
-  await expect(artwork, "Imported text must use WebGPU, never the DOM fallback").toBeVisible();
+  const artwork = page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]");
+  await expect(artwork, "Imported text must use WebGL2, never the DOM fallback").toBeVisible();
   await expect(page.locator("[data-gpu-fixture] .canvas-frame-position")).toHaveCount(0);
   const density = await page.evaluate(() => window.devicePixelRatio);
   const gpu = await page.locator("[data-gpu-fixture]").screenshot();
@@ -90,7 +90,7 @@ test("MCP imports centered button labels and normal-line-height headings without
     (node as HTMLElement).style.visibility = "visible";
   });
   const dom = await page.locator("[data-text-import-reference]").screenshot();
-  await testInfo.attach("mcp-text-webgpu.png", { body: gpu, contentType: "image/png" });
+  await testInfo.attach("mcp-text-webgl2.png", { body: gpu, contentType: "image/png" });
   await testInfo.attach("mcp-text-browser-reference.png", { body: dom, contentType: "image/png" });
   await writeFile("/tmp/flies-text-import-gpu.png", gpu);
   await writeFile("/tmp/flies-text-import-dom.png", dom);

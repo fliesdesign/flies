@@ -94,8 +94,8 @@
   cursor: var(--canvas-select-cursor);
 }
 
-.canvas-gpu-host,
-.canvas-gpu-surface {
+.canvas-webgl-host,
+.canvas-webgl-surface {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -103,7 +103,7 @@
   pointer-events: none;
 }
 
-.design-canvas:not([data-renderer="webgpu"]) .canvas-gpu-host {
+.design-canvas:not([data-renderer="webgl2"]) .canvas-webgl-host {
   visibility: hidden;
 }
 

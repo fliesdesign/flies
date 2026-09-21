@@ -260,7 +260,7 @@ export function DesignCanvas({
   const activePageId = document.getActivePageId();
   const { undo, redo } = document;
   const [camera] = useState(() => new CanvasCamera());
-  const [rendererBackend, setRendererBackend] = useState<"dom" | "webgpu">("dom");
+  const [rendererBackend, setRendererBackend] = useState<"dom" | "webgl2">("dom");
 
   const inspectHtml = useSyncExternalStore(
     subscribeCanvasInspection,
@@ -1504,7 +1504,7 @@ export function DesignCanvas({
   function resolveHit(target: Element | null, deep = false, point?: Point): string | undefined {
     const id =
       target?.closest<HTMLElement>("[data-frame-id]")?.dataset.frameId ??
-      (rendererBackend === "webgpu" && point
+      (rendererBackend === "webgl2" && point
         ? hitTester.hit(screenToWorld(point, camera.getCurrent().viewport))
         : undefined);
 

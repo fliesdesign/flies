@@ -72,6 +72,10 @@ existing autosave queue to flush to compressed JSON. They use the same CanvasDoc
 transactions and undo history as manual edits. All documents remain local. The
 examples below omit `guideSessionId` for readability; stateless clients must include it.
 
+The optional **Use Firefly renderer** project-menu setting changes artwork rendering only.
+MCP mutations, imports, selection, undo, and saving use the same live document in both renderer
+modes. `get_screenshot` continues to export through the shared HTML renderer.
+
 ### Pasting HTML and React
 
 Canvas Cmd/Ctrl+V and menu Paste accept HTML, JSX and self-contained React/TSX components,

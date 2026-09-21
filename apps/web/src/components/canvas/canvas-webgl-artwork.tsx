@@ -1,10 +1,10 @@
 import type { CanvasCamera } from "@flies/canvas";
 import type { CanvasDocument } from "@flies/canvas";
-import type { CanvasGpuRenderer } from "@flies/canvas";
+import type { CanvasWebglRenderer } from "@flies/canvas";
 import { useLayoutEffect, useRef } from "react";
 
-/** Own one GPU canvas per initialization, including React strict-mode remounts. */
-export function CanvasGpuArtwork({
+/** Own one WebGL canvas per initialization, including React strict-mode remounts. */
+export function CanvasWebglArtwork({
   document,
   camera,
   editingId,
@@ -16,7 +16,7 @@ export function CanvasGpuArtwork({
   onReady: (ready: boolean) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const renderer = useRef<CanvasGpuRenderer | null>(null);
+  const renderer = useRef<CanvasWebglRenderer | null>(null);
   const editing = useRef(editingId ?? null);
 
   useLayoutEffect(() => {
@@ -28,12 +28,10 @@ export function CanvasGpuArtwork({
     const element = host.current!;
     let cancelled = false;
     let failed = false;
-    let instance: CanvasGpuRenderer | undefined;
-    // Webviews without WebGPU keep the existing artwork renderer.
+    let instance: CanvasWebglRenderer | undefined;
     onReady(false);
-    if (!Reflect.get(navigator, "gpu")) return;
     const canvas = element.ownerDocument.createElement("canvas");
-    canvas.className = "canvas-gpu-surface";
+    canvas.className = "canvas-webgl-surface";
     canvas.setAttribute("aria-hidden", "true");
 
     const fallback = (error: unknown) => {
@@ -41,7 +39,7 @@ export function CanvasGpuArtwork({
       failed = true;
 
       // Commit an active draft before the fallback remounts its editing overlay.
-      if (canvas.dataset.renderer === "webgpu") {
+      if (canvas.dataset.renderer === "webgl2") {
         element
           .closest(".design-canvas")
           ?.querySelector<HTMLTextAreaElement>(".canvas-text-editor")
@@ -52,15 +50,20 @@ export function CanvasGpuArtwork({
       instance?.destroy();
       canvas.remove();
       onReady(false);
-      console.warn("WebGPU artwork unavailable; using the HTML renderer.", error);
+      console.warn("WebGL artwork unavailable; using the HTML renderer.", error);
     };
 
     void (async () => {
       try {
-        const { CanvasGpuRenderer } = await import("@flies/canvas");
+        const { CanvasWebglRenderer } = await import("@flies/canvas");
         if (cancelled) return;
         element.append(canvas);
-        instance = await CanvasGpuRenderer.create({ canvas, document, camera, onError: fallback });
+        instance = await CanvasWebglRenderer.create({
+          canvas,
+          document,
+          camera,
+          onError: fallback,
+        });
 
         if (cancelled || failed) {
           instance.destroy();
@@ -71,7 +74,6 @@ export function CanvasGpuArtwork({
 
         renderer.current = instance;
         instance.setEditingId(editing.current);
-        canvas.dataset.renderer = "webgpu";
         onReady(true);
       } catch (error) {
         fallback(error);
@@ -86,5 +88,5 @@ export function CanvasGpuArtwork({
     };
   }, [document, camera, onReady]);
 
-  return <div ref={host} className="canvas-gpu-host" aria-hidden="true" />;
+  return <div ref={host} className="canvas-webgl-host" aria-hidden="true" />;
 }

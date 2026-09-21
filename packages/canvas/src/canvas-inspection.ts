@@ -1,20 +1,17 @@
-const STORAGE_KEY = "flies.canvas.inspect-html";
-// Temporary: force the DOM renderer while GPU/canvas bugs are fixed.
-const FORCE_INSPECT_HTML = true;
+// A separate preference keeps the new renderer opt-in for existing installations.
+const STORAGE_KEY = "flies.canvas.renderer";
 const listeners = new Set<() => void>();
-let inspection: boolean | undefined = FORCE_INSPECT_HTML ? true : undefined;
-// Harnesses switch renderers in memory. The saved preference stays put while forced.
-let forcedSession: boolean | undefined;
+let inspection: boolean | undefined;
 let listeningWindow: Window | undefined;
 
-function readStoredPreference(): boolean | undefined {
-  if (typeof window === "undefined") return;
+function readStoredPreference(): boolean {
+  if (typeof window === "undefined") return true;
 
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "true";
+    return window.localStorage.getItem(STORAGE_KEY) !== "webgl2";
   } catch {
     // Private or restricted storage still permits an in-memory preference.
-    return;
+    return inspection ?? true;
   }
 }
 
@@ -33,39 +30,28 @@ function handleStorage(event: StorageEvent) {
     return;
   }
 
-  publish(event.key === STORAGE_KEY && event.newValue === "true");
+  publish(event.key !== STORAGE_KEY || event.newValue !== "webgl2");
 }
 
-export function isCanvasInspectionForced(): boolean {
-  return FORCE_INSPECT_HTML;
-}
-
-/** Stable SSR and hydration value. Ignores localStorage and in-memory overrides. */
+/** Stable DOM renderer for SSR and hydration, before reading the saved preference. */
 export function getCanvasInspectionServerSnapshot(): boolean {
-  return FORCE_INSPECT_HTML;
+  return true;
 }
 
+/** True uses HTML artwork; false opts into the custom WebGL renderer. */
 export function getCanvasInspection(): boolean {
-  if (FORCE_INSPECT_HTML) return forcedSession ?? true;
-  inspection ??= readStoredPreference() ?? false;
+  inspection ??= readStoredPreference();
 
   return inspection;
 }
 
 export function setCanvasInspection(enabled: boolean): void {
-  if (FORCE_INSPECT_HTML) {
-    forcedSession = enabled;
-    publish(enabled);
-
-    return;
-  }
-
   // Initialize before publishing so setting the current value does not notify twice.
   getCanvasInspection();
 
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(enabled));
+      window.localStorage.setItem(STORAGE_KEY, enabled ? "dom" : "webgl2");
     } catch {
       // Keep the user's choice for this session even when persistence is unavailable.
     }
@@ -79,14 +65,9 @@ export function subscribeCanvasInspection(listener: () => void): () => void {
 
   if (!listeningWindow && typeof window !== "undefined") {
     listeningWindow = window;
-
-    if (!FORCE_INSPECT_HTML) {
-      listeningWindow.addEventListener("storage", handleStorage);
-      // Storage may have changed while no editor was mounted (or after SSR).
-      publish(readStoredPreference() ?? getCanvasInspection());
-    } else {
-      publish(getCanvasInspection());
-    }
+    listeningWindow.addEventListener("storage", handleStorage);
+    // Storage may have changed while no editor was mounted (or after SSR).
+    publish(readStoredPreference());
   }
 
   return () => {

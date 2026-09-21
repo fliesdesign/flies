@@ -2,11 +2,10 @@
 import { expect, test } from "@playwright/test";
 
 import type { DesignFile } from "../../apps/web/src/lib/files";
-import { isCanvasInspectionForced } from "../../packages/canvas/src/canvas-inspection";
 import { applyDocumentDelta } from "../../packages/canvas/src/canvas-sync";
-test.use({ launchOptions: { args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader"] } });
+test.use({ launchOptions: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } });
 
-for (const renderer of ["dom", "webgpu"]) {
+for (const renderer of ["dom", "webgl2"]) {
   for (const { realtime, saveDelay, cancel } of [
     { realtime: false, saveDelay: 400, cancel: false },
     { realtime: true, saveDelay: 0, cancel: false },
@@ -16,13 +15,9 @@ for (const renderer of ["dom", "webgpu"]) {
     test(`${renderer} text draft survives sync: realtime=${realtime}, delay=${saveDelay}, cancel=${cancel}`, async ({
       page,
     }) => {
-      test.skip(
-        renderer === "webgpu" && isCanvasInspectionForced(),
-        "WebGPU stays off while the DOM renderer is forced",
-      );
       await page.addInitScript(
-        (inspect) => localStorage.setItem("flies.canvas.inspect-html", String(inspect)),
-        renderer === "dom",
+        (backend) => localStorage.setItem("flies.canvas.renderer", backend),
+        renderer,
       );
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));

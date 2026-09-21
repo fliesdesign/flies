@@ -29,10 +29,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { CanvasGpuArtwork } from "./canvas-gpu-artwork";
-import { CanvasGpuChrome } from "./canvas-gpu-chrome";
 import { CanvasNodeAppearance, CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
 import { CanvasTransformedOutline } from "./canvas-transformed-outline";
+import { CanvasWebglArtwork } from "./canvas-webgl-artwork";
+import { CanvasWebglChrome } from "./canvas-webgl-chrome";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
@@ -61,7 +61,7 @@ type SceneProps = {
   onTextCancel?: (id: string) => void;
   FrameContent?: FrameContentComponent;
   inspectHtml?: boolean;
-  onRendererChange?: (renderer: "dom" | "webgpu") => void;
+  onRendererChange?: (renderer: "dom" | "webgl2") => void;
 };
 
 /** A camera tick changes one transform; frame components don't receive the viewport. */
@@ -289,17 +289,23 @@ function VisibleFrames({ scene, ...props }: SceneProps & { scene: CanvasScene })
 
 export const CanvasFrames = memo(function CanvasFrames(props: SceneProps) {
   const [scene] = useState(() => new CanvasScene(props.document, props.camera));
-  const [gpuReady, setGpuReady] = useState(false);
-  const [gpuActive, setGpuActive] = useState(false);
+  const [webglReady, setWebglReady] = useState(false);
+  const [webglActive, setWebglActive] = useState(false);
+
   // A preference changed in another window must also wait for the active draft to finish.
-  const allowGpu = !props.FrameContent && (!props.inspectHtml || (gpuActive && !!props.editingId));
-  if (gpuReady && !allowGpu) setGpuReady(false);
+  const allowWebgl =
+    !props.FrameContent && (props.inspectHtml === false || (webglActive && !!props.editingId));
+
+  if (webglReady && !allowWebgl) setWebglReady(false);
   // Adjust before committing children so an asynchronous handoff cannot discard a text draft.
-  if (gpuActive && (!gpuReady || !allowGpu)) setGpuActive(false);
-  else if (!gpuActive && gpuReady && allowGpu && !props.editingId) setGpuActive(true);
-  const useGpu = gpuReady && gpuActive && allowGpu;
+  if (webglActive && (!webglReady || !allowWebgl)) setWebglActive(false);
+  else if (!webglActive && webglReady && allowWebgl && !props.editingId) setWebglActive(true);
+  const useWebgl = webglReady && webglActive && allowWebgl;
   const onRendererChange = props.onRendererChange;
-  useLayoutEffect(() => onRendererChange?.(useGpu ? "webgpu" : "dom"), [useGpu, onRendererChange]);
+  useLayoutEffect(
+    () => onRendererChange?.(useWebgl ? "webgl2" : "dom"),
+    [useWebgl, onRendererChange],
+  );
   useLayoutEffect(() => scene.connect(), [scene]);
   useLayoutEffect(
     () => scene.setPinned(props.selectedIds ?? props.selectedId ?? null),
@@ -308,17 +314,17 @@ export const CanvasFrames = memo(function CanvasFrames(props: SceneProps) {
 
   return (
     <>
-      {allowGpu && (
-        <CanvasGpuArtwork
+      {allowWebgl && (
+        <CanvasWebglArtwork
           document={props.document}
           camera={props.camera}
           editingId={props.editingId}
-          onReady={setGpuReady}
+          onReady={setWebglReady}
         />
       )}
-      {useGpu ? (
+      {useWebgl ? (
         <>
-          <CanvasGpuChrome {...props} scene={scene} />
+          <CanvasWebglChrome {...props} scene={scene} />
           {!props.editingId &&
             (props.selectedIds?.length ?? 0) > 1 &&
             props.selectedIds?.map((id) => (

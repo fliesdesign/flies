@@ -3,11 +3,11 @@ import { writeFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 async function mount(page: Page) {
-  await page.goto("/");
+  await page.goto("/recents");
   await page.evaluate(async () => {
     const path = "/packages/canvas/src/index.ts";
 
-    const { CanvasDocument, CanvasCamera, CanvasGpuRenderer } = await import(
+    const { CanvasDocument, CanvasCamera, CanvasWebglRenderer } = await import(
       /* @vite-ignore */ path
     );
 
@@ -84,7 +84,7 @@ async function mount(page: Page) {
     camera.flush();
     const errors: string[] = [];
 
-    const renderer = await CanvasGpuRenderer.create({
+    const renderer = await CanvasWebglRenderer.create({
       canvas,
       document: doc,
       camera,
@@ -101,24 +101,54 @@ async function mount(page: Page) {
 async function rasterState(page: Page) {
   return page.evaluate(() => {
     const { renderer, errors } = Reflect.get(window, "textQuality");
-    const gpu = Reflect.get(renderer, "renderer");
+    const stats = renderer.getStats();
 
     return {
       errors,
-      texts: [...Reflect.get(renderer, "nodes").entries()].map(([id, node]) => {
-        const text = node.text;
-        const texture = text ? Reflect.get(text, "_gpuData")[gpu.uid]?.texture : undefined;
-
-        return {
-          id,
-          resolution: text?.resolution,
-          texture: texture?.uid,
-          width: texture?.source.pixelWidth,
-          height: texture?.source.pixelHeight,
-        };
-      }),
+      stats,
+      texts: stats.rasters as {
+        id: string;
+        resolution: number;
+        width: number;
+        height: number;
+        version: number;
+      }[],
     };
   });
+}
+
+/** The former fixed-screen-density result, captured from the real scene at 100%.
+ * Magnifying this image provides the same observable blur reference without
+ * reaching into a rendering library's private texture implementation. */
+async function magnifiedReference(page: Page, original: Buffer, density: number) {
+  await page.evaluate(
+    async ({ png, dpr }) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.dataset.magnifiedReference = "";
+      canvas.width = image.width;
+      canvas.height = image.height;
+      Object.assign(canvas.style, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        background: "#fff",
+      });
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, -100 * dpr, -100 * dpr, image.width * 4, image.height * 4);
+      document.querySelector("[data-text-quality]")!.append(canvas);
+    },
+    { png: original.toString("base64"), dpr: density },
+  );
+  const capture = await page.locator("[data-text-quality]").screenshot();
+  await page.locator("[data-magnified-reference]").evaluate((canvas) => canvas.remove());
+
+  return capture;
 }
 
 async function softness(page: Page, png: Buffer, density: number) {
@@ -158,6 +188,8 @@ for (const density of [1, 2]) {
       page,
     }, testInfo) => {
       await mount(page);
+      const original = await page.locator("[data-text-quality]").screenshot();
+      const initial = await rasterState(page);
       await page.evaluate(() => {
         const { camera } = Reflect.get(window, "textQuality");
         camera.setViewport({ x: -100, y: -100, zoom: 4 });
@@ -171,8 +203,10 @@ for (const density of [1, 2]) {
         .toBe(4 * density);
       const sharp = await page.locator("[data-text-quality]").screenshot();
       const stable = await rasterState(page);
-      expect(stable.texts.find((text) => text.id === "offscreen")!.resolution).toBe(
-        Math.max(2, density),
+      // Offscreen content can remain unallocated; camera movement must not
+      // allocate or upgrade a distant label merely because zoom increased.
+      expect(stable.texts.find((text) => text.id === "offscreen")).toEqual(
+        initial.texts.find((text) => text.id === "offscreen"),
       );
 
       for (const text of stable.texts) {
@@ -194,15 +228,8 @@ for (const density of [1, 2]) {
         }
       });
       expect((await rasterState(page)).texts).toEqual(stable.texts);
-      // Render the former fixed-DPR density once as a reference. This is the same
-      // retained WebGPU scene; only glyph texture sampling quality differs.
-      await page.evaluate((dpr) => {
-        const { renderer } = Reflect.get(window, "textQuality");
-        for (const node of Reflect.get(renderer, "nodes").values())
-          if (node.text) node.text.resolution = Math.min(dpr, node.text.resolution);
-        Reflect.get(renderer, "renderer").render({ container: Reflect.get(renderer, "world") });
-      }, density);
-      const blurry = await page.locator("[data-text-quality]").screenshot();
+      expect((await rasterState(page)).stats.textureUploads).toBe(stable.stats.textureUploads);
+      const blurry = await magnifiedReference(page, original, density);
       await writeFile(`/tmp/flies-text-sharp-dpr${density}.png`, sharp);
       await writeFile(`/tmp/flies-text-old-dpr${density}.png`, blurry);
       const sharpStats = await softness(page, sharp, density);

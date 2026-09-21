@@ -7,7 +7,7 @@ agents edit the same document, undo history, and files you do.
 
 - **Real canvas editing** — frames, groups, auto layout, text, images, SVG, and pen strokes with
   full undo/redo.
-- **WebGPU rendering** with an automatic HTML/CSS fallback and an inspectable DOM mode.
+- **Firefly rendering**, an optional custom WebGL canvas renderer with automatic HTML/CSS fallback.
 - **Code in, code out** — paste HTML, JSX, or TSX to get editable layers; copy any selection back
   out as Tailwind, CSS, or a React component.
 - **Agent-native** — the desktop app exposes the document over MCP, sharing UI state, persistence,
@@ -15,7 +15,7 @@ agents edit the same document, undo history, and files you do.
 - **Cloud files** — WorkOS sign-in, autosave, and immutable gzip revisions in private S3 storage.
 
 Built with React 19, TypeScript, Vite+, TanStack Router, Tailwind CSS v4, and shadcn/ui on Base UI,
-rendered through PixiJS WebGPU and shipped as a Tauri v2 desktop app, in a Bun workspace.
+rendered through HTML/CSS or the custom Firefly WebGL library and shipped as a Tauri v2 desktop app, in a Bun workspace.
 
 ## Quick start
 

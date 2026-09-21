@@ -55,7 +55,7 @@ function populatedFrames(): CanvasFrame[] {
       y: 260,
       width: 220,
       height: 32,
-      text: "WebGPU text",
+      text: "WebGL2 text",
       fontSize: 24,
       color: "#000000",
     },
@@ -156,7 +156,14 @@ function populatedFrames(): CanvasFrame[] {
   ];
 }
 
-export async function mountGpuFixture({ strict = false }: { strict?: boolean } = {}) {
+export async function mountGpuFixture({
+  strict = false,
+  inspection = false,
+}: {
+  strict?: boolean;
+  /** Null exercises the saved/default preference without a harness override. */
+  inspection?: boolean | null;
+} = {}) {
   const host = document.createElement("div");
   host.dataset.gpuFixture = "";
   Object.assign(host.style, {
@@ -167,8 +174,8 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
   });
   document.body.append(host);
   const root = createRoot(host);
-  // The product forces the DOM renderer. Opt this fixture back into WebGPU without saving that.
-  setCanvasInspection(false);
+  // Opt this fixture into the same persisted WebGL2 setting used by the editor.
+  if (inspection !== null) setCanvasInspection(inspection);
 
   const controls = await new Promise<CanvasControls>((resolve) => {
     const editor = (

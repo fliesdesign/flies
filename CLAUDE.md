@@ -21,7 +21,7 @@ bun run dev                       # web on :1420 (vp -C apps/web dev)
 bun run tauri:dev                 # desktop shell; also serves apps/web on :1420
 bun run check                     # vp check (Oxfmt + Oxlint) + typecheck — run before submitting
 bun run format                    # write formatting + spacing-only lint fixes
-bun run test                      # canvas + html + web (Vitest via vp) and api (bun test)
+bun run test                      # firefly + canvas + html + web (Vitest via vp) and api (bun test)
 bun run db:migrate                # apply Drizzle migrations
 ```
 
@@ -32,7 +32,7 @@ vp -C packages/canvas test canvas-camera         # file-name filter (vitest run 
 vp -C apps/web test canvas-layers -t "reorders"  # plus test-name filter
 bun test --cwd apps/api test/unit.test.ts        # api uses bun test, not Vitest
 bun run test:api:integration                     # hits real Neon branch + R2 bucket from root .env
-bun run test:gpu                                 # Playwright, Chromium software WebGPU adapter
+bun run test:gpu                                 # Playwright, Chromium software WebGL2 renderer
 bun run test:mcp                                 # Playwright MCP suite (scripts/mcp-tests)
 python3 -m unittest discover -s scripts -p 'test_publish_desktop_update.py'
 ```
@@ -42,15 +42,16 @@ values must be `VITE_`-prefixed and server secrets must never be.
 
 ## Architecture
 
-Five layers, each depending only on the ones above it:
+Workspace packages and applications:
 
-| Layer                               | What it owns                                                                                                                        |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/canvas` (`@flies/canvas`) | Headless document model, geometry, layout, hit-testing, spatial index, theme tokens, clipboard, sync deltas, PixiJS WebGPU renderer |
-| `packages/html` (`@flies/html`)     | HTML/JSX/TSX parsing (`@swc/wasm-web`), sanitization, Tailwind v4 compilation, DOM measurement → canvas nodes                       |
-| `apps/web`                          | React 19 + TanStack Router editor UI, MCP tool handlers, autosave, realtime client                                                  |
-| `apps/desktop`                      | Tauri v2 Rust shell: native menus, clipboard, fonts, credentials, embedded MCP server                                               |
-| `apps/api`                          | Bun + Hono, WorkOS AuthKit, Drizzle/Postgres, gzip revisions in S3, Redis realtime fanout                                           |
+| Layer                                 | What it owns                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `packages/firefly` (`@flies/firefly`) | Standalone TypeScript WebGL2 drawing, textures, clipping, filters, and compositing                                           |
+| `packages/canvas` (`@flies/canvas`)   | Headless document model, geometry, layout, hit-testing, spatial index, theme tokens, clipboard, sync deltas, Firefly adapter |
+| `packages/html` (`@flies/html`)       | HTML/JSX/TSX parsing (`@swc/wasm-web`), sanitization, Tailwind v4 compilation, DOM measurement → canvas nodes                |
+| `apps/web`                            | React 19 + TanStack Router editor UI, MCP tool handlers, autosave, realtime client                                           |
+| `apps/desktop`                        | Tauri v2 Rust shell: native menus, clipboard, fonts, credentials, embedded MCP server                                        |
+| `apps/api`                            | Bun + Hono, WorkOS AuthKit, Drizzle/Postgres, gzip revisions in S3, Redis realtime fanout                                    |
 
 ### `CanvasDocument` is the single source of truth
 
@@ -106,11 +107,12 @@ editor handler, import validation, the guide, and both test suites land in the s
 
 ### Rendering
 
-The DOM/CSS renderer is deliberately forced right now while WebGPU bugs are fixed (see commit
-`7a9be05`); it does so without overwriting the user's saved Inspect-HTML preference. The PixiJS
-WebGPU path (`packages/canvas/src/webgpu/`) is lazily imported and falls back to DOM on unsupported
-devices, init failure, or device loss. Selection overlays, labels, and the text editor are always
-HTML. PNG export uses the DOM renderer, so typography can differ slightly from GPU output.
+The DOM/CSS renderer is the default. The project menu's **Use Firefly renderer** option enables
+the custom WebGL2 library (`packages/firefly/`) through `packages/canvas/src/webgl/` and saves
+the choice under `flies.canvas.renderer`. Unsupported devices, initialization failure, or context
+loss fall back to DOM artwork. Both renderers use the same document, camera, history, and MCP
+handlers. Selection overlays, labels, and the text editor remain HTML. PNG export uses the DOM
+renderer. See `packages/firefly/README.md` for the API and measured performance limits.
 
 ## Gotchas
 
@@ -122,6 +124,5 @@ HTML. PNG export uses the DOM renderer, so typography can differ slightly from G
   root `vite.config.ts` relaxes style/a11y lint there so `shadcn add` stays diffable.
 - Tailwind v4 has no JS config: the theme lives in `apps/web/src/styles.css`, which Oxfmt also reads
   to sort classes. The editor theme is dark-only.
-- `pixi.js@8.21.0` is patched (`patches/`); keep the patch in sync when bumping it.
 - Lint/format config is root-only — nested `oxlint.config.ts` / `oxfmt.config.ts` files are ignored.
 - Desktop-only UI (tab bar, collaborator avatars in it) renders only when `isTauri()` is true.

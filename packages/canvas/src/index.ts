@@ -24,7 +24,7 @@ export * from "./canvas-scene";
 export * from "./canvas-spatial-index";
 export * from "./canvas-tools";
 export * from "./use-canvas-document";
-export * from "./webgpu/canvas-gpu-renderer";
+export * from "./webgl/canvas-webgl-renderer";
 
 export * from "./canvas-fonts";
 

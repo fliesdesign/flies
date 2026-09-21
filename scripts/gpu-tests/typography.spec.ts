@@ -7,7 +7,7 @@ for (const { name, width, fontSize } of [
   test(`negative letter spacing preserves every imported heading fragment on ${name}`, async ({
     page,
   }, testInfo) => {
-    await page.goto("/");
+    await page.goto("/recents");
 
     const regions = await page.evaluate(
       async ({ layoutWidth, size }) => {
@@ -48,7 +48,7 @@ for (const { name, width, fontSize } of [
         return nodes
           .filter((node) => node.kind === "text")
           .map((node) => {
-            // Locate the last letter using browser geometry. If Pixi rewraps a
+            // Locate the last letter using browser geometry. If the rasterizer rewraps a
             // measured line, that letter falls below its one-line clipping box.
             const text = document.createElement("span");
             Object.assign(text.style, {
@@ -86,7 +86,7 @@ for (const { name, width, fontSize } of [
       { layoutWidth: width, size: fontSize },
     );
 
-    const artwork = page.locator("[data-gpu-fixture] .canvas-gpu-surface[data-renderer=webgpu]");
+    const artwork = page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]");
     await expect(artwork).toBeVisible();
     await expect
       .poll(async () => {
@@ -123,7 +123,7 @@ for (const { name, width, fontSize } of [
       })
       .toEqual(regions.map(({ text }) => ({ text, visible: true })));
 
-    await testInfo.attach(`${name}-heading-webgpu.png`, {
+    await testInfo.attach(`${name}-heading-webgl2.png`, {
       body: await page.locator("[data-gpu-fixture]").screenshot(),
       contentType: "image/png",
     });

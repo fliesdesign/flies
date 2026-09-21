@@ -17,9 +17,9 @@ import {
 } from "react";
 
 import { CanvasTextEditor } from "./canvas-node-content";
-import "./canvas-gpu-chrome.css";
+import "./canvas-webgl-chrome.css";
 
-export type CanvasGpuChromeProps = {
+export type CanvasWebglChromeProps = {
   document: CanvasDocument;
   camera: CanvasCamera;
   scene: CanvasScene;
@@ -35,7 +35,7 @@ const RootLabel = memo(function RootLabel({
   camera,
   id,
   selected,
-}: Pick<CanvasGpuChromeProps, "document" | "camera"> & { id: string; selected: boolean }) {
+}: Pick<CanvasWebglChromeProps, "document" | "camera"> & { id: string; selected: boolean }) {
   const frame = useCanvasFrame(document, id);
   const element = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -65,7 +65,7 @@ const RootLabel = memo(function RootLabel({
   return (
     <div
       ref={element}
-      className="canvas-gpu-label-position"
+      className="canvas-webgl-label-position"
       data-frame-id={id}
       data-node-locked={frame.locked || undefined}
       data-selected={selected || undefined}
@@ -141,7 +141,7 @@ const ActiveEditor = memo(function ActiveEditor({
   id,
   onTextCommit,
   onTextCancel,
-}: Omit<CanvasGpuChromeProps, "scene" | "editingId"> & { id: string }) {
+}: Omit<CanvasWebglChromeProps, "scene" | "editingId"> & { id: string }) {
   const store = useMemo(() => new EditorPathStore(document, id), [document, id]);
   const path = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const frame = path[0];
@@ -191,7 +191,7 @@ const ActiveEditor = memo(function ActiveEditor({
     // Keep ancestor slots mounted when clipping toggles or a parent changes at the
     // same depth. Replacing a wrapper would also replace the textarea's live draft.
     editor = (
-      <div key={`ancestor-${depth}`} className="canvas-gpu-editor-clip" style={style}>
+      <div key={`ancestor-${depth}`} className="canvas-webgl-editor-clip" style={style}>
         {editor}
       </div>
     );
@@ -200,7 +200,7 @@ const ActiveEditor = memo(function ActiveEditor({
   return (
     <div
       ref={element}
-      className="canvas-gpu-editor-position"
+      className="canvas-webgl-editor-position"
       data-frame-id={id}
       data-node-kind="text"
       data-editing="true"
@@ -212,13 +212,13 @@ const ActiveEditor = memo(function ActiveEditor({
 });
 
 /** GPU artwork keeps only root labels and the active input in the DOM. */
-export const CanvasGpuChrome = memo(function CanvasGpuChrome({
+export const CanvasWebglChrome = memo(function CanvasWebglChrome({
   scene,
   editingId,
   selectedId,
   selectedIds,
   ...props
-}: CanvasGpuChromeProps) {
+}: CanvasWebglChromeProps) {
   const getRoots = useCallback(() => scene.getVisibleChildren(), [scene]);
   const roots = useSyncExternalStore(scene.subscribe, getRoots, getRoots);
 
@@ -228,7 +228,7 @@ export const CanvasGpuChrome = memo(function CanvasGpuChrome({
   );
 
   return (
-    <div className="canvas-gpu-chrome">
+    <div className="canvas-webgl-chrome">
       {roots.map((id) => (
         <RootLabel
           key={id}
@@ -251,8 +251,8 @@ function RotatedTextEditor({
 }: {
   path: readonly CanvasFrame[];
   camera: CanvasCamera;
-  onTextCommit: CanvasGpuChromeProps["onTextCommit"];
-  onTextCancel: CanvasGpuChromeProps["onTextCancel"];
+  onTextCommit: CanvasWebglChromeProps["onTextCommit"];
+  onTextCancel: CanvasWebglChromeProps["onTextCancel"];
 }) {
   const { viewport } = useSyncExternalStore(
     camera.subscribe,

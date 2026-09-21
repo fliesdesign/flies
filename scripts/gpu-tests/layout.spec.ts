@@ -45,12 +45,12 @@ async function state(page: Page) {
   });
 }
 
-test("WebGPU layout chrome previews padding and gap with fill/hug artwork and shared undo", async ({
+test("WebGL2 layout chrome previews padding and gap with fill/hug artwork and shared undo", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/recents");
   await page.evaluate(async () => {
     const path = "/scripts/gpu-tests/gpu-harness.tsx";
     const { mountGpuFixture } = await import(/* @vite-ignore */ path);
@@ -113,8 +113,8 @@ test("WebGPU layout chrome previews padding and gap with fill/hug artwork and sh
   });
 
   const host = page.locator("[data-gpu-fixture]");
-  const surface = host.locator(".canvas-gpu-surface[data-renderer=webgpu]");
-  await expect(surface, "The test must render with WebGPU, never the DOM fallback").toBeVisible();
+  const surface = host.locator(".canvas-webgl-surface[data-renderer=webgl2]");
+  await expect(surface, "The test must render with WebGL2, never the DOM fallback").toBeVisible();
   await expect(host.locator(".canvas-frame-position")).toHaveCount(0);
   await expect(host.locator(".canvas-dimensions")).toHaveText("Fill 480 × Fit 228");
   await expect(host.locator("[data-layout-child]")).toHaveCount(2);
@@ -177,7 +177,7 @@ test("WebGPU layout chrome previews padding and gap with fill/hug artwork and sh
     .toEqual([33, 33, 33]);
   await expect(host.locator(".canvas-dimensions")).toHaveText("Fill 480 × Fit 228");
   await gap.hover();
-  await page.screenshot({ path: "/tmp/flies-layout-webgpu.png" });
+  await page.screenshot({ path: "/tmp/flies-layout-webgl2.png" });
   await expect(surface).toBeVisible();
   expect(errors).toEqual([]);
 });

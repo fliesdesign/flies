@@ -46,10 +46,7 @@ export default defineConfig(() => ({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
-  // pixi.js lives on @flies/canvas and is loaded by the lazy GPU renderer.
-  // Prebundle it through that package so the first WebGPU import does not
-  // invalidate the dep cache and reload the editor.
-  optimizeDeps: { include: ["@flies/canvas > pixi.js", "@flies/html > @swc/wasm-web"] },
+  optimizeDeps: { include: ["@flies/html > @swc/wasm-web"] },
   envDir: repoRoot,
   clearScreen: false,
   server: {
