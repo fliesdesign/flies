@@ -270,54 +270,16 @@ export function WorkspaceBillingProvider({
 }
 
 export function WorkspaceBilling() {
-  const { status, canManage, error, notice, open, loading, setOpen, refresh, setLoading } =
-    useBilling();
+  const { status, canManage, setOpen } = useBilling();
 
-  if (!canManage || status?.enabled === false || (!status && !error)) return null;
-  const pro = status?.enabled && status.plan === "pro";
+  if (!canManage || !status?.enabled || status.plan !== "free") return null;
 
   return (
     <div className="mt-auto border-t border-sidebar-border p-3">
-      <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-medium">
-          {status ? (pro ? "Pro plan" : "Free plan") : "Billing unavailable"}
-        </span>
-        {status?.enabled && (
-          <span className="text-muted-foreground">{status.limits.designFiles} files</span>
-        )}
-      </div>
-      {status ? (
-        <Button
-          className="w-full"
-          size="sm"
-          variant={pro ? "outline" : "default"}
-          onClick={() => setOpen(true)}
-        >
-          {pro ? "Manage subscription" : "Upgrade to Pro"}
-          <ArrowUpRightIcon aria-hidden="true" />
-        </Button>
-      ) : (
-        <Button
-          className="w-full"
-          size="sm"
-          variant="outline"
-          disabled={loading}
-          onClick={() => {
-            setLoading(true);
-            void refresh();
-          }}
-        >
-          {loading ? "Loading…" : "Retry billing"}
-        </Button>
-      )}
-      {error && !open && (
-        <p className="mt-2 text-xs text-destructive" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && !open && (
-        <output className="mt-2 block text-xs text-muted-foreground">{notice}</output>
-      )}
+      <Button className="w-full" size="sm" onClick={() => setOpen(true)}>
+        Upgrade to Pro
+        <ArrowUpRightIcon aria-hidden="true" />
+      </Button>
     </div>
   );
 }

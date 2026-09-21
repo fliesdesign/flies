@@ -58,9 +58,8 @@ export interface BillingProvider {
 export function polarProvider(
   config: NonNullable<ReturnType<typeof billingConfig>>,
   webUrl: string,
+  polar = new Polar({ accessToken: config.accessToken, server: config.server }),
 ): BillingProvider {
-  const polar = new Polar({ accessToken: config.accessToken, server: config.server });
-
   return {
     async state(workspaceId) {
       try {
@@ -103,10 +102,41 @@ export function polarProvider(
       return checkout.url;
     },
     async portal(workspaceId) {
-      const session = await polar.customerSessions.create({
-        externalCustomerId: workspaceId,
-        returnUrl: `${webUrl}/recents`,
-      });
+      const customer = await polar.customers.getExternal(
+        { externalId: workspaceId },
+        { timeoutMs: 8000 },
+      );
+
+      if (customer.organizationId !== config.organizationId || customer.externalId !== workspaceId)
+        throw new HTTPException(502, {
+          message: "Billing customer does not match this workspace.",
+        });
+
+      let memberId: string | undefined;
+
+      if (customer.type === "team") {
+        // The route authorizes the workspace owner before requesting this session.
+        // Polar team customers require an explicit owner member to manage billing.
+        const members = await polar.members.listMembers(
+          { customerId: customer.id, role: "owner", limit: 1 },
+          { timeoutMs: 8000 },
+        );
+
+        const owner = members.result.items.find(
+          (member) => member.customerId === customer.id && member.role === "owner",
+        );
+
+        if (!owner)
+          throw new HTTPException(409, {
+            message: "Billing account has no owner. Contact support to restore billing access.",
+          });
+        memberId = owner.id;
+      }
+
+      const session = await polar.customerSessions.create(
+        { customerId: customer.id, memberId, returnUrl: `${webUrl}/recents` },
+        { timeoutMs: 8000 },
+      );
 
       return session.customerPortalUrl;
     },

@@ -74,13 +74,11 @@ describe("workspace billing UI", () => {
     expect(document.body.textContent).toContain("Your Pro plan is active");
     expect(document.body.textContent).toContain("Open billing portal");
   });
-  it("opens subscription management for Pro users", async () => {
+  it("hides the sidebar billing footer for Pro workspaces", async () => {
     mocks.api.mockResolvedValue(pro);
     await mount();
-    await click("Manage subscription");
-    await click("Open billing portal");
-    expect(mocks.post).toHaveBeenCalledWith("/api/billing/portal", {});
-    expect(mocks.post).not.toHaveBeenCalledWith("/api/billing/checkout", expect.anything());
+    expect(element.textContent).toBe("");
+    expect(mocks.post).not.toHaveBeenCalled();
   });
   it("shows checkout failures and allows retry without claiming an upgrade", async () => {
     await mount();
@@ -89,16 +87,15 @@ describe("workspace billing UI", () => {
     await click("Continue to checkout");
     expect(document.body.textContent).toContain("Billing service unavailable");
     expect(mocks.openUrl).not.toHaveBeenCalled();
-    expect(element.textContent).toContain("Free plan");
+    expect(element.textContent).toContain("Upgrade to Pro");
     await click("Continue to checkout");
     expect(mocks.openUrl).toHaveBeenCalledTimes(1);
   });
-  it("shows a retry when the plan cannot load", async () => {
+  it("hides the sidebar billing footer when the plan is unknown", async () => {
     mocks.api.mockRejectedValueOnce(new Error("Network unavailable"));
     await mount();
-    expect(element.textContent).toContain("Billing unavailable");
-    await click("Retry billing");
-    expect(element.textContent).toContain("Upgrade to Pro");
+    expect(element.textContent).toBe("");
+    expect(mocks.post).not.toHaveBeenCalled();
   });
   it("keeps Free until the server confirms payment", async () => {
     await mount();

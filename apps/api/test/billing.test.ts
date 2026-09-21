@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 
+import { Polar } from "@polar-sh/sdk";
 import { Webhook } from "standardwebhooks";
 
 import {
@@ -8,6 +9,7 @@ import {
   billingService,
   PLANS,
   proSubscription,
+  polarProvider,
   verifyPolarWebhook,
   weekStart,
   type BillingState,
@@ -144,5 +146,81 @@ describe("optional billing", () => {
     }
 
     expect(() => verifyPolarWebhook(body, {}, secret)).toThrow("Invalid Polar");
+  });
+});
+
+describe("Polar billing portal", () => {
+  function setup(type: "team" | "individual" = "team") {
+    const polar = new Polar({ accessToken: "test" });
+
+    const customer = {
+      id: "customer",
+      externalId: "workspace",
+      organizationId: settings.POLAR_ORGANIZATION_ID,
+      type,
+    };
+
+    const getCustomer = spyOn(polar.customers, "getExternal").mockResolvedValue(
+      customer as Awaited<ReturnType<typeof polar.customers.getExternal>>,
+    );
+
+    const members = spyOn(polar.members, "listMembers").mockResolvedValue({
+      result: { items: [{ id: "owner", customerId: "customer", role: "owner" }] },
+    } as Awaited<ReturnType<typeof polar.members.listMembers>>);
+
+    const session = spyOn(polar.customerSessions, "create").mockImplementation(async (request) => {
+      if (type === "team" && request.memberId !== "owner")
+        throw new Error("member_id is required for team customers.");
+
+      return { customerPortalUrl: "https://polar.sh/portal/session" } as Awaited<
+        ReturnType<typeof polar.customerSessions.create>
+      >;
+    });
+
+    return {
+      provider: polarProvider(billingConfig(settings)!, "https://app.flies.test", polar),
+      getCustomer,
+      members,
+      session,
+    };
+  }
+
+  test("includes the customer owner member for a team portal session", async () => {
+    const { provider, members, session } = setup();
+    expect(await provider.portal("workspace")).toBe("https://polar.sh/portal/session");
+    expect(members).toHaveBeenCalledWith(
+      { customerId: "customer", role: "owner", limit: 1 },
+      { timeoutMs: 8000 },
+    );
+    expect(session).toHaveBeenCalledWith(
+      { customerId: "customer", memberId: "owner", returnUrl: "https://app.flies.test/recents" },
+      { timeoutMs: 8000 },
+    );
+  });
+  test("individual customers do not need a member lookup", async () => {
+    const { provider, members } = setup("individual");
+    expect(await provider.portal("workspace")).toBe("https://polar.sh/portal/session");
+    expect(members).not.toHaveBeenCalled();
+  });
+  test("does not create a session when a team has no owner", async () => {
+    const { provider, members, session } = setup();
+    members.mockResolvedValue({ result: { items: [] } } as unknown as Awaited<
+      ReturnType<typeof members>
+    >);
+    await expect(provider.portal("workspace")).rejects.toThrow("Billing account has no owner");
+    expect(session).not.toHaveBeenCalled();
+  });
+  test("rejects customers from another organization", async () => {
+    const { provider, getCustomer, session } = setup();
+    getCustomer.mockResolvedValue({
+      id: "customer",
+      externalId: "workspace",
+      organizationId: "other",
+      type: "team",
+    } as Awaited<ReturnType<typeof getCustomer>>);
+    await expect(provider.portal("workspace")).rejects.toThrow(
+      "Billing customer does not match this workspace",
+    );
+    expect(session).not.toHaveBeenCalled();
   });
 });
