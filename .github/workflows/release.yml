@@ -104,8 +104,9 @@ jobs:
           tagName: ${{ github.event.release.tag_name }}
           releaseDraft: ${{ github.event.release.draft }}
           prerelease: ${{ github.event.release.prerelease }}
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
+          # Matrix jobs must not upload latest.json. They overwrite one shared
+          # release asset, and the last job drops every other platform.
+          uploadUpdaterJson: false
           retryAttempts: 3
 
   publish-downloads:

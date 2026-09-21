@@ -72,9 +72,9 @@ desktop UI too.
 
 ## Desktop releases and updates
 
-Publishing a GitHub release builds and attaches desktop installers, updater binaries, signatures,
-and `latest.json`. Once all five platform builds succeed, the release workflow mirrors every asset
-to the S3-compatible R2 bucket configured in
+Publishing a GitHub release builds and attaches desktop installers, updater binaries, and
+signatures. Once all five platform builds succeed, the publisher builds `latest.json` from those
+signed artifacts and mirrors every asset to the S3-compatible R2 bucket configured in
 [`scripts/desktop-downloads.json`](../scripts/desktop-downloads.json):
 
 - Endpoint: `https://a3bad09d467f7e00ca2f879e28ecb620.r2.cloudflarestorage.com`
@@ -87,9 +87,11 @@ Credentials belong in GitHub Actions secrets `R2_DOWNLOADS_ACCESS_KEY_ID` and
 `R2_DOWNLOADS_SECRET_ACCESS_KEY`; they are never shipped in the app. Existing Tauri signing secrets
 and the public verification key remain unchanged.
 
-Versioned assets live under `releases/<tag>/`. The publisher checks all platform entries, downloaded
-asset sizes, and matching signature files, uploads binaries first, and checks public downloads
-before publishing the manifest. Manifest URLs point to the bucket while signatures remain intact.
+Versioned assets live under `releases/<tag>/`. The publisher assembles one updater entry per
+platform from the signed release artifacts, checks downloaded asset sizes and signature files,
+uploads binaries first, and checks public downloads before publishing the manifest. A partial
+`latest.json` left on the GitHub release is ignored. Manifest URLs point to the bucket while
+signatures remain intact.
 Only GitHub's current stable release may replace the root feed; prereleases and older reruns only
 get versioned files. The root manifest is served with `no-cache` to avoid stale update checks.
 

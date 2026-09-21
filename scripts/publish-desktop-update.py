@@ -12,11 +12,44 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 CONFIG = Path(__file__).with_name("desktop-downloads.json")
-PLATFORMS = {"darwin-aarch64", "darwin-x86_64", "linux-x86_64", "windows-aarch64", "windows-x86_64"}
+# Suffix is the updater bundle Tauri produced. The alias is the installer-specific key
+# newer updater plugins request; it points at the same signed asset.
+UPDATERS = (
+    ("darwin-aarch64", "_aarch64.app.tar.gz", "darwin-aarch64-app"),
+    ("darwin-x86_64", "_x64.app.tar.gz", "darwin-x86_64-app"),
+    ("linux-x86_64", "_amd64.AppImage", "linux-x86_64-appimage"),
+    ("windows-aarch64", "_arm64-setup.exe", "windows-aarch64-nsis"),
+    ("windows-x86_64", "_x64-setup.exe", "windows-x86_64-nsis"),
+)
+PLATFORMS = {platform for platform, _, _ in UPDATERS}
 
 
 def github(repo, resource):
     return json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/{resource}"], text=True))
+
+
+def updater_asset(assets, suffix):
+    names = {asset["name"] for asset in assets}
+    matches = [
+        asset for asset in assets
+        if asset["name"].endswith(suffix) and f"{asset['name']}.sig" in names
+    ]
+    if len(matches) != 1:
+        raise ValueError("Updater manifest is missing a supported platform")
+    return matches[0]
+
+
+def signed_entry(directory, asset, public_url, tag):
+    signature_path = directory / (asset["name"] + ".sig")
+    signature = signature_path.read_text().strip() if signature_path.is_file() else ""
+    if not signature:
+        raise ValueError(f"Missing or mismatched signature: {asset['name']}")
+    base = public_url.rstrip("/")
+    name = quote(asset["name"], safe="")
+    return {
+        "signature": signature,
+        "url": f"{base}/releases/{quote(tag, safe='')}/{name}",
+    }
 
 
 def prepare_manifest(release, directory, public_url):
@@ -27,8 +60,8 @@ def prepare_manifest(release, directory, public_url):
         raise ValueError("Cannot publish a draft release")
     assets = release["assets"]
     names = [asset["name"] for asset in assets]
-    if len(names) != len(set(names)) or "latest.json" not in names:
-        raise ValueError("Release needs unique asset names and latest.json")
+    if len(names) != len(set(names)):
+        raise ValueError("Release needs unique asset names")
     for asset in assets:
         name = asset["name"]
         if Path(name).name != name or name in (".", "..") or "/" in name or "\\" in name:
@@ -36,21 +69,27 @@ def prepare_manifest(release, directory, public_url):
         path = directory / name
         if path.is_symlink() or not path.is_file() or path.stat().st_size != asset["size"]:
             raise ValueError(f"Missing or incomplete release asset: {name}")
-    manifest = json.loads((directory / "latest.json").read_text())
-    if manifest["version"].removeprefix("v") != tag.removeprefix("v"):
-        raise ValueError("Manifest version does not match release")
-    if not PLATFORMS <= manifest["platforms"].keys():
-        raise ValueError("Updater manifest is missing a supported platform")
-    by_url = {url: asset for asset in assets for url in (asset["url"], asset["browser_download_url"])}
-    for entry in manifest["platforms"].values():
-        asset = by_url.get(entry["url"])
-        if not asset or asset["name"] == "latest.json":
-            raise ValueError("Updater URL does not match a release asset")
-        signature = directory / (asset["name"] + ".sig")
-        if not entry.get("signature") or not signature.is_file() or signature.read_text().strip() != entry["signature"].strip():
-            raise ValueError(f"Missing or mismatched signature: {asset['name']}")
-        entry["url"] = f"{public_url.rstrip('/')}/releases/{quote(tag, safe='')}/{quote(asset['name'], safe='')}"
-    return manifest
+    # Build the feed from signed bundles. A latest.json uploaded by one matrix job
+    # only contains that job's platform, so it cannot be the source of truth.
+    platforms = {}
+    for platform, suffix, alias in UPDATERS:
+        entry = signed_entry(directory, updater_asset(assets, suffix), public_url, tag)
+        platforms[platform] = entry
+        platforms[alias] = dict(entry)
+    msi = [
+        asset for asset in assets
+        if asset["name"].endswith(".msi") and "_x64_" in asset["name"] and f"{asset['name']}.sig" in names
+    ]
+    if len(msi) > 1:
+        raise ValueError("Release has more than one Windows x64 MSI")
+    if msi:
+        platforms["windows-x86_64-msi"] = signed_entry(directory, msi[0], public_url, tag)
+    return {
+        "version": tag.removeprefix("v"),
+        "notes": release.get("body") or "",
+        "pub_date": release.get("published_at") or "",
+        "platforms": platforms,
+    }
 
 
 def upload(config, path, key, cache_control):

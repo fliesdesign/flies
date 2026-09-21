@@ -16,13 +16,17 @@ class PublisherTests(unittest.TestCase):
         self.directory = Path(self.temporary.name)
         self.config = {"publicUrl": "https://desktop.flies.design/"}
         self.release = {"id": 42, "tag_name": "v1.2.3", "draft": False, "prerelease": False, "assets": []}
-        platforms = {}
+        names = {
+            "darwin-aarch64": "Flies_1.2.3_aarch64.app.tar.gz",
+            "darwin-x86_64": "Flies_1.2.3_x64.app.tar.gz",
+            "linux-x86_64": "Flies_1.2.3_amd64.AppImage",
+            "windows-aarch64": "Flies_1.2.3_arm64-setup.exe",
+            "windows-x86_64": "Flies_1.2.3_x64-setup.exe",
+        }
         for index, platform in enumerate(sorted(publisher.PLATFORMS)):
-            name = f"Flies {platform}.bin"
-            asset = self.asset(name, b"signed-binary", str(index))
+            name = names[platform]
+            self.asset(name, b"signed-binary", str(index))
             self.asset(name + ".sig", b"signature\n", "sig" + str(index))
-            platforms[platform] = {"url": asset["url"], "signature": "signature"}
-        self.asset("latest.json", json.dumps({"version": "1.2.3", "platforms": platforms}).encode(), "manifest")
 
     def asset(self, name, contents, identifier):
         (self.directory / name).write_bytes(contents)
@@ -43,9 +47,19 @@ class PublisherTests(unittest.TestCase):
 
     def test_rewrites_api_urls_and_preserves_signatures(self):
         manifest = publisher.prepare_manifest(self.release, self.directory, self.config["publicUrl"])
-        for platform, entry in manifest["platforms"].items():
-            self.assertEqual(entry["url"], f"https://desktop.flies.design/releases/v1.2.3/Flies%20{platform}.bin")
-            self.assertEqual(entry["signature"], "signature")
+        self.assertEqual(manifest["version"], "1.2.3")
+        windows = manifest["platforms"]["windows-x86_64"]
+        self.assertEqual(windows["signature"], "signature")
+        self.assertEqual(windows["url"], manifest["platforms"]["windows-x86_64-nsis"]["url"])
+        self.assertEqual(
+            windows["url"],
+            "https://desktop.flies.design/releases/v1.2.3/Flies_1.2.3_x64-setup.exe",
+        )
+        self.assertEqual(
+            manifest["platforms"]["darwin-aarch64"]["url"],
+            manifest["platforms"]["darwin-aarch64-app"]["url"],
+        )
+        self.assertNotIn("windows-x86_64-msi", manifest["platforms"])
 
     def test_stable_manifest_published_last_after_every_download(self):
         events = self.run_publish()
@@ -68,19 +82,39 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing or incomplete"):
             self.run_publish()
 
-    def test_signature_mismatch_rejects(self):
-        (self.directory / self.release["assets"][1]["name"]).write_text("bad-sign!\n")
-        with self.assertRaises(ValueError):
+    def test_empty_signature_rejects(self):
+        signature = next(asset for asset in self.release["assets"] if asset["name"].endswith(".sig"))
+        (self.directory / signature["name"]).write_text("")
+        signature["size"] = 0
+        with self.assertRaisesRegex(ValueError, "signature"):
             self.run_publish()
 
     def test_incomplete_platform_matrix_rejects(self):
-        path = self.directory / "latest.json"
-        manifest = json.loads(path.read_text())
-        manifest["platforms"].pop("windows-aarch64")
-        path.write_text(json.dumps(manifest))
-        self.release["assets"][-1]["size"] = path.stat().st_size
+        self.release["assets"] = [
+            asset for asset in self.release["assets"] if "arm64-setup" not in asset["name"]
+        ]
         with self.assertRaisesRegex(ValueError, "missing a supported platform"):
             self.run_publish()
+
+    def test_partial_release_manifest_is_ignored(self):
+        partial = json.dumps({
+            "version": "9.9.9",
+            "platforms": {"windows-x86_64": {"url": "https://example.invalid/setup.exe", "signature": "nope"}},
+        }).encode()
+        self.asset("latest.json", partial, "manifest")
+        manifest = publisher.prepare_manifest(self.release, self.directory, self.config["publicUrl"])
+        self.assertEqual(manifest["version"], "1.2.3")
+        self.assertIn("darwin-aarch64", manifest["platforms"])
+        self.assertEqual(manifest["platforms"]["linux-x86_64"]["signature"], "signature")
+        self.assertNotIn("example.invalid", manifest["platforms"]["windows-x86_64"]["url"])
+
+    def test_windows_msi_is_an_additional_updater_entry(self):
+        self.asset("Flies_1.2.3_x64_en-US.msi", b"msi-bytes", "msi")
+        self.asset("Flies_1.2.3_x64_en-US.msi.sig", b"msi-signature\n", "msi-sig")
+        manifest = publisher.prepare_manifest(self.release, self.directory, self.config["publicUrl"])
+        self.assertTrue(manifest["platforms"]["windows-x86_64"]["url"].endswith("x64-setup.exe"))
+        self.assertTrue(manifest["platforms"]["windows-x86_64-msi"]["url"].endswith("x64_en-US.msi"))
+        self.assertEqual(manifest["platforms"]["windows-x86_64-msi"]["signature"], "msi-signature")
 
 
 if __name__ == "__main__":
