@@ -79,7 +79,14 @@ export type Account = {
 
 export async function signIn(preserveEditor = false) {
   if (!isTauri()) {
-    const loginUrl = apiUrl(`/auth/login?returnTo=${encodeURIComponent(window.location.pathname)}`);
+    const returnTo =
+      window.location.pathname +
+      (window.location.pathname === "/settings" &&
+      /^#(?:billing|members)$/.test(window.location.hash)
+        ? window.location.hash
+        : "");
+
+    const loginUrl = apiUrl(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
 
     if (!preserveEditor) {
       window.location.assign(loginUrl);

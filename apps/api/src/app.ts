@@ -9,6 +9,7 @@ import { billingService, type BillingProvider } from "./billing";
 import { billingConfig } from "./config";
 import type { Config } from "./config";
 import type { Database } from "./db/client";
+import { latestDesktopDownload } from "./desktop-downloads";
 import { fileService, parseSnapshot } from "./files";
 import { idSchema } from "./ids";
 import type { RevisionStorage } from "./storage";
@@ -73,6 +74,16 @@ export function createApp(
     }),
   );
   app.route("/auth", auth.routes);
+  app.get("/downloads/desktop/:target", async (c) => {
+    try {
+      const url = await latestDesktopDownload(c.req.param("target"));
+      if (!url) return c.redirect("https://github.com/lassejlv/flies/releases/latest");
+
+      return c.redirect(url);
+    } catch {
+      return c.redirect("https://github.com/lassejlv/flies/releases/latest");
+    }
+  });
   app.get("/health", (c) => c.json({ ok: true }));
   app.post("/api/billing/webhook", bodyLimit({ maxSize: 1024 * 1024 }), async (c) => {
     await billing.webhook(await c.req.text(), c.req.header());

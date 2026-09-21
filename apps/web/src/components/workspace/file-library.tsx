@@ -40,6 +40,7 @@ import {
 } from "@/lib/workspace-session";
 
 import { FilePreview } from "./file-preview";
+import { GetDesktop } from "./get-desktop";
 import { WorkspaceBilling, WorkspaceBillingProvider } from "./workspace-billing";
 import { WorkspaceSettings } from "./workspace-settings";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -261,6 +262,7 @@ export function FileLibraryView({
             </SidebarGroup>
           </SidebarContent>
           {account && <WorkspaceBilling />}
+          {!desktop && <GetDesktop />}
         </Sidebar>
         <SidebarInset className="library-home">
           <div className="library-pane">

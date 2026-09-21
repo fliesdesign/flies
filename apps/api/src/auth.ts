@@ -178,11 +178,12 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     const verifier = randomToken();
     const requestedPath = c.req.query("returnTo") ?? "/recents";
 
-    const returnPath = /^\/(?:recents|settings|archive|files(?:\/[A-Za-z0-9-]+)?)$/.test(
-      requestedPath,
-    )
-      ? requestedPath
-      : "/recents";
+    const returnPath =
+      /^\/(?:recents|settings(?:#(?:billing|members))?|archive|files(?:\/[A-Za-z0-9-]+)?)$/.test(
+        requestedPath,
+      )
+        ? requestedPath
+        : "/recents";
 
     await db.delete(loginAttempts).where(lt(loginAttempts.expiresAt, new Date()));
     await db.insert(loginAttempts).values({

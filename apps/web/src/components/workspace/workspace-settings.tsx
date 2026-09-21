@@ -1,3 +1,4 @@
+import { ArrowUpRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,51 @@ import { AppearanceSettings } from "./appearance-settings";
 import { UpdateSettings } from "./update-settings";
 import { BillingSettings } from "./workspace-billing";
 import { WorkspaceMembers } from "./workspace-members";
+
+function WebManagement({ section }: { section: "billing" | "members" }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  return (
+    <section className="space-y-5">
+      <div className="space-y-1">
+        <h2 className="text-base font-medium">
+          {section === "billing" ? "Manage your plan on the web" : "Manage your team on the web"}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {section === "billing"
+            ? "Update your subscription, payment details, and seats in your browser."
+            : "Invite members and manage workspace access in your browser."}
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        disabled={pending}
+        onClick={async () => {
+          setPending(true);
+          setError("");
+
+          try {
+            const { openUrl } = await import("@tauri-apps/plugin-opener");
+            await openUrl(`https://app.flies.design/settings#${section}`);
+          } catch {
+            setError("Could not open your browser. Please retry.");
+          } finally {
+            setPending(false);
+          }
+        }}
+      >
+        {pending ? "Opening…" : "Manage on the web"}
+        <ArrowUpRightIcon aria-hidden="true" />
+      </Button>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
 
 export function WorkspaceSettings({
   desktop,
@@ -26,7 +72,15 @@ export function WorkspaceSettings({
   const [error, setError] = useState("");
 
   return (
-    <Tabs defaultValue="appearance" className="max-w-3xl gap-6">
+    <Tabs
+      defaultValue={
+        typeof window !== "undefined" &&
+        ["billing", "members"].includes(window.location.hash.slice(1))
+          ? window.location.hash.slice(1)
+          : "appearance"
+      }
+      className="max-w-3xl gap-6"
+    >
       <div className="overflow-x-auto border-b pb-1">
         <TabsList variant="line" aria-label="Settings sections" className="gap-2">
           <TabsTrigger value="appearance">Appearance</TabsTrigger>
@@ -46,10 +100,10 @@ export function WorkspaceSettings({
         <AppearanceSettings />
       </TabsContent>
       <TabsContent value="billing">
-        <BillingSettings fileCount={fileCount} />
+        {desktop ? <WebManagement section="billing" /> : <BillingSettings fileCount={fileCount} />}
       </TabsContent>
       <TabsContent value="members">
-        <WorkspaceMembers />
+        {desktop ? <WebManagement section="members" /> : <WorkspaceMembers />}
       </TabsContent>
       <TabsContent value="updates">
         <div className="mb-6 space-y-1">
