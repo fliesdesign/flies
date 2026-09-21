@@ -105,3 +105,113 @@ test("desktop catalog uses installed faces without fetching Google", async ({ pa
   expect(result.catalog).toContain("Local Test Family");
   expect(result.loaded).toBe(true);
 });
+
+test("Arial offers actual faces and Inter renders distinct light weights", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const path = "/scripts/mcp-tests/paper-snapshot-harness.tsx";
+    const fixture = await (await import(/* @vite-ignore */ path)).mountSnapshotFixture();
+    Reflect.set(window, "fontFixture", fixture);
+    fixture.controls.document.replaceAll([
+      {
+        id: "weight-text",
+        name: "Weight sample",
+        kind: "text",
+        x: 350,
+        y: 180,
+        width: 500,
+        height: 100,
+        text: "Thin Light Regular",
+        fontFamily: "Arial",
+        fontWeight: 400,
+        fontSize: 48,
+        color: "#ffffff",
+      },
+    ]);
+    fixture.controls.setPanelsOpen(true);
+    fixture.controls.select("weight-text");
+  });
+  const weights = page.getByLabel("Font weight", { exact: true });
+  await expect(weights.locator("option:not(:disabled)")).toHaveText(["Regular", "Bold"]);
+  await expect(page.getByText(/For lighter weights, choose a font such as Inter/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("arial-weights.png") });
+  await weights.selectOption("700");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Reflect.get(window, "fontFixture").controls.document.getFrame("weight-text").fontWeight,
+      ),
+    )
+    .toBe(700);
+
+  // Existing CSS/import weights are retained and explained, not silently rewritten.
+  await page.evaluate(() =>
+    Reflect.get(window, "fontFixture").controls.document.update({
+      ...Reflect.get(window, "fontFixture").controls.document.getFrame("weight-text"),
+      fontWeight: 300,
+    }),
+  );
+  await expect(weights).toHaveValue("300");
+  await expect(weights.locator('option[value="300"]')).toHaveAttribute("disabled", "");
+  await expect(weights.locator('option[value="300"]')).toHaveText("Light (unavailable)");
+
+  const family = page.getByRole("combobox", { name: "Font family", exact: true });
+  await family.fill("Inter");
+  await family.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Reflect.get(window, "fontFixture").controls.document.getFrame("weight-text").fontFamily,
+      ),
+    )
+    .toBe("Inter");
+  await expect(weights.locator("option:not(:disabled)")).toHaveCount(9);
+  await weights.selectOption("100");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Reflect.get(window, "fontFixture").controls.document.getFrame("weight-text").fontWeight,
+      ),
+    )
+    .toBe(100);
+  await testInfo.attach("inter-thin.png", {
+    body: await page.screenshot({ path: testInfo.outputPath("inter-thin.png") }),
+    contentType: "image/png",
+  });
+
+  const ink = await page.evaluate(async () => {
+    const module = "/packages/canvas/src/canvas-fonts.ts";
+    const { ensureCanvasFont } = await import(/* @vite-ignore */ module);
+    const values: number[] = [];
+
+    for (const fontFamily of ["Arial", "Inter"]) {
+      for (const fontWeight of [100, 300, 400]) {
+        // eslint-disable-next-line no-await-in-loop -- Measure each loaded face.
+        await ensureCanvasFont({ fontFamily, fontWeight });
+        const canvas = document.createElement("canvas");
+        canvas.width = 700;
+        canvas.height = 100;
+        const context = canvas.getContext("2d")!;
+        context.font = `${fontWeight} 64px "${fontFamily}"`;
+        context.fillText("Thin Light Regular", 0, 75);
+        const pixels = context.getImageData(0, 0, 700, 100).data;
+        let alpha = 0;
+        for (let i = 3; i < pixels.length; i += 4) alpha += pixels[i];
+        values.push(alpha);
+      }
+    }
+
+    return values;
+  });
+
+  expect(ink[0]).toBe(ink[1]);
+  expect(ink[1]).toBe(ink[2]);
+  expect(ink[3]).toBeGreaterThan(0);
+  expect(ink[3]).toBeLessThan(ink[4] * 0.8);
+  expect(ink[4]).toBeLessThan(ink[5] * 0.9);
+});

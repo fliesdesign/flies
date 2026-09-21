@@ -5,6 +5,8 @@ mod mcp;
 #[cfg(desktop)]
 mod menu;
 mod snapshot;
+#[cfg(windows)]
+mod windows_titlebar;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -18,6 +20,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(windows)]
+            windows_titlebar::setup(app)?;
             #[cfg(desktop)]
             {
                 menu::setup(app)?;
@@ -32,6 +36,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            #[cfg(desktop)]
+            menu::show_app_menu,
             credentials::read_desktop_session,
             credentials::write_desktop_session,
             fonts::list_system_fonts,

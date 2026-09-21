@@ -10,9 +10,13 @@ import "./styles.css";
 
 applyStoredAppearance();
 
-// Reserve native window controls only in the macOS desktop webview.
-if (isTauri() && /Mac/.test(navigator.userAgent)) {
-  document.documentElement.dataset.nativeTitlebar = "macos";
+// Browser windows never receive the desktop titlebar or its reserved space.
+if (isTauri()) {
+  if (/Mac/.test(navigator.userAgent)) {
+    document.documentElement.dataset.nativeTitlebar = "macos";
+  } else if (/Windows/.test(navigator.userAgent)) {
+    document.documentElement.dataset.nativeTitlebar = "windows";
+  }
 }
 
 const router = createRouter({

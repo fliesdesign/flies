@@ -756,6 +756,11 @@ export async function editorTool(
       )
         throw new Error("nodeIds must contain 1–1000 node IDs.");
       ids.forEach(getNode);
+      const sceneIds = new Set(doc.getSceneIds());
+      if (ids.some((id) => !sceneIds.has(id)))
+        throw new Error(
+          "Delete layers on the active page only. Use set_page first, or delete_page for a page.",
+        );
       const removed = doc.getDescendantIds(ids);
       commit([], [], removed);
 

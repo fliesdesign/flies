@@ -1754,6 +1754,7 @@ export class CanvasDocument {
   }
 
   private notifyCommit(operation: DocumentOperation) {
+    const previousPage = this.activePageId;
     if (this.activePageId === undefined || this.frames.get(this.activePageId)?.kind !== "page")
       this.activePageId = this.getPageIds()[0];
     this.snapshot = Object.freeze({
@@ -1763,6 +1764,7 @@ export class CanvasDocument {
       canRedo: this.future.length > 0,
     });
     const changedIds = Object.freeze(operation.patches.map((patch) => patch.id));
+    if (previousPage !== this.activePageId) this.pageListeners.forEach((listener) => listener());
     this.changeListeners.forEach((listener) => listener(changedIds));
     this.listeners.forEach((listener) => listener());
   }

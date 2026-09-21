@@ -2,21 +2,21 @@
 
 Run everything from the repository root.
 
-| Command                | What it does                                            |
-| ---------------------- | ------------------------------------------------------- |
-| `vp install`           | Install workspace dependencies (or `bun install`)        |
-| `bun run api:dev`      | Backend API on `:3001`                                   |
-| `vp -C apps/web dev`   | Frontend dev server on `:1420`                           |
-| `bun run tauri:dev`    | Desktop app, starting `apps/web` on `:1420`              |
-| `bun run tauri:build`  | Bundled desktop release build                            |
-| `bun run build`        | Production frontend build                                |
-| `vp check`             | Format + lint (Oxfmt / Oxlint via Vite+)                  |
-| `bun run typecheck`    | `tsc --noEmit` in canvas, html, web, and API             |
-| `bun run check`        | `vp check` + typecheck, for CI                           |
-| `bun run test`         | Vitest in canvas, html, web, and API                     |
-| `bun run test:gpu`     | Headless WebGPU pixel, interaction, and fallback checks  |
-| `bun run test:mcp`     | Playwright MCP suite                                     |
-| `bun run db:migrate`   | Apply API database migrations                            |
+| Command               | What it does                                            |
+| --------------------- | ------------------------------------------------------- |
+| `vp install`          | Install workspace dependencies (or `bun install`)       |
+| `bun run api:dev`     | Backend API on `:3001`                                  |
+| `vp -C apps/web dev`  | Frontend dev server on `:1420`                          |
+| `bun run tauri:dev`   | Desktop app, starting `apps/web` on `:1420`             |
+| `bun run tauri:build` | Bundled desktop release build                           |
+| `bun run build`       | Production frontend build                               |
+| `vp check`            | Format + lint (Oxfmt / Oxlint via Vite+)                |
+| `bun run typecheck`   | `tsc --noEmit` in canvas, html, web, and API            |
+| `bun run check`       | `vp check` + typecheck, for CI                          |
+| `bun run test`        | Vitest in canvas, html, web, and API                    |
+| `bun run test:gpu`    | Headless WebGPU pixel, interaction, and fallback checks |
+| `bun run test:mcp`    | Playwright MCP suite                                    |
+| `bun run db:migrate`  | Apply API database migrations                           |
 
 ```bash
 docker build -t flies-web .                  # production image for apps/web

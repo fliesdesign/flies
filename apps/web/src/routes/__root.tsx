@@ -1,13 +1,12 @@
 import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
+import { DesktopTitlebar } from "@/components/workspace/desktop-titlebar";
 
 export const Route = createRootRoute({
   component: () => (
     <>
-      {document.documentElement.dataset.nativeTitlebar === "macos" && (
-        <div className="desktop-drag-region" data-tauri-drag-region aria-hidden="true" />
-      )}
+      <DesktopTitlebar />
       <Outlet />
     </>
   ),

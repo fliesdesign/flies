@@ -403,12 +403,17 @@ export function DesignCanvas({
 
   const addNode = useCallback(
     (node: CanvasFrame) => {
-      let all = [...document.getSceneFrames(), node];
+      const pageId = document.getActivePageId();
+
+      const rooted =
+        node.parentId === undefined && pageId !== undefined ? { ...node, parentId: pageId } : node;
+
+      let all = [...document.getFrames(), rooted];
 
       const placed =
         reparentSelection(all, [node.id], {
           requireContainment: !node.kind || node.kind === "frame",
-        }).find((item) => item.id === node.id) ?? node;
+        }).find((item) => item.id === node.id) ?? rooted;
 
       all = all.map((item) => (item.id === node.id ? placed : item));
       const children = !node.kind || node.kind === "frame" ? adoptFrameContents(all, node.id) : [];
@@ -1267,7 +1272,12 @@ export function DesignCanvas({
       const sources = decoded.filter((node) => !node.parentId);
 
       const parents = new Map(
-        copy.selection.map((id, index) => [id, document.getFrame(sources[index].id)?.parentId]),
+        copy.selection.map((id, index) => [
+          id,
+          sceneIds.has(sources[index].id)
+            ? document.getFrame(sources[index].id)?.parentId
+            : document.getActivePageId(),
+        ]),
       );
 
       nodes = nodes.map((node) =>

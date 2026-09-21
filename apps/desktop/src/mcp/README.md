@@ -90,6 +90,13 @@ Check `sourceWarnings` for omissions and `warnings` for native text rendering is
 and `validateOnly` options as `write_html`. Imports validate fully before committing, use the
 same undo history, and flush the file's existing autosave queue before a mutation returns.
 
+### Font weights
+
+Arial, Helvetica, Georgia and Courier New provide Regular (400) and Bold (700).
+The sidebar offers those faces. Imported or token-bound numeric weights are preserved,
+but the browser matches them to an available face; Arial Thin/Light therefore looks
+like Regular. Use a family with real light faces, such as Inter, for lighter text.
+
 ### Theme tokens
 
 The left sidebar has **Design** and **Theme** tabs. Theme supports colors, radii, spacing,
@@ -136,6 +143,10 @@ undoable operation. A file always keeps at least one page.
 Selection, selection outlines and drag selection are scoped to the active page. When a
 layer moves to another page, it leaves the current selection. `set_selection` rejects
 layers on other pages; call `set_page` first to select them.
+
+`delete_nodes` also validates every requested layer against the active page before deleting
+anything. Mixed-page requests fail without partial deletion; page containers must be removed
+through `delete_page` so the last-page safeguard is preserved.
 
 Use separate pages for genuinely separate surfaces, and separate artboards within one page
 for screens that belong together. An artboard is a frame on a page, not a page.

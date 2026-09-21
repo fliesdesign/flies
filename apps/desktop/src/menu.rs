@@ -28,6 +28,11 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
         menu.append(&Submenu::with_items(app, "View", true, &[&toggle])?)?;
     }
     app.set_menu(menu)?;
+    // Keep the same native menu and accelerators, but open it from the titlebar.
+    #[cfg(windows)]
+    for window in app.webview_windows().into_values() {
+        window.hide_menu()?;
+    }
     app.on_menu_event(|app, event| {
         if event.id().as_ref() != "toggle-developer-tools" {
             return;
@@ -46,4 +51,15 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+/// Open the existing application menu below the Windows titlebar button.
+#[tauri::command]
+pub async fn show_app_menu(window: tauri::WebviewWindow) -> Result<(), String> {
+    let menu = window
+        .menu()
+        .ok_or_else(|| "The application menu is unavailable.".to_string())?;
+    window
+        .popup_menu_at(&menu, tauri::LogicalPosition::new(4.0, 36.0))
+        .map_err(|error| error.to_string())
 }

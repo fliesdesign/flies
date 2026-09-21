@@ -1,0 +1,36 @@
+.desktop-menu-toggle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: var(--desktop-titlebar-height);
+  border: 0;
+  background: var(--card);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.desktop-menu-toggle:hover {
+  background: var(--accent);
+}
+.desktop-menu-toggle:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: -4px;
+  border-radius: 5px;
+}
+.desktop-menu-error {
+  position: fixed;
+  top: var(--desktop-titlebar-height);
+  left: 4px;
+  z-index: 60;
+  max-width: 300px;
+  padding: 8px 12px;
+  background: var(--popover);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}

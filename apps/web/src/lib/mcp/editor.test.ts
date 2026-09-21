@@ -48,6 +48,30 @@ function fixture() {
   return { document, controls };
 }
 
+test("MCP deletion validates every layer's page before deleting anything", async () => {
+  const { document, controls } = fixture();
+  document.replaceAll([
+    canvasPage("Default", "home"),
+    { id: "first", name: "First", parentId: "home", x: 0, y: 0, width: 100, height: 100 },
+    canvasPage("Drafts", "drafts"),
+    { id: "second", name: "Second", parentId: "drafts", x: 0, y: 0, width: 100, height: 100 },
+  ]);
+  const before = document.getCommittedFrames();
+  const revision = document.getSnapshot().revision;
+  await assert.rejects(
+    editorTool(controls, "delete_nodes", { nodeIds: ["first", "second"] }),
+    /active page/,
+  );
+  await assert.rejects(editorTool(controls, "delete_nodes", { nodeIds: ["home"] }), /delete_page/);
+  assert.deepEqual(document.getCommittedFrames(), before);
+  assert.equal(document.getSnapshot().revision, revision);
+  await editorTool(controls, "delete_nodes", { nodeIds: ["first"] });
+  assert.equal(document.getFrame("first"), undefined);
+  assert.ok(document.getFrame("second"));
+  document.undo();
+  assert.deepEqual(document.getCommittedFrames(), before);
+});
+
 test("MCP selection rejects other pages and page containers", async () => {
   const { document, controls } = fixture();
   document.replaceAll([

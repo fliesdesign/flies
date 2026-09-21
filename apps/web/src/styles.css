@@ -272,7 +272,7 @@
 }
 
 /* Native macOS controls sit above the webview; this strip delegates gestures to Tauri. */
-:root[data-native-titlebar="macos"] {
+:root[data-native-titlebar] {
   --desktop-titlebar-height: 36px;
 }
 
@@ -287,6 +287,6 @@
   cursor: default;
 }
 
-html[data-native-titlebar="macos"] body {
+html[data-native-titlebar] body {
   padding-top: var(--desktop-titlebar-height);
 }

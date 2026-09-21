@@ -171,6 +171,35 @@ function withScene(
 }
 
 describe("canvas page rendering and picking", () => {
+  it("rebuilds the scene and hit index when a commit removes the active page", () => {
+    withScene(twoPages(), (scene, document) => {
+      const tester = new CanvasHitTester(document);
+      const disconnect = tester.connect();
+      document.setActivePage("drafts");
+      assert.equal(tester.hit({ x: 10, y: 10 }), "sketch");
+      document.removeMany(["drafts"]);
+      assert.equal(document.getActivePageId(), "home");
+      assert.deepEqual(scene.getSnapshot(), ["hero"]);
+      assert.equal(tester.hit({ x: 10, y: 10 }), "hero");
+      document.undo();
+      document.setActivePage("drafts");
+      document.redo();
+      assert.deepEqual(scene.getSnapshot(), ["hero"]);
+      assert.equal(tester.hit({ x: 10, y: 10 }), "hero");
+      disconnect();
+    });
+  });
+
+  it("notifies page observers when a remote snapshot deletes the active page", () => {
+    const document = new CanvasDocument(twoPages());
+    document.setActivePage("drafts");
+    const tester = new CanvasHitTester(document);
+    const disconnect = tester.connect();
+    document.replaceAll(twoPages().slice(0, 2), undefined, true);
+    assert.equal(tester.hit({ x: 10, y: 10 }), "hero");
+    disconnect();
+  });
+
   it("mounts only the active page and re-roots its children", () => {
     withScene(twoPages(), (scene, document) => {
       assert.deepEqual(scene.getSnapshot(), ["hero"]);

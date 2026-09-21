@@ -185,6 +185,11 @@ html:has(.workspace-tabs) body {
 html[data-native-titlebar="macos"] .workspace-tabs {
   padding-left: 96px;
 }
+html[data-native-titlebar="windows"] .workspace-tabs {
+  padding-left: 44px;
+  /* Three native caption buttons, each 46 logical pixels wide. */
+  padding-right: 148px;
+}
 .workspace-tab-list {
   display: flex;
   align-items: center;

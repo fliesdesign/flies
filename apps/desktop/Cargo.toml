@@ -1,6 +1,6 @@
 [package]
 name = "flies"
-version = "0.2.9"
+version = "0.2.10"
 description = "Flies design canvas"
 authors = ["you"]
 edition = "2021"
@@ -38,6 +38,9 @@ keyring = { version = "3.6.3", features = [
   "crypto-rust",
   "vendored",
 ] }
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-window-controls = "=0.2.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -1,4 +1,4 @@
-import { hasRotation, worldBounds } from "@flies/canvas";
+import { BUILTIN_FONT_FAMILIES, hasRotation, worldBounds } from "@flies/canvas";
 import {
   applyTokenBindings,
   THEME_PROPERTIES,
@@ -143,7 +143,7 @@ function PropertySelect({
   label: string;
   value: string | number | undefined;
   disabled?: boolean;
-  choices: readonly { value: string | number; label: string }[];
+  choices: readonly { value: string | number; label: string; disabled?: boolean }[];
   onChange: (value: string) => void;
 } & TokenChoiceProps) {
   const select = (
@@ -161,7 +161,7 @@ function PropertySelect({
           </option>
         )}
         {choices.map((choice) => (
-          <option key={choice.value} value={choice.value}>
+          <option key={choice.value} value={choice.value} disabled={choice.disabled}>
             {choice.label}
           </option>
         ))}
@@ -374,6 +374,17 @@ export const CanvasProperties = memo(function CanvasProperties({
   const ownLocked = nodes.some((node) => node.locked);
   const allHidden = nodes.length > 0 && nodes.every((node) => node.hidden);
   const allText = nodes.length > 0 && nodes.every((node) => node.kind === "text");
+
+  const limitedFontWeights =
+    allText &&
+    nodes.some(
+      (node) =>
+        node.kind === "text" &&
+        BUILTIN_FONT_FAMILIES.some(
+          (family) => family.toLowerCase() === (node.fontFamily ?? "Arial").toLowerCase(),
+        ),
+    );
+
   const hasFill = nodes.length > 0 && nodes.every((node) => fillFor(node) !== undefined);
 
   const hasRadius =
@@ -832,14 +843,34 @@ export const CanvasProperties = memo(function CanvasProperties({
                   choices={(() => {
                     const weight = textValue((node) => node.fontWeight ?? 400);
 
-                    return weight !== undefined &&
-                      !WEIGHT_CHOICES.some((choice) => choice.value === weight)
-                      ? [{ value: weight, label: String(weight) }, ...WEIGHT_CHOICES]
+                    const choices = limitedFontWeights
+                      ? WEIGHT_CHOICES.filter(
+                          (choice) => choice.value === 400 || choice.value === 700,
+                        )
                       : WEIGHT_CHOICES;
+
+                    // Keep imported/token values visible without offering unavailable faces.
+                    return weight !== undefined &&
+                      !choices.some((choice) => choice.value === weight)
+                      ? [
+                          {
+                            value: weight,
+                            label: `${WEIGHT_CHOICES.find((choice) => choice.value === weight)?.label ?? weight}${limitedFontWeights ? " (unavailable)" : ""}`,
+                            disabled: limitedFontWeights,
+                          },
+                          ...choices,
+                        ]
+                      : choices;
                   })()}
                   disabled={anyLocked}
                   onChange={numberChange("fontWeight")}
                 />
+                {limitedFontWeights && (
+                  <p className="canvas-property-hint">
+                    This selection includes a font with only Regular and Bold. For lighter weights,
+                    choose a font such as Inter.
+                  </p>
+                )}
                 <div className="canvas-properties-grid canvas-properties-grid-three">
                   <PropertyField
                     label="Font size"

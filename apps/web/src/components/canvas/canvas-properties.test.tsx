@@ -288,6 +288,7 @@ describe("expanded property controls", () => {
       [
         {
           ...text,
+          fontFamily: "Inter",
           fontWeight: 450,
           fontStyle: "italic" as const,
           textDecoration: "underline" as const,

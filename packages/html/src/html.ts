@@ -297,6 +297,7 @@ export async function importHtmlFragment(
     const measuredText = (textNode: Text, parentId?: string, opacity = 1) => {
       if (!textNode.textContent?.trim()) return;
       const style = getComputedStyle(textNode.parentElement!);
+      if (style.visibility !== "visible") return;
       const value = textNode.textContent;
       const range = document.createRange();
 
@@ -357,8 +358,9 @@ export async function importHtmlFragment(
 
     const visit = (element: HTMLElement, parentId?: string, isRoot = false) => {
       const style = getComputedStyle(element);
-      if (style.display === "none" || style.visibility === "hidden" || element.localName === "br")
-        return;
+      if (style.display === "none" || element.localName === "br") return;
+      const paintHidden = style.visibility !== "visible";
+      if (paintHidden && !element.children.length) return;
       const rect = element.getBoundingClientRect();
 
       if (style.display === "contents") {
@@ -378,7 +380,7 @@ export async function importHtmlFragment(
       const filters = nativeFilters(style.filter),
         blendMode = nativeBlend(style.mixBlendMode);
 
-      const gradient = nativeGradient(style, rect.width, rect.height);
+      const gradient = paintHidden ? undefined : nativeGradient(style, rect.width, rect.height);
 
       const transformed =
         Math.abs(pose.rotation) > 1e-8 || Math.abs(pose.dx) > 1e-8 || Math.abs(pose.dy) > 1e-8;
@@ -394,8 +396,13 @@ export async function importHtmlFragment(
       };
 
       if (transformed) shifts.set(base.id, pose);
-      const effects = effectsStyle(style, rect.width, rect.height);
-      const fill = htmlColor(style.backgroundColor);
+      const measuredEffects = effectsStyle(style, rect.width, rect.height);
+
+      const effects: ReturnType<typeof effectsStyle> = paintHidden
+        ? { cornerRadius: measuredEffects.cornerRadius }
+        : measuredEffects;
+
+      const fill = paintHidden ? "#00000000" : htmlColor(style.backgroundColor);
       const hasFill = !fill.endsWith("00");
       const hasEffects = Boolean(effects.borderWidth || effects.shadows?.length);
 
@@ -413,7 +420,9 @@ export async function importHtmlFragment(
         style.borderLeftColor,
       ];
 
-      const separateBorders = !effects.borderWidth && borderWidths.some((width) => width > 0);
+      const separateBorders =
+        !paintHidden && !effects.borderWidth && borderWidths.some((width) => width > 0);
+
       const decorated = hasFill || hasEffects || separateBorders || Boolean(gradient);
       let clipped = [style.overflowX, style.overflowY].some((v) => ["hidden", "clip"].includes(v));
 
@@ -442,7 +451,9 @@ export async function importHtmlFragment(
         ? element.value || element.getAttribute("placeholder") || ""
         : element.innerText;
 
-      const leafText = !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+      const leafText =
+        !paintHidden && !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+
       const buttonText = element.localName === "button";
 
       const contentRect = new DOMRect(
@@ -625,12 +636,19 @@ export async function importHtmlFragment(
         });
       } else {
         // DOM text ranges preserve inline color runs, wrapping, and flex/grid centering.
-        const ordered = Array.from(element.childNodes).map((node, index) => ({
-          node,
-          index,
-          order: node instanceof HTMLElement ? Number(getComputedStyle(node).order) || 0 : 0,
-          z: node instanceof HTMLElement ? Number(getComputedStyle(node).zIndex) || 0 : 0,
-        }));
+        const flexOrGrid = style.display.includes("flex") || style.display.includes("grid");
+
+        const ordered = Array.from(element.childNodes).map((node, index) => {
+          const childStyle = node instanceof HTMLElement ? getComputedStyle(node) : undefined;
+          const positioned = childStyle && childStyle.position !== "static";
+
+          return {
+            node,
+            index,
+            order: flexOrGrid && childStyle ? Number(childStyle.order) || 0 : 0,
+            z: childStyle && (positioned || flexOrGrid) ? Number(childStyle.zIndex) || 0 : 0,
+          };
+        });
 
         ordered.sort((a, b) => a.z - b.z || a.order - b.order || a.index - b.index);
 
