@@ -49,6 +49,7 @@ function render(document: CanvasDocument, selectedIds: readonly string[] = []) {
       pages={document.getPageIds().map((id) => document.getFrame(id) as CanvasPage)}
       activePageId={document.getActivePageId()}
       onSelectPage={() => {}}
+      onMoveToPage={() => {}}
       onAddPage={() => {}}
       onRenamePage={() => {}}
       onRemovePage={() => {}}

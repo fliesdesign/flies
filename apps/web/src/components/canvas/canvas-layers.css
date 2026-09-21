@@ -421,3 +421,8 @@
     transition: none;
   }
 }
+
+.canvas-page-row[data-drop-target] {
+  background: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}

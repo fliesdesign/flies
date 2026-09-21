@@ -57,6 +57,7 @@ type CanvasLayersProps = {
   pages: readonly CanvasPage[];
   activePageId: string | undefined;
   onSelectPage: (id: string) => void;
+  onMoveToPage: (ids: readonly string[], pageId: string) => void;
   onAddPage: () => void;
   onRenamePage: (id: string, name: string) => void;
   onRemovePage: (id: string) => void;
@@ -173,6 +174,7 @@ export const CanvasLayers = memo(function CanvasLayers({
   pages,
   activePageId,
   onSelectPage,
+  onMoveToPage,
   onAddPage,
   onRenamePage,
   onRemovePage,
@@ -195,6 +197,7 @@ export const CanvasLayers = memo(function CanvasLayers({
   const [initialSidebarTab] = useState(() => loadWorkspaceSession().sidebarTab);
   const [editingId, setEditingId] = useState<string | null>(null);
   const rowElements = useRef(new Map<string, HTMLDivElement>());
+  const pageRowElements = useRef(new Map<string, HTMLElement>());
   const treeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<string | null>(null);
   const dragRef = useRef<LayerDrag | null>(null);
@@ -202,6 +205,7 @@ export const CanvasLayers = memo(function CanvasLayers({
   const suppressClick = useRef(false);
   const [draggingIds, setDraggingIds] = useState<readonly string[]>([]);
   const [drop, setDrop] = useState<LayerDrop | null>(null);
+  const [dropPageId, setDropPageId] = useState<string | null>(null);
   const revealedSelection = useRef<string | null>(null);
   const [scrollWindow, setScrollWindow] = useState({ top: 0, height: 600 });
   const collapseButton = useRef<HTMLButtonElement>(null);
@@ -337,6 +341,38 @@ export const CanvasLayers = memo(function CanvasLayers({
     [rows],
   );
 
+  const registerPageRow = useCallback((id: string, element: HTMLElement | null) => {
+    if (element) pageRowElements.current.set(id, element);
+    else pageRowElements.current.delete(id);
+  }, []);
+
+  /** The page under the pointer, excluding the one already being edited. */
+  const findPageDrop = useCallback(
+    (x: number, y: number): string | null => {
+      if (!dragRef.current?.moving) return null;
+
+      for (const [id, element] of pageRowElements.current) {
+        if (id === activePageId) continue;
+        const bounds = element.getBoundingClientRect();
+        if (x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom)
+          return id;
+      }
+
+      return null;
+    },
+    [activePageId],
+  );
+
+  // A drag resolves to one destination: another page, or a position in this page's tree.
+  const updateDrop = useCallback(
+    (x: number, y: number) => {
+      const pageId = findPageDrop(x, y);
+      setDropPageId(pageId);
+      setDrop(pageId ? null : findDrop(x, y));
+    },
+    [findDrop, findPageDrop],
+  );
+
   const stopDrag = useCallback(() => {
     const drag = dragRef.current;
     dragRef.current = null;
@@ -345,6 +381,7 @@ export const CanvasLayers = memo(function CanvasLayers({
     if (drag && tree?.hasPointerCapture(drag.pointerId)) tree.releasePointerCapture(drag.pointerId);
     setDraggingIds([]);
     setDrop(null);
+    setDropPageId(null);
   }, [hoverExpansion]);
 
   const expandTarget =
@@ -369,8 +406,8 @@ export const CanvasLayers = memo(function CanvasLayers({
   // Expansion changes the row geometry even if the pointer stays still.
   useEffect(() => {
     const drag = dragRef.current;
-    if (drag?.moving) setDrop(findDrop(drag.x, drag.y));
-  }, [findDrop]);
+    if (drag?.moving) updateDrop(drag.x, drag.y);
+  }, [updateDrop]);
 
   useEffect(() => {
     if (!draggingIds.length) return;
@@ -397,7 +434,7 @@ export const CanvasLayers = memo(function CanvasLayers({
 
         if (tree.scrollTop !== previous) {
           updateScrollWindow();
-          setDrop(findDrop(drag.x, drag.y));
+          updateDrop(drag.x, drag.y);
         }
       }
 
@@ -422,7 +459,7 @@ export const CanvasLayers = memo(function CanvasLayers({
       window.removeEventListener("blur", cancel);
       window.removeEventListener("keydown", escape, true);
     };
-  }, [draggingIds, findDrop, stopDrag, updateScrollWindow]);
+  }, [draggingIds, stopDrag, updateDrop, updateScrollWindow]);
 
   const start = Math.max(0, Math.floor((scrollWindow.top - TREE_PADDING) / ROW_HEIGHT) - OVERSCAN);
 
@@ -528,11 +565,13 @@ export const CanvasLayers = memo(function CanvasLayers({
 
   const targetName = drop?.id ? document.getFrame(drop.id)?.name : undefined;
 
-  const dropDescription = !drop
-    ? "Choose a destination"
-    : !targetName
-      ? "Move to canvas"
-      : `${drop.placement === "inside" ? "Into" : drop.placement === "before" ? "Above" : "Below"} ${targetName}`;
+  const dropDescription = dropPageId
+    ? `To ${document.getFrame(dropPageId)?.name ?? "page"}`
+    : !drop
+      ? "Choose a destination"
+      : !targetName
+        ? "Move to canvas"
+        : `${drop.placement === "inside" ? "Into" : drop.placement === "before" ? "Above" : "Below"} ${targetName}`;
 
   return (
     <aside className="canvas-layers" aria-label="Design sidebar" data-canvas-ui="">
@@ -563,6 +602,8 @@ export const CanvasLayers = memo(function CanvasLayers({
           <CanvasPages
             pages={pages}
             activePageId={activePageId}
+            dropPageId={dropPageId}
+            registerRow={registerPageRow}
             onSelect={onSelectPage}
             onAdd={onAddPage}
             onRename={onRenamePage}
@@ -636,12 +677,21 @@ export const CanvasLayers = memo(function CanvasLayers({
 
                 if (drag.moving) {
                   event.preventDefault();
-                  setDrop(findDrop(drag.x, drag.y));
+                  updateDrop(drag.x, drag.y);
                 }
               }}
               onPointerUp={(event) => {
                 const drag = dragRef.current;
                 if (!drag || drag.pointerId !== event.pointerId) return;
+                const page = findPageDrop(event.clientX, event.clientY);
+
+                if (drag.moving && page) {
+                  onMoveToPage(drag.ids, page);
+                  stopDrag();
+
+                  return;
+                }
+
                 const target = findDrop(event.clientX, event.clientY);
 
                 if (drag.moving && target) {

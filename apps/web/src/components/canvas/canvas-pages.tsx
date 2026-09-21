@@ -19,6 +19,10 @@ type CanvasPagesProps = {
   onAdd: () => void;
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
+  /** Page currently under a layer drag, highlighted as its destination. */
+  dropPageId?: string | null;
+  /** Lets the layer tree hit-test these rows while a drag is in flight. */
+  registerRow?: (id: string, element: HTMLElement | null) => void;
 };
 
 /** The canvases in this document. Each page owns its own artwork, camera and layer tree. */
@@ -29,6 +33,8 @@ export function CanvasPages({
   onAdd,
   onRename,
   onRemove,
+  dropPageId,
+  registerRow,
 }: CanvasPagesProps) {
   const [open, setOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,8 +82,10 @@ export function CanvasPages({
           {pages.map((page) => (
             <ContextMenu key={page.id}>
               <ContextMenuTrigger
+                ref={(element: HTMLElement | null) => registerRow?.(page.id, element)}
                 role="tab"
                 className="canvas-page-row"
+                data-drop-target={page.id === dropPageId || undefined}
                 aria-selected={page.id === activePageId}
                 tabIndex={page.id === activePageId ? 0 : -1}
                 onClick={() => onSelect(page.id)}

@@ -578,6 +578,18 @@ export function DesignCanvas({
     [camera, changeViewport, document, finishInteraction, setSelection],
   );
 
+  /** Layers keep their world position; the page they leave is no longer showing them. */
+  const moveLayersToPage = useCallback(
+    (layerIds: readonly string[], pageId: string) => {
+      finishInteraction(true);
+      setEditingId(null);
+      if (!document.moveLayers(layerIds, pageId, "inside")) return;
+      setSelection([]);
+      setHoveredId(null);
+    },
+    [document, finishInteraction, setSelection],
+  );
+
   const addPage = useCallback(
     (name?: string) => {
       const page = canvasPage(name?.trim() || nextPageName(document.getFrames()));
@@ -2201,6 +2213,7 @@ export function DesignCanvas({
           pages={pages}
           activePageId={activePageId}
           onSelectPage={showPage}
+          onMoveToPage={moveLayersToPage}
           onAddPage={() => addPage()}
           onRenamePage={renamePage}
           onRemovePage={removePage}
