@@ -107,3 +107,11 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           retryAttempts: 3
+
+  publish-downloads:
+    name: Publish R2 downloads
+    needs: build
+    uses: ./.github/workflows/publish-desktop-update.yml
+    with:
+      tag: ${{ github.event.release.tag_name }}
+    secrets: inherit

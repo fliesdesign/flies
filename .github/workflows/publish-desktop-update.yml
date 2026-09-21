@@ -1,0 +1,42 @@
+name: Publish desktop downloads
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to mirror (all desktop builds must be complete)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-downloads-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify publishing tools
+        run: |
+          aws --version
+          gh --version
+      - name: Test publisher
+        run: python3 -m unittest discover -s scripts -p 'test_publish_desktop_update.py'
+      - name: Upload release and publish updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_DOWNLOADS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_DOWNLOADS_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 scripts/publish-desktop-update.py "$RELEASE_TAG"

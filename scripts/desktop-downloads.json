@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://a3bad09d467f7e00ca2f879e28ecb620.r2.cloudflarestorage.com",
+  "region": "auto",
+  "bucket": "flies-downloads",
+  "publicUrl": "https://desktop.flies.design/"
+}

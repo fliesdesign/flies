@@ -342,3 +342,38 @@ SVG nodes support normal layer operations, resizing, project save/reopen, PNG ex
 formats (which retain the embedded SVG source). Paths, groups, gradients, clipping, masks, and local
 references are preserved; scripts, external resources, and unsupported SVG elements are removed on
 import. SVG nodes are whole vector assets, not individual editable paths.
+
+### Desktop releases and updates
+
+Publishing a GitHub release builds and attaches desktop installers, updater binaries,
+signatures, and `latest.json` as before. Once all five platform builds succeed, the
+release workflow mirrors every asset to the S3-compatible R2 bucket configured in
+[`scripts/desktop-downloads.json`](scripts/desktop-downloads.json):
+
+- Endpoint: `https://a3bad09d467f7e00ca2f879e28ecb620.r2.cloudflarestorage.com`
+- Region: `auto`
+- Bucket: `flies-downloads`
+- Public downloads: `https://desktop.flies.design/`
+- Stable updater feed: `https://desktop.flies.design/latest.json`
+
+Credentials belong in GitHub Actions secrets `R2_DOWNLOADS_ACCESS_KEY_ID` and
+`R2_DOWNLOADS_SECRET_ACCESS_KEY`; they are never shipped in the app. Existing Tauri
+signing secrets and the public verification key remain unchanged.
+
+Versioned assets live under `releases/<tag>/`. The publisher checks all platform
+entries, downloaded asset sizes, and matching signature files, uploads binaries
+first, and checks public downloads before publishing the manifest. Manifest URLs
+point to the bucket while signatures remain intact. Only GitHub's current stable
+release may replace the root feed; prereleases and older reruns only get versioned
+files. The root manifest is served with `no-cache` to avoid stale update checks.
+
+Use the **Publish desktop downloads** workflow with an existing release tag to retry
+an upload or mirror an older completed release without rebuilding it. GitHub release
+attachments are preserved. Existing installed apps keep their compiled GitHub updater
+endpoint until they install a build containing the R2 endpoint.
+
+Test the publisher with:
+
+```sh
+python3 -m unittest discover -s scripts -p 'test_publish_desktop_update.py'
+```
