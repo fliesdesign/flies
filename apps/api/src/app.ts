@@ -6,12 +6,14 @@ import * as v from "valibot";
 
 import { authService, type AuthEnv, type AuthProvider } from "./auth";
 import { billingService, type BillingProvider } from "./billing";
-import { billingConfig } from "./config";
+import { billingConfig, realtimeConfig } from "./config";
 import type { Config } from "./config";
 import type { Database } from "./db/client";
 import { latestDesktopDownload } from "./desktop-downloads";
 import { fileService, parseSnapshot } from "./files";
 import { idSchema } from "./ids";
+import { SyncRedis } from "./realtime/redis";
+import { createRealtime } from "./realtime/server";
 import type { RevisionStorage } from "./storage";
 import { teamService } from "./teams";
 
@@ -38,6 +40,21 @@ export function createApp(
     "http://tauri.localhost",
     "https://tauri.localhost",
   ]);
+
+  const syncConfig = realtimeConfig(config);
+
+  const realtime = syncConfig
+    ? createRealtime({
+        db,
+        auth,
+        teams,
+        files,
+        billing,
+        origins,
+        requireTLS: new URL(config.API_URL).protocol === "https:",
+        redis: new SyncRedis(syncConfig.url, syncConfig.key),
+      })
+    : null;
 
   app.use(
     "*",
@@ -111,6 +128,33 @@ export function createApp(
     }
 
     await next();
+  });
+  app.post("/api/sync/ticket", async (c) => {
+    if (!realtime) return c.json({ enabled: false });
+    const { fileId } = v.parse(v.object({ fileId: idSchema }), await c.req.json());
+
+    return c.json(
+      await realtime.ticket(
+        fileId,
+        c.get("workspace").id,
+        c.get("user"),
+        c.get("sessionHash"),
+        c.req.header("Origin") ?? "",
+      ),
+    );
+  });
+  app.post("/api/files/:id/changes", async (c) => {
+    if (!realtime) throw new HTTPException(503, { message: "Realtime is not configured." });
+
+    return c.json(
+      await realtime.change(
+        v.parse(idSchema, c.req.param("id")),
+        c.get("workspace").id,
+        c.get("user"),
+        c.get("sessionHash"),
+        await c.req.json(),
+      ),
+    );
   });
   app.get("/api/me", (c) => c.json({ user: c.get("user"), workspace: c.get("workspace") }));
   app.get("/api/billing", async (c) => c.json(await billing.entitlements(c.get("workspace").id)));
@@ -245,5 +289,5 @@ export function createApp(
     return c.json({ error: "Could not complete the request. Please retry." }, 500);
   });
 
-  return { app, auth, billing };
+  return { app, auth, billing, realtime };
 }

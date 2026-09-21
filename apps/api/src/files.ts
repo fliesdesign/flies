@@ -1,4 +1,5 @@
 import { CanvasDocument, type CanvasFrame } from "@flies/canvas/document";
+import { applyDocumentDelta, type DocumentDelta } from "@flies/canvas/sync";
 import { EMPTY_THEME, type CanvasTheme } from "@flies/canvas/theme";
 import { and, count, desc, eq } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
@@ -151,7 +152,7 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
       workspaceId: string,
       userId: string,
       snapshot: Snapshot,
-      existing?: { id: string; revision: number; mutationId: string },
+      existing?: { id: string; revision: number; mutationId: string; delta?: DocumentDelta },
       entitlements: Entitlements = BILLING_DISABLED,
     ) {
       const id = existing?.id ?? ulid();
@@ -191,11 +192,17 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
             .where(and(eq(revisions.id, revisionId), eq(revisions.fileId, id)));
 
           if (prior) return storage.get(prior.objectKey);
-          if (row.revision !== existing.revision)
+          if (!existing.delta && row.revision !== existing.revision)
             throw new HTTPException(409, {
               message:
                 "This file changed in another session. Reopen it before saving; your current edits are still in this tab.",
             });
+
+          if (existing.delta) {
+            const current = parseSnapshot(await storage.get(row.objectKey));
+            snapshot = parseSnapshot(applyDocumentDelta(current, existing.delta));
+          }
+
           createdAt = row.createdAt;
           number = row.revision + 1;
         }

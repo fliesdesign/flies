@@ -1,5 +1,7 @@
 import * as v from "valibot";
 export const configSchema = v.object({
+  REDIS_URL: v.optional(v.string()),
+  SYNC_ENCRYPTION_KEY: v.optional(v.string()),
   DATABASE_URL: v.pipe(v.string(), v.url()),
   WORKOS_API_KEY: v.pipe(v.string(), v.minLength(1)),
   WORKOS_CLIENT_ID: v.pipe(v.string(), v.minLength(1)),
@@ -72,6 +74,25 @@ export function readConfig() {
     );
 
   billingConfig(result.output);
+  realtimeConfig(result.output);
 
   return result.output;
+}
+
+export function realtimeConfig(
+  config: Pick<Config, "REDIS_URL" | "SYNC_ENCRYPTION_KEY" | "API_URL">,
+) {
+  if (!config.REDIS_URL?.trim() && !config.SYNC_ENCRYPTION_KEY?.trim()) return null;
+  if (!config.REDIS_URL?.trim() || !config.SYNC_ENCRYPTION_KEY?.trim())
+    throw new Error("Realtime needs REDIS_URL and SYNC_ENCRYPTION_KEY.");
+  const url = new URL(config.REDIS_URL);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  const privateNetwork = url.hostname.endsWith(".railway.internal");
+  if (url.protocol !== "rediss:" && !(url.protocol === "redis:" && (local || privateNetwork)))
+    throw new Error("Redis must use TLS or Railway private networking.");
+  const api = new URL(config.API_URL);
+  if (api.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(api.hostname))
+    throw new Error("Realtime requires HTTPS outside local development.");
+
+  return { url: config.REDIS_URL, key: config.SYNC_ENCRYPTION_KEY };
 }

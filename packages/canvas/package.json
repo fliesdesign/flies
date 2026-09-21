@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./document": "./src/canvas-document.ts",
-    "./theme": "./src/canvas-theme.ts"
+    "./theme": "./src/canvas-theme.ts",
+    "./sync": "./src/canvas-sync.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -53,7 +53,10 @@ export default defineConfig(() => ({
   envDir: repoRoot,
   clearScreen: false,
   server: {
-    proxy: { "/api": "http://localhost:3001", "/auth": "http://localhost:3001" },
+    proxy: {
+      "/api": { target: "http://localhost:3001", ws: true },
+      "/auth": "http://localhost:3001",
+    },
     port: 1420,
     strictPort: true,
     host: host || false,

@@ -193,3 +193,51 @@ WorkOS uses the existing API credentials and its configured invitation email/Aut
 flow; no additional environment variables are required. Integration tests mock email
 delivery and Polar. Actual email delivery still needs verification in the deployed
 WorkOS environment.
+
+## Realtime collaboration
+
+The editor uses Bun WebSockets for shared cursors, selections, presence, and document
+changes. Bun's native `RedisClient` distributes events between API replicas; no sticky
+sessions are required. Configure `REDIS_URL` with the existing Railway Redis private
+URL and set `SYNC_ENCRYPTION_KEY` to a randomly generated, base64-encoded 32-byte key.
+Every API replica must use the same key. If both variables are absent, the editor
+retains ordinary autosave. Partial configuration fails startup.
+
+Changes merge on the server under the file's database row lock. Only changed fields
+are applied, so unrelated edits survive concurrent saves. The latest committed edit
+wins when two people change the same property; deletion takes precedence over stale
+property updates. File revisions remain the durable authority. Mutation IDs make
+retries safe after lost acknowledgements. Reconnects fetch the authoritative revision
+and reapply unsaved local changes. Large updates use the same authenticated merge
+endpoint over HTTPS, avoiding oversized WebSocket frames. Cursors are transient and
+expire when a connection disappears. Documents are saved on committed actions;
+in-progress pointer drags are represented by live cursors and selections.
+
+Security boundaries:
+
+- Production browser/desktop connections use WSS. Redis connections use TLS or
+  Railway private networking; public plaintext Redis URLs are rejected.
+- Redis relay messages, connection tickets, and stored presence use AES-256-GCM
+  with fresh nonces and room-bound authentication. Room names and credential lookup
+  keys are HMAC-derived. The key stays on the API; Redis does not store plaintext
+  names, cursors, document content, or session credentials.
+- Connections need an authenticated, CSRF-protected POST for a single-use 30-second
+  ticket. The ticket travels in the WebSocket subprotocol, not a query string.
+  Origins are allowlisted and tickets are bound to their originating client.
+- Workspace membership, paid seats, file scope, archival state, and sessions are
+  checked before connecting and committing. Active sockets reauthorize every ten
+  seconds and stop sending after a 25-second authorization lease. Billing changes
+  use the existing billing cache (at most 60 seconds, invalidated by Polar events).
+- User identity and cursor color come from the server. Presence and edits have
+  schema, message-size, rate, connection-count, and backpressure limits.
+- This is transport encryption plus encrypted Redis storage/relay, not end-to-end
+  encryption: the trusted API validates edits and stores normal file revisions.
+  Closing a tab with unsaved changes still requires the existing save confirmation.
+
+The integration suite in `test/realtime.integration.test.ts` uses two Bun API replicas,
+the isolated test Postgres database, and **the existing Railway Redis**. It writes
+only test-scoped expiring Redis data and removes its database fixtures. Set
+`TEST_REDIS_URL` to an authenticated TLS URL or a loopback SSH tunnel to Railway;
+never start a separate Redis for these tests. Optional `SYNC_BROWSER_URL` exercises
+two Chromium contexts against a Vite server configured with
+`VITE_API_URL=http://127.0.0.1:3221` (test API) and origin `http://127.0.0.1:1423`.

@@ -83,12 +83,14 @@ import {
   type CanvasCodeFormat,
 } from "@/lib/canvas-code-export";
 import { importPaperSnapshot, isPaperSnapshot } from "@/lib/paper-snapshot";
+import type { RealtimeFile } from "@/lib/realtime";
 
 import { CanvasAgentActivity } from "./canvas-agent-activity";
 import { CanvasFileMenu, type CanvasFileActions } from "./canvas-file-menu";
 import { CanvasAlignmentGuides } from "./canvas-guides";
 import { CanvasLayers } from "./canvas-layers";
 import { CanvasNodeContent, measureCanvasTextHeight } from "./canvas-node-content";
+import { CanvasPresence } from "./canvas-presence";
 import { CanvasProperties } from "./canvas-properties";
 import {
   CanvasFrames,
@@ -113,6 +115,7 @@ export type CanvasControls = {
 };
 
 type DesignCanvasProps = {
+  realtime?: RealtimeFile;
   fileActions?: CanvasFileActions;
   initialFrames?: CanvasFrame[];
   initialTheme?: CanvasTheme;
@@ -185,6 +188,7 @@ export function DesignCanvas({
   initialFrames,
   initialTheme,
   fileActions,
+  realtime,
   persist = false,
   FrameContent,
   onReady,
@@ -2135,6 +2139,14 @@ export function DesignCanvas({
           )}
           <CanvasAlignmentGuides guides={guides} camera={camera} />
           <CanvasAgentActivity document={document} camera={camera} />
+          {realtime && (
+            <CanvasPresence
+              realtime={realtime}
+              camera={camera}
+              document={document}
+              selection={selectedIds}
+            />
+          )}
         </ContextMenuTrigger>
         <ContextMenuContent className="canvas-menu" finalFocus={surfaceRef}>
           <ContextMenuItem onClick={() => createFrame(menuPointRef.current)}>

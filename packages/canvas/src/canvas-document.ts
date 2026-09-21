@@ -727,7 +727,11 @@ export class CanvasDocument {
   removeMany = (ids: readonly string[]) => this.transact({ remove: this.getDescendantIds(ids) });
 
   /** Open a complete project atomically, retaining one undo back to the previous document. */
-  replaceAll = (frames: readonly CanvasFrame[], theme: CanvasTheme = EMPTY_THEME): boolean => {
+  replaceAll = (
+    frames: readonly CanvasFrame[],
+    theme: CanvasTheme = EMPTY_THEME,
+    remote = false,
+  ): boolean => {
     let replacement: CanvasDocument;
 
     try {
@@ -761,8 +765,66 @@ export class CanvasDocument {
       afterTheme: replacement.getTheme(),
     };
 
-    this.apply(operation, false);
-    this.record(operation);
+    if (remote) {
+      const changes = new Map(patches.map((patch) => [patch.id, patch]));
+      const structural = !sameIds(this.ids, replacement.getIds());
+      const themeChanged = JSON.stringify(this.theme) !== JSON.stringify(replacement.getTheme());
+
+      const rebase = (entries: DocumentOperation[]) =>
+        entries.flatMap((entry) => {
+          if (
+            (structural && (entry.beforeIds || entry.afterIds)) ||
+            (themeChanged && (entry.beforeTheme || entry.afterTheme))
+          )
+            return [];
+          if (
+            entry.patches.some((patch) => {
+              const change = changes.get(patch.id);
+
+              return change && (!change.before || !change.after || !patch.before || !patch.after);
+            })
+          )
+            return [];
+
+          return [
+            {
+              ...entry,
+              patches: entry.patches.map((patch) => {
+                const change = changes.get(patch.id);
+                if (!change?.before || !change.after) return patch;
+                const before = change.before as unknown as Record<string, unknown>;
+                const after = change.after as unknown as Record<string, unknown>;
+
+                const changedKeys = [
+                  ...new Set([...Object.keys(before), ...Object.keys(after)]),
+                ].filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+
+                const merge = (frame: CanvasFrame | undefined) => {
+                  if (!frame) return frame;
+                  const value = { ...frame } as Record<string, unknown>;
+
+                  for (const key of changedKeys) {
+                    if (after[key] === undefined) delete value[key];
+                    else value[key] = after[key];
+                  }
+
+                  return Object.freeze(value) as CanvasFrame;
+                };
+
+                return { id: patch.id, before: merge(patch.before), after: merge(patch.after) };
+              }),
+            },
+          ];
+        });
+
+      this.past = rebase(this.past);
+      this.future = rebase(this.future);
+      this.apply(operation, false);
+      this.notifyCommit(operation);
+    } else {
+      this.apply(operation, false);
+      this.record(operation);
+    }
 
     return true;
   };

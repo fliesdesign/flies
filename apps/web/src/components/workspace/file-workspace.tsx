@@ -14,7 +14,6 @@ import { signIn, signOut, type Account } from "@/lib/api";
 import {
   archiveFile,
   createFile,
-  FileAutosave,
   importFile,
   listFiles,
   openFile,
@@ -25,6 +24,7 @@ import {
 import { connectMcp } from "@/lib/mcp/bridge";
 import { editorTool, textResult, stringArg, type McpResult } from "@/lib/mcp/editor";
 import { resolveMcpFileId, waitForMcpControls, withFileLock } from "@/lib/mcp/session";
+import { RealtimeFile } from "@/lib/realtime";
 import {
   loadWorkspaceSession,
   patchWorkspaceSession,
@@ -66,14 +66,12 @@ function FileEditor({
 }) {
   const [status, setStatus] = useState("Saved");
   const [controls, setControls] = useState<CanvasControls | null>(null);
-  const [save] = useState(() => new FileAutosave(file, undefined, setStatus, onSaved));
+  const [save] = useState(() => new RealtimeFile(file, setStatus, onSaved));
   const [opening, setOpening] = useState(false);
   useEffect(() => {
     if (!controls) return;
 
-    return controls.document.subscribe(() =>
-      save.enqueue(controls.document.getCommittedFrames(), controls.document.getTheme()),
-    );
+    return save.bind(controls);
   }, [controls, save]);
 
   const flush = useCallback(async () => {
@@ -103,6 +101,7 @@ function FileEditor({
         initialTheme={file.theme}
         persist={false}
         onReady={setControls}
+        realtime={save}
         fileActions={{
           name: file.name,
           status,

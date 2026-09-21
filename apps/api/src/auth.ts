@@ -130,14 +130,9 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     return token;
   }
 
-  async function authenticate(c: Context<AuthEnv>) {
-    const token = credential(c);
-    if (!token || !v.safeParse(proofSchema, token).success)
-      throw new HTTPException(401, { message: "Sign in to continue." });
-    const tokenHash = hash(token);
-
+  async function validateSession(tokenHash: string) {
     // Serialize refresh-token rotation across concurrent requests and API instances.
-    const auth = await db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const [row] = await tx
         .select()
         .from(sessions)
@@ -161,6 +156,15 @@ export function authService(db: Database, config: Config, provider: AuthProvider
 
       return { ...result, workspaceId: row.workspaceId };
     });
+  }
+
+  async function authenticate(c: Context<AuthEnv>) {
+    const token = credential(c);
+    if (!token || !v.safeParse(proofSchema, token).success)
+      throw new HTTPException(401, { message: "Sign in to continue." });
+    const tokenHash = hash(token);
+
+    const auth = await validateSession(tokenHash);
 
     if (!auth) throw new HTTPException(401, { message: "Your session expired. Sign in again." });
     c.set("user", auth.user);
@@ -272,5 +276,5 @@ export function authService(db: Database, config: Config, provider: AuthProvider
     return c.json({ signedOut: true });
   });
 
-  return { routes, authenticate, createSession };
+  return { routes, authenticate, createSession, validateSession };
 }

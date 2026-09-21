@@ -1,0 +1,70 @@
+.canvas-presence {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 12;
+}
+.canvas-presence-status {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 30px);
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--muted-foreground);
+  font: 11px var(--font-sans);
+  pointer-events: auto;
+  box-shadow: 0 2px 6px #0001;
+}
+.canvas-presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d69c45;
+}
+.canvas-presence-dot.is-live {
+  background: #54c7a0;
+}
+.canvas-presence-avatar {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  color: #151515;
+  font-weight: 600;
+}
+.canvas-peer-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: transform 90ms linear;
+  will-change: transform;
+}
+.canvas-peer-cursor span {
+  display: block;
+  margin-left: 13px;
+  margin-top: -4px;
+  border-radius: 3px 7px 7px 7px;
+  padding: 3px 6px;
+  white-space: nowrap;
+  font: 11px var(--font-sans);
+  color: #151515;
+}
+.canvas-peer-selection {
+  position: absolute;
+  border: 1px solid;
+  opacity: 0.8;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-peer-cursor {
+    transition: none;
+  }
+}
