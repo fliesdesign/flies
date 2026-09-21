@@ -28,6 +28,7 @@ export type RealtimeState = {
   state: "connecting" | "live" | "offline" | "disabled";
   peers: Peer[];
   userId?: string;
+  highlightedUserId?: string;
 };
 
 const snapshot = (file: DesignFile): SyncSnapshot => ({
@@ -88,12 +89,19 @@ export class RealtimeFile {
   };
 
   getSnapshot = () => this.state;
+
+  highlight = (userId?: string) => {
+    this.state = { ...this.state, highlightedUserId: userId };
+    this.publish();
+  };
+
   private publish(state = this.state.state) {
     const now = Date.now();
     for (const [id, peer] of this.peers) if (now - peer.updatedAt > 25_000) this.peers.delete(id);
     this.state = {
       state,
       userId: this.userId,
+      highlightedUserId: this.state.highlightedUserId,
       peers: [...this.peers.values()].filter((peer) => peer.connectionId !== this.id),
     };
     this.listeners.forEach((listener) => listener());

@@ -290,3 +290,31 @@ html[data-native-titlebar="macos"] .workspace-tabs {
   min-width: 28px;
   height: 100%;
 }
+
+.workspace-collaborators-slot {
+  flex-shrink: 0;
+  max-width: 35%;
+}
+.workspace-collaborators {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.workspace-collaborator-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #0002;
+  border-radius: 50%;
+  color: #151515;
+  font: 600 10px var(--font-sans);
+  cursor: default;
+}
+.workspace-collaborator-avatar[data-highlighted],
+.workspace-collaborator-avatar:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 1px;
+}

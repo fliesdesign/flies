@@ -90,38 +90,17 @@ export function CanvasPresence({
     };
   }, [camera, realtime]);
 
-  const people = [
-    ...new Map(
-      state.peers.filter((peer) => peer.userId !== state.userId).map((peer) => [peer.userId, peer]),
-    ).values(),
-  ];
-
   return (
     <div ref={layer} className="canvas-presence" aria-label="Live collaborators">
-      {state.state !== "disabled" && people.length > 0 && (
-        <output className="canvas-presence-status" data-canvas-ui="">
-          <span className={`canvas-presence-dot ${state.state === "live" ? "is-live" : ""}`} />
-          <span>
-            {state.state === "live"
-              ? `${people.length + 1} here`
-              : state.state === "connecting"
-                ? "Connecting…"
-                : "Reconnecting…"}
-          </span>
-          {people.slice(0, 5).map((peer) => (
-            <span
-              key={peer.userId}
-              className="canvas-presence-avatar"
-              style={{ background: peer.color }}
-              title={`${peer.name} · ${peer.activity}`}
-            >
-              {peer.name.slice(0, 1).toUpperCase()}
-            </span>
-          ))}
-        </output>
-      )}
       {state.peers.map((peer) => (
-        <div key={peer.connectionId}>
+        <div
+          key={peer.connectionId}
+          className="canvas-peer"
+          data-highlighted={state.highlightedUserId === peer.userId || undefined}
+          data-dimmed={
+            Boolean(state.highlightedUserId && state.highlightedUserId !== peer.userId) || undefined
+          }
+        >
           {peer.selection.flatMap((id) => {
             const node = document.getFrame(id);
             if (!node || document.isHidden(id)) return [];

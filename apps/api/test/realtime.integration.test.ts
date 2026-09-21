@@ -378,13 +378,15 @@ test.skipIf(!process.env.SYNC_BROWSER_URL)(
       );
       await Promise.all(
         pages.map((page) =>
-          browserExpect(page.locator(".canvas-presence-status")).toContainText("2 here", {
+          browserExpect(page.locator(".canvas-presence")).toBeAttached({
             timeout: 20000,
           }),
         ),
       );
       await pages[0].mouse.move(650, 350);
-      await browserExpect(pages[1].locator('[data-peer-name="Owner"]')).toBeVisible();
+      await browserExpect(pages[1].locator('[data-peer-name="Owner"]')).toBeVisible({
+        timeout: 20000,
+      });
       await pages[0].getByRole("treeitem", { name: "Box", exact: true }).click();
       await pages[1].getByRole("treeitem", { name: "Box", exact: true }).click();
       const x1 = pages[0].getByLabel("X position", { exact: true });
@@ -402,7 +404,30 @@ test.skipIf(!process.env.SYNC_BROWSER_URL)(
       await browserExpect(x1).toHaveValue("320", { timeout: 15000 });
       await pages[1].keyboard.press("Meta+Shift+z");
       await browserExpect(x1).toHaveValue("410", { timeout: 15000 });
-      await pages[0].screenshot({ path: "/tmp/flies-realtime-collaboration.png" });
+      await pages[1].mouse.move(700, 400);
+      const avatar = pages[0].getByRole("button", { name: "Member", exact: true });
+      await browserExpect(avatar).toBeVisible({ timeout: 20000 });
+      await avatar.hover();
+      await browserExpect(pages[0].locator('[data-slot="tooltip-content"]')).toContainText(
+        "Member",
+      );
+      await browserExpect(
+        pages[0].locator('.canvas-peer[data-highlighted] [data-peer-name="Member"]'),
+      ).toBeVisible();
+      await browserExpect(
+        pages[0].locator(".canvas-peer[data-highlighted] .canvas-peer-selection"),
+      ).toBeVisible();
+      await pages[0].screenshot({ path: "/tmp/flies-collaborator-avatars.png" });
+      // Highlight expires even while the avatar remains hovered.
+      await browserExpect(pages[0].locator(".canvas-peer[data-highlighted]")).toHaveCount(0, {
+        timeout: 3000,
+      });
+      await pages[0].mouse.move(500, 200);
+      await browserExpect(pages[0].locator(".canvas-peer[data-highlighted]")).toHaveCount(0);
+      await avatar.focus();
+      await browserExpect(pages[0].locator(".canvas-peer[data-highlighted]")).toHaveCount(1);
+      await avatar.press("Tab");
+      await browserExpect(pages[0].locator(".canvas-peer[data-highlighted]")).toHaveCount(0);
 
       const durable = (await (await call(0, 0, `/api/files/${fileId}`)).json()) as {
         nodes: { x: number }[];

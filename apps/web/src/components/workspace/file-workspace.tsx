@@ -5,6 +5,7 @@ import { Menu } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FileIcon, LayoutGridIcon, PlusIcon, XIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
   restoreableOpenIds,
 } from "@/lib/workspace-session";
 
+import { CollaboratorAvatars } from "./collaborator-avatars";
 import { FileLibraryView } from "./file-library";
 import { DesktopUpdateBanner } from "./update-settings";
 import "./file-workspace.css";
@@ -57,7 +59,9 @@ function FileEditor({
   onOpen,
   register,
   onSaved,
+  avatarTarget,
 }: {
+  avatarTarget: HTMLDivElement | null;
   register: (id: string, session: FileSession | null) => void;
   onSaved: (file: DesignFile) => void;
   file: DesignFile;
@@ -95,6 +99,7 @@ function FileEditor({
 
   return (
     <>
+      {avatarTarget && createPortal(<CollaboratorAvatars realtime={save} />, avatarTarget)}
       <TopLoader active={opening || status === "Saving…"} />
       <DesignCanvas
         initialFrames={file.nodes}
@@ -151,6 +156,7 @@ export function FileWorkspace({
   onSignedOut: () => void;
 }) {
   const desktop = isTauri();
+  const [avatarTarget, setAvatarTarget] = useState<HTMLDivElement | null>(null);
   const [library, setLibrary] = useState<FileLibrary | null>(null);
   const [files, setFiles] = useState<DesignFile[]>([]);
   const navigate = useNavigate();
@@ -670,7 +676,7 @@ export function FileWorkspace({
           </form>
         </DialogContent>
       </Dialog>
-      {desktop && ready && (
+      {ready && (desktop || activeId) && (
         <div className="workspace-tabs" data-tauri-drag-region>
           <div className="workspace-tab-list" aria-label="Open files">
             <button
@@ -686,6 +692,7 @@ export function FileWorkspace({
             {files.map((file, index) => (
               <div
                 onContextMenu={(event) => {
+                  if (!desktop) return;
                   event.preventDefault();
                   void showTabMenu(file, index);
                 }}
@@ -737,6 +744,7 @@ export function FileWorkspace({
             <PlusIcon aria-hidden="true" />
           </button>
           <div className="workspace-tab-drag" data-tauri-drag-region />
+          <div ref={setAvatarTarget} className="workspace-collaborators-slot" />
         </div>
       )}
       {ready &&
@@ -754,6 +762,7 @@ export function FileWorkspace({
         files.map((file) => (
           <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
             <FileEditor
+              avatarTarget={activeId === file.id ? avatarTarget : null}
               file={file}
               register={register}
               onSaved={onSaved}
