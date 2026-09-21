@@ -342,3 +342,273 @@ test("GPU text baselines match browser text for normal and tight line boxes", as
   await writeFile("/tmp/flies-text-baseline-gpu.png", gpu);
   await writeFile("/tmp/flies-text-baseline-dom.png", dom);
 });
+
+/* eslint-disable no-await-in-loop -- Each capture depends on the preceding camera or document update. */
+for (const density of [1, 2]) {
+  test.describe(`minified text density ${density}`, () => {
+    test.use({ deviceScaleFactor: density });
+    test("zooming out after close inspection preserves thin strokes while panning", async ({
+      page,
+    }, testInfo) => {
+      await mount(page);
+      await page.evaluate(() => {
+        const fixture = Reflect.get(window, "textQuality");
+        document.querySelector<HTMLElement>("[data-text-quality]")!.style.background = "#0c0c0c";
+        fixture.document.replaceAll([
+          {
+            id: "headline",
+            name: "Headline",
+            kind: "text",
+            x: 50,
+            y: 50,
+            width: 520,
+            height: 60,
+            text: "Same canvas. Same layers.",
+            fontSize: 40,
+            fontFamily: "Arial",
+            color: "#ececec",
+          },
+          {
+            id: "button",
+            name: "Button label",
+            kind: "text",
+            x: 50,
+            y: 150,
+            width: 280,
+            height: 40,
+            text: "Open in browser",
+            fontSize: 15,
+            fontFamily: "Arial",
+            color: "#ececec",
+          },
+        ]);
+        fixture.camera.setViewport({ x: 0, y: 0, zoom: 4 });
+        fixture.camera.flush();
+      });
+      await expect
+        .poll(
+          async () =>
+            (await rasterState(page)).texts.find((text) => text.id === "button")!.resolution,
+        )
+        .toBe(4 * density);
+      const textures = await rasterState(page);
+      const results = [];
+
+      for (const zoom of [0.52, 0.25, 0.125]) {
+        const frames: string[] = [];
+
+        for (const phase of [0, 0.25, 0.5, 0.75]) {
+          await page.evaluate(
+            ({ zoom: scale, phase: offset }) => {
+              const { camera } = Reflect.get(window, "textQuality");
+              camera.setViewport({ x: 40 + offset, y: 40 + offset, zoom: scale });
+              camera.flush();
+            },
+            { zoom, phase },
+          );
+          const screenshot = await page.locator("[data-text-quality]").screenshot();
+          frames.push(screenshot.toString("base64"));
+          if (phase === 0)
+            await testInfo.attach(`overview-${zoom}-dpr${density}.png`, {
+              body: screenshot,
+              contentType: "image/png",
+            });
+        }
+
+        const coverage = await page.evaluate(
+          async ({ images, zoom: scale, density: pixelRatio }) => {
+            return Promise.all(
+              images.map(async (png) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${png}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+
+                return [50, 150].map((y) => {
+                  const data = context.getImageData(
+                    Math.floor((40 + 48 * scale) * pixelRatio),
+                    Math.floor((40 + (y - 2) * scale) * pixelRatio),
+                    Math.ceil((524 * scale + 3) * pixelRatio),
+                    Math.ceil((64 * scale + 3) * pixelRatio),
+                  ).data;
+
+                  let ink = 0;
+                  for (let i = 0; i < data.length; i += 4) ink += Math.max(0, (data[i] - 12) / 224);
+
+                  return ink;
+                });
+              }),
+            );
+          },
+          { images: frames, zoom, density },
+        );
+
+        for (const index of [0, 1]) {
+          const ink = coverage.map((sample) => sample[index]);
+
+          const variation =
+            (Math.max(...ink) - Math.min(...ink)) / (ink.reduce((a, b) => a + b, 0) / ink.length);
+
+          results.push({ zoom, index, variation, ink });
+          expect(Math.min(...ink), `visible strokes at ${zoom}`).toBeGreaterThan(1);
+          // At fewer than three device pixels tall, 8-bit coverage and mask
+          // quantization are significant even with correct filtered sampling.
+          const tinyGlyph = (index === 0 ? 40 : 15) * zoom * density < 3;
+          expect
+            .soft(variation, `stroke coverage while panning at ${zoom}, label ${index}`)
+            .toBeLessThan(tinyGlyph ? 0.1 : 0.035);
+        }
+      }
+
+      await testInfo.attach("minified-text-coverage.json", {
+        body: JSON.stringify(results, null, 2),
+        contentType: "application/json",
+      });
+      expect((await rasterState(page)).texts).toEqual(textures.texts);
+      expect((await rasterState(page)).errors).toEqual([]);
+    });
+  });
+}
+
+test.describe("Retina compositing", () => {
+  test.use({ deviceScaleFactor: 2 });
+  test("nested frames and appearance filters preserve the sharpness of ungrouped artwork", async ({
+    page,
+  }, testInfo) => {
+    await mount(page);
+    const images = [];
+
+    for (const zoom of [0.52, 1, 2]) {
+      const screenshots: Buffer[] = [];
+
+      for (const variant of ["flat", "nested", "filtered", "blended"]) {
+        await page.evaluate(
+          async ({ zoom: scale, variant: treatment }) => {
+            const { document: doc, camera } = Reflect.get(window, "textQuality");
+
+            const content = [
+              {
+                id: "headline",
+                name: "Headline",
+                kind: "text",
+                x: 60,
+                y: 60,
+                width: 480,
+                height: 48,
+                text: "A design canvas you can use.",
+                fontSize: 32,
+                fontFamily: "Arial",
+                color: "#000000",
+              },
+              {
+                id: "label",
+                name: "Label",
+                kind: "text",
+                x: 60,
+                y: 140,
+                width: 280,
+                height: 28,
+                text: "Open in browser",
+                fontSize: 15,
+                fontFamily: "Arial",
+                color: "#000000",
+              },
+              {
+                id: "line",
+                name: "Thin divider",
+                kind: "rectangle",
+                x: 60,
+                y: 200,
+                width: 300,
+                height: 1,
+                fill: "#000000",
+              },
+            ];
+
+            const containers =
+              treatment === "flat"
+                ? []
+                : Array.from({ length: 6 }, (_, index) => ({
+                    id: `container-${index}`,
+                    name: "Container",
+                    kind: index % 2 ? "group" : "frame",
+                    x: 30,
+                    y: 30,
+                    width: 600,
+                    height: 260,
+                    fill: "#00000000",
+                    clipContent: false,
+                    ...(index ? { parentId: `container-${index - 1}` } : {}),
+                    ...(treatment === "filtered" && index === 3
+                      ? { filters: { grayscale: 1 } }
+                      : {}),
+                    ...(treatment === "blended" && index === 3 ? { blendMode: "multiply" } : {}),
+                  }));
+
+            if (containers.length)
+              for (const frame of content) Object.assign(frame, { parentId: "container-5" });
+            doc.replaceAll([...containers, ...content]);
+            camera.setViewport({ x: 20.25, y: 20.25, zoom: scale });
+            camera.flush();
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            );
+          },
+          { zoom, variant },
+        );
+        const png = await page.locator("[data-text-quality]").screenshot();
+        screenshots.push(png);
+        await testInfo.attach(`${variant}-${zoom}.png`, { body: png, contentType: "image/png" });
+      }
+
+      const errors = await page.evaluate(
+        async (pngs) => {
+          const pixels = await Promise.all(
+            pngs.map(async (png) => {
+              const image = new Image();
+              image.src = `data:image/png;base64,${png}`;
+              await image.decode();
+              const canvas = document.createElement("canvas");
+              canvas.width = image.width;
+              canvas.height = image.height;
+              const ctx = canvas.getContext("2d")!;
+              ctx.drawImage(image, 0, 0);
+
+              return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            }),
+          );
+
+          let ink = 0;
+          for (let i = 0; i < pixels[0].length; i += 4) ink += 255 - pixels[0][i];
+
+          return pixels.slice(1).map((data) => {
+            let difference = 0;
+            for (let i = 0; i < data.length; i += 4) difference += Math.abs(data[i] - pixels[0][i]);
+
+            return difference / ink;
+          });
+        },
+        screenshots.map((png) => png.toString("base64")),
+      );
+
+      images.push({ zoom, errors });
+      for (const [index, error] of errors.entries())
+        expect
+          .soft(error, `${["nested", "filtered", "blended"][index]} pixels at ${zoom}`)
+          .toBeLessThan(0.1);
+    }
+
+    await testInfo.attach("compositing-differences.json", {
+      body: JSON.stringify(images, null, 2),
+      contentType: "application/json",
+    });
+    await writeFile("/tmp/flies-compositing-differences.json", JSON.stringify(images));
+    expect((await rasterState(page)).errors).toEqual([]);
+  });
+});
+
+/* eslint-enable no-await-in-loop */

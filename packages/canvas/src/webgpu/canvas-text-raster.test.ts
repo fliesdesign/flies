@@ -29,7 +29,17 @@ describe("GPU text raster density", () => {
       assert.ok(resolution > 0);
       assert.ok(backing(width) <= 4096);
       assert.ok(backing(height) <= 4096);
-      assert.ok(backing(width) * backing(height) <= 4_194_304);
+      let mipWidth = backing(width);
+      let mipHeight = backing(height);
+      let pixels = mipWidth * mipHeight;
+
+      while (mipWidth > 1 || mipHeight > 1) {
+        mipWidth = Math.max(1, mipWidth / 2);
+        mipHeight = Math.max(1, mipHeight / 2);
+        pixels += mipWidth * mipHeight;
+      }
+
+      assert.ok(pixels <= 4_194_304);
     }
   });
 });

@@ -13,7 +13,21 @@ export function textRasterResolution(width: number, height: number, density: num
   const backingSize = (size: number) =>
     2 ** Math.ceil(Math.log2(Math.max(1, Math.ceil(size * resolution))));
 
-  while (backingSize(w) * backingSize(h) > MAX_TEXTURE_PIXELS) resolution /= 2;
+  const mipPixels = () => {
+    let mipWidth = backingSize(w);
+    let mipHeight = backingSize(h);
+    let pixels = mipWidth * mipHeight;
+
+    while (mipWidth > 1 || mipHeight > 1) {
+      mipWidth = Math.max(1, mipWidth / 2);
+      mipHeight = Math.max(1, mipHeight / 2);
+      pixels += mipWidth * mipHeight;
+    }
+
+    return pixels;
+  };
+
+  while (mipPixels() > MAX_TEXTURE_PIXELS) resolution /= 2;
 
   return resolution;
 }

@@ -367,10 +367,22 @@ export class CanvasGpuRenderer {
     node.outer.filters = [];
     node.paintFilters?.forEach(destroyPaintFilter);
     node.opacityFilter?.destroy();
-    node.opacityFilter = new AlphaFilter({ alpha: frame.opacity ?? 1 });
+    // Every isolated frame/group passes through this filter. Pixi defaults to
+    // 1x with antialiasing off, which would flatten Retina artwork to low DPI.
+    node.opacityFilter = new AlphaFilter({
+      alpha: frame.opacity ?? 1,
+      resolution: "inherit",
+      antialias: "inherit",
+    });
     node.paintFilters = gpuFilters(frame.filters, zoom);
     const blend = frame.blendMode ?? "normal";
     if (blend !== "normal") node.paintFilters.push(gpuBlend(blend));
+
+    for (const filter of node.paintFilters) {
+      filter.resolution = "inherit";
+      filter.antialias = "inherit";
+    }
+
     // Composite children as one isolated layer, apply appearance filters, opacity, then blending.
     node.outer.filters = [
       ...node.paintFilters.slice(0, blend === "normal" ? undefined : -1),
@@ -673,7 +685,9 @@ export class CanvasGpuRenderer {
     const textureHeight = Math.max(1, metrics.height);
 
     const resolution = textRasterResolution(textureWidth, textureHeight, this.resolution, 1);
-    const text = new Text({ text: content, style, resolution });
+    // Retained high-resolution glyphs need a filtered mip chain when zooming out;
+    // bilinear sampling alone drops thin strokes and makes small labels shimmer.
+    const text = new Text({ text: content, style, resolution, autoGenerateMipmaps: true });
     node.text = text;
     node.textRasterSize = { width: textureWidth, height: textureHeight };
     // Pixi aligns lines within the longest line; CSS aligns within the text node's full width.
