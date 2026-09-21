@@ -2,6 +2,8 @@ mod clipboard;
 mod credentials;
 mod fonts;
 mod mcp;
+#[cfg(desktop)]
+mod menu;
 mod snapshot;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -18,6 +20,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             {
+                menu::setup(app)?;
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
