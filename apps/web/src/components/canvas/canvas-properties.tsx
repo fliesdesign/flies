@@ -1,3 +1,4 @@
+import { hasRotation, worldBounds } from "@flies/canvas";
 import {
   applyTokenBindings,
   THEME_PROPERTIES,
@@ -8,6 +9,12 @@ import type { CanvasArrangeAction } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
 import type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
 import {
+  ArrowDownIcon,
+  ArrowRightIcon,
+  MoveIcon,
+  ItalicIcon,
+  UnderlineIcon,
+  StrikethroughIcon,
   AlignCenterIcon,
   AlignLeftIcon,
   AlignRightIcon,
@@ -25,8 +32,15 @@ import { memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactN
 
 import { prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 
+import { CanvasEffects } from "./canvas-effects";
 import { CanvasFontPicker } from "./canvas-font-picker";
+import {
+  CanvasGradientControls,
+  CanvasBlendControls,
+  CanvasFilterControls,
+} from "./canvas-paint-controls";
 import { ColorSwatch, PropertyField, type PropertyPreview } from "./canvas-property-controls";
+import { IconButton, Section } from "./canvas-property-section";
 import { normalizeCanvasHex } from "./canvas-property-values";
 import { CanvasTokenSelect, type TokenChoiceProps } from "./canvas-token-select";
 import "./canvas-properties.css";
@@ -52,34 +66,6 @@ type CanvasPropertiesProps = {
   onFitText: () => void;
   onCollapse: () => void;
 };
-
-function IconButton({
-  label,
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="canvas-property-icon-button"
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
 
 function AlignIcon({ action }: { action: CanvasArrangeAction }) {
   const paths: Partial<Record<CanvasArrangeAction, ReactNode>> = {
@@ -141,26 +127,6 @@ function AlignIcon({ action }: { action: CanvasArrangeAction }) {
     >
       {paths[action]}
     </svg>
-  );
-}
-
-function Section({
-  title,
-  actions,
-  children,
-}: {
-  title: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="canvas-properties-section" aria-label={title}>
-      <div className="canvas-properties-section-heading">
-        <h3>{title}</h3>
-        {actions && <div className="canvas-properties-actions">{actions}</div>}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -327,14 +293,16 @@ export const CanvasProperties = memo(function CanvasProperties({
   const [tokenError, setTokenError] = useState("");
 
   const tokenChoice = (property: ThemeProperty) => ({
-    tokens: theme.tokens
-      .filter((token) => tokenMatchesProperty(token, property))
-      .slice()
-      .sort(
-        (left, right) =>
-          Number(right.type === THEME_PROPERTIES[property]) -
-          Number(left.type === THEME_PROPERTIES[property]),
+    tokens: [
+      ...theme.tokens.filter(
+        (token) =>
+          tokenMatchesProperty(token, property) && token.type === THEME_PROPERTIES[property],
       ),
+      ...theme.tokens.filter(
+        (token) =>
+          tokenMatchesProperty(token, property) && token.type !== THEME_PROPERTIES[property],
+      ),
+    ],
     tokenId: commonValue(nodes, (node) => node.tokenBindings?.[property]),
     onToken: (id: string | null) => {
       onPreviewEnd(true);
@@ -388,6 +356,21 @@ export const CanvasProperties = memo(function CanvasProperties({
     return parent && (!parent.kind || parent.kind === "frame") && !!parent.layout;
   });
 
+  const paintProps = {
+    nodes,
+    disabled: anyLocked,
+    onChange,
+    onPreviewStart,
+    onPreview,
+    onPreviewEnd,
+  };
+
+  const gradientEligible = nodes.every(
+    (node) => !node.kind || node.kind === "frame" || node.kind === "rectangle",
+  );
+
+  const solidSelection = nodes.every((node) => !node.gradient);
+
   const ownLocked = nodes.some((node) => node.locked);
   const allHidden = nodes.length > 0 && nodes.every((node) => node.hidden);
   const allText = nodes.length > 0 && nodes.every((node) => node.kind === "text");
@@ -400,10 +383,12 @@ export const CanvasProperties = memo(function CanvasProperties({
   const allFrames = nodes.length > 0 && nodes.every((node) => !node.kind || node.kind === "frame");
   const allPens = nodes.length > 0 && nodes.every((node) => node.kind === "pen");
   const parent = single?.parentId ? document.getFrame(single.parentId) : undefined;
-  const left = Math.min(...nodes.map((node) => node.x));
-  const top = Math.min(...nodes.map((node) => node.y));
-  const width = Math.max(...nodes.map((node) => node.x + node.width)) - left;
-  const height = Math.max(...nodes.map((node) => node.y + node.height)) - top;
+  const rotatedMultiple = nodes.length > 1 && nodes.some((node) => hasRotation(document, node));
+  const geometryNodes = rotatedMultiple ? nodes.map((node) => worldBounds(document, node)) : nodes;
+  const left = Math.min(...geometryNodes.map((node) => node.x));
+  const top = Math.min(...geometryNodes.map((node) => node.y));
+  const width = Math.max(...geometryNodes.map((node) => node.x + node.width)) - left;
+  const height = Math.max(...geometryNodes.map((node) => node.y + node.height)) - top;
   const fill = commonValue(nodes, fillFor);
   const opacity = commonValue(nodes, (node) => node.opacity ?? 1);
   const radius = commonValue(nodes, (node) => node.cornerRadius ?? 0);
@@ -533,6 +518,16 @@ export const CanvasProperties = memo(function CanvasProperties({
                   onCommit={(value) => onChange("height", Number(value), { preserveAspect })}
                 />
               </div>
+              <PropertyField
+                label="Rotation"
+                prefix="∠"
+                value={commonValue(nodes, (node) => node.rotation ?? 0)}
+                numeric
+                suffix="°"
+                disabled={anyLocked}
+                preview={numberPreview("rotation")}
+                onCommit={numberChange("rotation")}
+              />
               {managedPosition && (
                 <p className="canvas-property-hint">Position managed by auto layout.</p>
               )}
@@ -540,8 +535,8 @@ export const CanvasProperties = memo(function CanvasProperties({
                 <label>
                   <input
                     type="checkbox"
-                    checked={preserveAspect}
-                    disabled={anyLocked}
+                    checked={preserveAspect || rotatedMultiple}
+                    disabled={anyLocked || rotatedMultiple}
                     onChange={(event) => setPreserveAspect(event.target.checked)}
                   />
                   <span>Keep proportions</span>
@@ -552,6 +547,9 @@ export const CanvasProperties = memo(function CanvasProperties({
                   <UnlinkIcon size={13} aria-hidden="true" />
                 )}
               </div>
+              {rotatedMultiple && (
+                <p className="canvas-property-hint">Rotated selections scale proportionally.</p>
+              )}
               {allFrames && (
                 <div className="canvas-property-option">
                   <label>
@@ -571,17 +569,29 @@ export const CanvasProperties = memo(function CanvasProperties({
             </Section>
             {allFrames && (
               <Section title="Auto layout">
-                <PropertySelect
-                  label="Auto layout direction"
-                  value={layoutMode}
-                  disabled={anyLocked}
-                  choices={[
-                    { value: "none", label: "Free layout" },
-                    { value: "row", label: "Horizontal" },
-                    { value: "column", label: "Vertical" },
-                  ]}
-                  onChange={(value) => onChange("layoutMode", value)}
-                />
+                <fieldset
+                  className="canvas-properties-segmented"
+                  aria-label="Auto layout direction"
+                >
+                  {(
+                    [
+                      { value: "none", label: "Free layout", Icon: MoveIcon },
+                      { value: "row", label: "Horizontal", Icon: ArrowRightIcon },
+                      { value: "column", label: "Vertical", Icon: ArrowDownIcon },
+                    ] as const
+                  ).map(({ value, label, Icon }) => (
+                    <IconButton
+                      key={value}
+                      label={label}
+                      active={layoutMode === value}
+                      disabled={anyLocked}
+                      onClick={() => onChange("layoutMode", value)}
+                    >
+                      <Icon size={15} />
+                      <span>{label}</span>
+                    </IconButton>
+                  ))}
+                </fieldset>
                 {layoutMode !== "none" && (
                   <>
                     <div className="canvas-properties-grid">
@@ -608,34 +618,55 @@ export const CanvasProperties = memo(function CanvasProperties({
                         onCommit={numberChange("layoutPadding")}
                       />
                     </div>
-                    <div className="canvas-property-labeled-select">
-                      <span>Align</span>
-                      <PropertySelect
-                        label="Layout cross alignment"
-                        value={layoutValue((layout) => layout.align, "start")}
-                        disabled={anyLocked}
-                        choices={[
-                          { value: "start", label: "Start" },
-                          { value: "center", label: "Center" },
-                          { value: "end", label: "End" },
-                        ]}
-                        onChange={(value) => onChange("layoutAlign", value)}
-                      />
-                    </div>
-                    <div className="canvas-property-labeled-select">
-                      <span>Justify</span>
-                      <PropertySelect
-                        label="Layout main alignment"
-                        value={layoutValue((layout) => layout.justify, "start")}
-                        disabled={anyLocked}
-                        choices={[
-                          { value: "start", label: "Start" },
-                          { value: "center", label: "Center" },
-                          { value: "end", label: "End" },
-                          { value: "space-between", label: "Space between" },
-                        ]}
-                        onChange={(value) => onChange("layoutJustify", value)}
-                      />
+                    <div className="canvas-layout-placement">
+                      <fieldset className="canvas-layout-grid" aria-label="Layout alignment">
+                        {(["start", "center", "end"] as const).flatMap((y, row) =>
+                          (["start", "center", "end"] as const).map((x, column) => (
+                            <IconButton
+                              key={`${x}:${y}`}
+                              label={`Align content ${["top", "middle", "bottom"][row]} ${["left", "center", "right"][column]}`}
+                              active={nodes.every((node) => {
+                                if ((node.kind && node.kind !== "frame") || !node.layout)
+                                  return false;
+
+                                return (
+                                  node.layout.align === (node.layout.direction === "row" ? y : x) &&
+                                  node.layout.justify === (node.layout.direction === "row" ? x : y)
+                                );
+                              })}
+                              disabled={anyLocked}
+                              onClick={() => onChange("layoutPosition", `${x}:${y}`)}
+                            >
+                              <span className="canvas-layout-dot" />
+                            </IconButton>
+                          )),
+                        )}
+                      </fieldset>
+                      <div className="canvas-properties-stack">
+                        <PropertySelect
+                          label="Layout cross alignment"
+                          value={layoutValue((layout) => layout.align, "start")}
+                          disabled={anyLocked}
+                          choices={[
+                            { value: "start", label: "Cross: start" },
+                            { value: "center", label: "Cross: center" },
+                            { value: "end", label: "Cross: end" },
+                          ]}
+                          onChange={(value) => onChange("layoutAlign", value)}
+                        />
+                        <PropertySelect
+                          label="Layout main alignment"
+                          value={layoutValue((layout) => layout.justify, "start")}
+                          disabled={anyLocked}
+                          choices={[
+                            { value: "start", label: "Main: start" },
+                            { value: "center", label: "Main: center" },
+                            { value: "end", label: "Main: end" },
+                            { value: "space-between", label: "Space between" },
+                          ]}
+                          onChange={(value) => onChange("layoutJustify", value)}
+                        />
+                      </div>
                     </div>
                   </>
                 )}
@@ -662,6 +693,7 @@ export const CanvasProperties = memo(function CanvasProperties({
                 </>
               }
             >
+              <CanvasBlendControls {...paintProps} />
               <div className={hasRadius ? "canvas-properties-grid" : "canvas-properties-stack"}>
                 <PropertyField
                   label="Opacity"
@@ -704,23 +736,26 @@ export const CanvasProperties = memo(function CanvasProperties({
             </Section>
             {hasFill && (
               <Section title={allPens ? "Stroke" : "Fill"}>
-                <div className="canvas-properties-color">
-                  <ColorSwatch
-                    {...tokenChoice("fill")}
-                    value={fill}
-                    disabled={anyLocked}
-                    onStart={onPreviewStart}
-                    onPreview={(value) => onPreview("fill", value)}
-                    onEnd={onPreviewEnd}
-                  />
-                  <PropertyField
-                    label={allPens ? "Stroke color" : "Fill color"}
-                    value={fill?.replace(/^#/, "").toUpperCase()}
-                    prefix="#"
-                    disabled={anyLocked}
-                    onCommit={changeFill}
-                  />
-                </div>
+                {gradientEligible && <CanvasGradientControls {...paintProps} />}
+                {solidSelection && (
+                  <div className="canvas-properties-color">
+                    <ColorSwatch
+                      {...tokenChoice("fill")}
+                      value={fill}
+                      disabled={anyLocked}
+                      onStart={onPreviewStart}
+                      onPreview={(value) => onPreview("fill", value)}
+                      onEnd={onPreviewEnd}
+                    />
+                    <PropertyField
+                      label={allPens ? "Stroke color" : "Fill color"}
+                      value={fill?.replace(/^#/, "").toUpperCase()}
+                      prefix="#"
+                      disabled={anyLocked}
+                      onCommit={changeFill}
+                    />
+                  </div>
+                )}
                 {allPens && (
                   <PropertyField
                     label="Stroke width"
@@ -741,6 +776,15 @@ export const CanvasProperties = memo(function CanvasProperties({
                 )}
               </Section>
             )}
+            <CanvasEffects
+              nodes={nodes}
+              disabled={anyLocked}
+              onChange={onChange}
+              onPreviewStart={onPreviewStart}
+              onPreview={onPreview}
+              onPreviewEnd={onPreviewEnd}
+            />
+            <CanvasFilterControls {...paintProps} />
             {allText && (
               <Section title="Text">
                 <CanvasFontPicker
@@ -754,7 +798,14 @@ export const CanvasProperties = memo(function CanvasProperties({
                   label="Font weight"
                   {...tokenChoice("fontWeight")}
                   value={textValue((node) => node.fontWeight ?? 400)}
-                  choices={WEIGHT_CHOICES}
+                  choices={(() => {
+                    const weight = textValue((node) => node.fontWeight ?? 400);
+
+                    return weight !== undefined &&
+                      !WEIGHT_CHOICES.some((choice) => choice.value === weight)
+                      ? [{ value: weight, label: String(weight) }, ...WEIGHT_CHOICES]
+                      : WEIGHT_CHOICES;
+                  })()}
                   disabled={anyLocked}
                   onChange={numberChange("fontWeight")}
                 />
@@ -798,6 +849,53 @@ export const CanvasProperties = memo(function CanvasProperties({
                     onCommit={numberChange("letterSpacing")}
                   />
                 </div>
+                <fieldset className="canvas-properties-segmented" aria-label="Text style">
+                  <IconButton
+                    label="Italic"
+                    active={textValue((node) => node.fontStyle ?? "normal") === "italic"}
+                    disabled={anyLocked}
+                    onClick={() =>
+                      onChange(
+                        "fontStyle",
+                        textValue((node) => node.fontStyle ?? "normal") === "italic"
+                          ? "normal"
+                          : "italic",
+                      )
+                    }
+                  >
+                    <ItalicIcon size={16} />
+                  </IconButton>
+                  <IconButton
+                    label="Underline"
+                    active={textValue((node) => node.textDecoration ?? "none") === "underline"}
+                    disabled={anyLocked}
+                    onClick={() =>
+                      onChange(
+                        "textDecoration",
+                        textValue((node) => node.textDecoration ?? "none") === "underline"
+                          ? "none"
+                          : "underline",
+                      )
+                    }
+                  >
+                    <UnderlineIcon size={16} />
+                  </IconButton>
+                  <IconButton
+                    label="Strikethrough"
+                    active={textValue((node) => node.textDecoration ?? "none") === "line-through"}
+                    disabled={anyLocked}
+                    onClick={() =>
+                      onChange(
+                        "textDecoration",
+                        textValue((node) => node.textDecoration ?? "none") === "line-through"
+                          ? "none"
+                          : "line-through",
+                      )
+                    }
+                  >
+                    <StrikethroughIcon size={16} />
+                  </IconButton>
+                </fieldset>
                 <div className="canvas-properties-segmented">
                   {(
                     [

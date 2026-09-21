@@ -1,3 +1,4 @@
+import { gradientCss, filterCss, detachCanvasSelection, exportBounds } from "@flies/canvas";
 import { CanvasDocument, selectionBounds, fontFamilyCss, type CanvasFrame } from "@flies/canvas";
 
 export const CANVAS_CODE_FORMATS = ["Tailwind", "CSS", "React Tailwind", "React CSS"] as const;
@@ -34,6 +35,10 @@ function nodeElement(
     border: "0px",
   };
 
+  if (node.rotation) styles.transform = `rotate(${node.rotation}deg)`;
+  if (node.blendMode) styles["mix-blend-mode"] = node.blendMode;
+  const filter = filterCss(node.filters);
+  if (filter) styles.filter = filter;
   if (node.opacity !== undefined) styles.opacity = String(node.opacity);
   const children: Element[] = [];
 
@@ -45,7 +50,7 @@ function nodeElement(
   };
 
   if (frame || node.kind === "rectangle") {
-    styles.background = node.fill ?? "#ffffff";
+    styles.background = node.gradient ? gradientCss(node.gradient) : (node.fill ?? "#ffffff");
     styles["border-radius"] = px(node.cornerRadius ?? 0);
   } else if (node.kind === "text") {
     children.push({
@@ -253,9 +258,19 @@ export function exportCanvasCode(
   selectedIds: readonly string[],
   format: CanvasCodeFormat,
 ): string {
-  const doc = new CanvasDocument(nodes);
-  const roots = doc.getRootIds(selectedIds).filter((id) => !doc.isHidden(id));
-  const bounds = selectionBounds(doc.getFrames(), roots);
+  const original = new CanvasDocument(nodes);
+  const roots = original.getRootIds(selectedIds).filter((id) => !original.isHidden(id));
+  const doc = new CanvasDocument(detachCanvasSelection(nodes, roots));
+
+  const bounds = selectionBounds(
+    roots.map((id) => ({
+      ...doc.getFrame(id)!,
+      ...exportBounds(doc, doc.getFrame(id)!),
+      parentId: undefined,
+    })),
+    roots,
+  );
+
   if (!bounds) throw new Error("Select a visible layer to copy as code.");
 
   const scene: Element = {

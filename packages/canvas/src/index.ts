@@ -30,3 +30,6 @@ export * from "./canvas-fonts";
 export * from "./canvas-svg";
 
 export * from "./canvas-theme";
+
+export * from "./canvas-paint";
+export * from "./canvas-transform";

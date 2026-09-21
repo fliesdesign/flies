@@ -9,7 +9,7 @@ const TAGS = new Set(
 );
 
 const STYLES = new Set(
-  "display position left right top bottom width height min-width min-height max-width max-height box-sizing flex flex-direction flex-wrap flex-grow flex-shrink flex-basis align-items align-self align-content justify-content justify-items justify-self place-items place-content order z-index gap row-gap column-gap grid-template-columns grid-template-rows grid-column grid-row grid-auto-flow padding padding-top padding-right padding-bottom padding-left margin margin-top margin-right margin-bottom margin-left background background-color color opacity visibility border border-width border-color border-style border-top border-right border-bottom border-left border-top-width border-right-width border-bottom-width border-left-width border-top-color border-right-color border-bottom-color border-left-color border-top-style border-right-style border-bottom-style border-left-style box-shadow border-radius font font-style font-family font-size font-weight line-height letter-spacing text-align text-decoration text-decoration-line text-transform vertical-align white-space overflow overflow-x overflow-y object-fit".split(
+  "display position left right top bottom width height min-width min-height max-width max-height box-sizing flex flex-direction flex-wrap flex-grow flex-shrink flex-basis align-items align-self align-content justify-content justify-items justify-self place-items place-content order z-index gap row-gap column-gap grid-template-columns grid-template-rows grid-column grid-row grid-auto-flow padding padding-top padding-right padding-bottom padding-left margin margin-top margin-right margin-bottom margin-left background background-color background-image background-origin transform transform-origin translate rotate scale filter mix-blend-mode color opacity visibility border border-width border-color border-style border-top border-right border-bottom border-left border-top-width border-right-width border-bottom-width border-left-width border-top-color border-right-color border-bottom-color border-left-color border-top-style border-right-style border-bottom-style border-left-style box-shadow border-radius font font-style font-family font-size font-weight line-height letter-spacing text-align text-decoration text-decoration-line text-transform vertical-align white-space overflow overflow-x overflow-y object-fit".split(
     " ",
   ),
 );
@@ -36,6 +36,18 @@ export function sanitizeHtml(source: string, allowVariables = false): DocumentFr
         svgSource.style.removeProperty("opacity");
         svgSource.removeAttribute("opacity");
       }
+
+      // These CSS effects belong to the editable wrapper, not the SVG asset as well.
+      for (const property of [
+        "transform",
+        "transform-origin",
+        "translate",
+        "rotate",
+        "scale",
+        "filter",
+        "mix-blend-mode",
+      ])
+        svgSource.style.removeProperty(property);
 
       const vector = readCanvasSvg(new XMLSerializer().serializeToString(svgSource));
       const image = document.createElement("img");
@@ -99,7 +111,10 @@ export function sanitizeHtml(source: string, allowVariables = false): DocumentFr
 
     // Reject values before assigning styles, including escaped URLs and CSS custom properties.
     const raw = node.getAttribute("style") ?? "";
-    if (/url\s*\(|\\|@|expression\s*\(/i.test(raw) || (!allowVariables && /var\s*\(/i.test(raw)))
+    if (
+      /url\s*\(|image-set\s*\(|\\|@|expression\s*\(/i.test(raw) ||
+      (!allowVariables && /var\s*\(/i.test(raw))
+    )
       throw new Error("External resources, CSS escapes and variables are not supported.");
 
     for (const declaration of raw.split(";").filter((entry) => entry.trim())) {
@@ -109,15 +124,20 @@ export function sanitizeHtml(source: string, allowVariables = false): DocumentFr
       const value = declaration.slice(colon + 1).trim();
       if (!CSS.supports(property, value)) throw new Error(`Invalid CSS: ${property}: ${value}`);
       if (!STYLES.has(property)) throw new Error(`Unsupported CSS property: ${property}`);
-      if (/gradient\s*\(/i.test(value))
-        throw new Error("Gradients are not supported by editable canvas layers yet.");
       if (property === "position" && !["relative", "absolute", "static"].includes(value))
         throw new Error("Use static, relative or absolute positioning.");
       if (
-        (property === "background" || property === "background-color" || property === "color") &&
+        (property === "background-color" || property === "color") &&
         !CSS.supports("color", value)
       )
         throw new Error("Only solid CSS colors are supported.");
+      if (
+        (property === "background" || property === "background-image") &&
+        !CSS.supports("color", value) &&
+        value !== "none" &&
+        !/^(?:linear|radial)-gradient\(/i.test(value)
+      )
+        throw new Error("Use a solid color or one linear/radial gradient background.");
       element.style.setProperty(property, value);
     }
 

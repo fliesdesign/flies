@@ -801,3 +801,26 @@ fn theme_tools_expose_typed_tokens_and_nullable_bindings() {
     }
     assert!(catalog.iter().any(|tool| tool["name"] == "get_theme"));
 }
+
+#[test]
+fn native_paint_schema_and_guide_match_html_import_capabilities() {
+    let catalog = tools::catalog();
+    let update = catalog
+        .iter()
+        .find(|tool| tool["name"] == "update_node")
+        .unwrap();
+    let properties = &update["inputSchema"]["properties"]["properties"]["properties"];
+    for name in ["rotation", "gradient", "filters", "blendMode"] {
+        assert!(!properties[name].is_null(), "missing {name}");
+    }
+    assert_eq!(
+        properties["gradient"]["properties"]["interpolation"]["enum"],
+        json!(["srgb", "oklab"])
+    );
+    assert_eq!(
+        properties["filters"]["properties"]["order"]["uniqueItems"],
+        true
+    );
+    assert!(tools::GUIDE.contains("2D rotation and translation"));
+    assert!(!tools::GUIDE.contains("the HTML importer still rejects their CSS equivalents"));
+}

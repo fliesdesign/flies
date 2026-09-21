@@ -183,14 +183,14 @@ to match the canvas's supported typography. `rounded-full` works for pills.
 
 The output is a static snapshot: hover/focus states are not activated, unknown custom
 classes have no styling, and application-specific themes/plugins are not loaded.
-The native appearance limits below still apply; gradients, transforms, filters, masks,
-animations, blend modes and generated pseudo-element content are rejected rather than
-silently lost. Classes cannot load external resources. `validateOnly`, incremental edits,
+Linear/centered radial gradients, 2D rotation and translation, blend modes and the eight native
+filters import as editable properties. Unsupported gradient geometry, scale/skew/3D transforms,
+masks, animations, backdrop filters and generated pseudo-element content are rejected. Classes cannot load external resources. `validateOnly`, incremental edits,
 replacement, saving and undo work exactly as with inline CSS.
 
-Supported styles include solid backgrounds, opacity, solid borders (including individual sides), multiple box shadows, uniform corner radii, inline colored text, bold/italic, underline/strike, and explicit line breaks. Text-like inputs become editable value/placeholder text. Generic/system fonts resolve to supported fonts before measurement. Raster images must use data URLs. Native appearance fields survive save/reopen, undo/redo, and PNG export.
+Supported styles include solid/gradient backgrounds, 2D rotation/translation, blend modes, ordered filters, opacity, solid borders (including individual sides), multiple box shadows, uniform corner radii, inline colored text, bold/italic, underline/strike, and explicit line breaks. Text-like inputs become editable value/placeholder text. Generic/system fonts resolve to supported fonts before measurement. Raster images must use data URLs. Native appearance fields survive save/reopen, undo/redo, and PNG export.
 
-Sizes and positions remain a measured snapshot. Use `set_styles` to retain CSS rules, typography and variables for future imports under an artboard; rules from ancestor frames cascade into descendant `write_html` calls. Native `layout` controls automatic reflow; previous HTML flex/grid rules do not become persistent native layout. Unsupported canvas input fails before committing: scripts/events, stylesheets, custom elements, external resources, CSS gradients/transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage radii, cropped images, or clipping on containers smaller than 40px. Inline SVG is preserved as SVG nodes. Use `preview_html` for live CSS and script behavior. Limits: 200KB HTML, 500 elements, 30 nesting levels, and 3000 generated layers per insertion.
+Sizes and positions remain a measured snapshot. Use `set_styles` to retain CSS rules, typography and variables for future imports under an artboard; rules from ancestor frames cascade into descendant `write_html` calls. Native `layout` controls automatic reflow; previous HTML flex/grid rules do not become persistent native layout. Unsupported canvas input fails before committing: scripts/events, stylesheets, custom elements, external resources, unsupported gradient geometry or transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage radii, cropped images, or clipping on containers smaller than 40px. Inline SVG is preserved as SVG nodes. Use `preview_html` for live CSS and script behavior. Limits: 200KB HTML, 500 elements, 30 nesting levels, and 3000 generated layers per insertion.
 
 ### Reuse CSS and fit content
 
@@ -220,7 +220,7 @@ Styles are stored with the frame and survive undo, copying and save/reopen. They
 - With `parentId`, append inside a frame/group. `replace:true` replaces that parent's children, preserving the parent. Coordinates are offsets from the parent; the HTML containing block defaults to its dimensions.
 - With `targetId`, replace exactly one node and its descendants. The HTML must produce one root. Its ID, parent and sibling position are retained; new descendants receive new IDs. Coordinates default to the target's old origin, and any supplied `x`/`y` offset that origin. The containing block defaults to the target's dimensions. `targetId` cannot be combined with `parentId` or `replace`.
 
-`width` and `height` override the containing block for any scope. `update_node` coordinates are always world coordinates; moving a frame or group translates all of its descendants with it.
+`width` and `height` override the containing block for any scope. `update_node` coordinates use document layout coordinates before ancestor rotations; moving a frame or group translates its descendants with it. `get_node_info` and `write_html` root/container descriptions include `worldBounds` for transformed axis-aligned bounds.
 
 Normal `write_html` results include `applied`, `nodeIds`, `roots`, `containers`, layer
 counts and `warnings`. Each `containers` entry describes an imported frame/group with
@@ -255,3 +255,57 @@ bun run build
 ```
 
 The automated renderer tests use a separate headless browser and temporary Vite server on port 1431. They do not control the user's browser or desktop. Rust tests cover SDK negotiation, tool discovery without authentication, Origin/Host rejection and bridge image/error responses. Renderer tests cover editable HTML, a Google-style page with inline typography and controls, compact layers, borders/shadows, line breaks, rounded images, dry-run validation, incremental section insertion and scoped replacement, agent presence, undo and PNG dimensions/pixels.
+
+### Native rotation and paint
+
+`update_node` accepts `rotation` (degrees), `blendMode`, and `filters` on all native layers.
+Frames and rectangles also accept `gradient`. `get_node_info` returns these properties;
+they use the live document, undo history, and project persistence.
+
+```json
+{
+  "nodeId": "LAYER_ID",
+  "properties": {
+    "rotation": 30,
+    "blendMode": "multiply",
+    "gradient": {
+      "type": "linear",
+      "angle": 135,
+      "stops": [
+        { "offset": 0, "color": "#ff8800" },
+        { "offset": 1, "color": "#6633ff80" }
+      ]
+    },
+    "filters": { "blur": 4, "brightness": 1.1, "saturate": 1.2 }
+  }
+}
+```
+
+Gradients use `linear` or `radial`, a finite angle, and 2–16 ordered stops with offsets
+from 0 to 1 and hex colors (including alpha). Blend modes are `normal`, `multiply`,
+`screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`,
+`soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, and `luminosity`.
+Filter ranges: `blur` 0–100 pixels; `brightness`, `contrast`, and `saturate` 0–4;
+`grayscale`, `sepia`, and `invert` 0–1; `hue` −180–180 degrees. Rotation is local to
+the parent, around the layer center. Native paint is supported in CSS and PNG exports.
+`write_html` (including `validateOnly`) imports these properties from inline CSS,
+shared styles and Tailwind classes. Rotation/translation preserve the CSS transform origin
+and nested geometry. Gradients support one full-size linear gradient or a centered elliptical
+farthest-corner radial gradient, 2–16 stops within 0–100% (or equivalent px), and sRGB/Oklab
+interpolation. With borders, use `background-origin: border-box`. Native `gradient.interpolation`
+retains the color space; `gradient.background` retains the color beneath transparent stops.
+Modern CSS colors convert to the canvas sRGB gamut.
+
+Native `filters.order` preserves CSS function order, e.g. `["contrast", "brightness"]`.
+Unlisted filters follow in the editor's default order. Each function can occur once; repeated
+functions, drop-shadow/backdrop filters, scales/skews/3D transforms, conic/repeating/multiple
+gradients, off-center radial gradients, interpolation hints and out-of-range stops return
+an actionable error before changing the document. Ordinary box shadows remain supported.
+
+```html
+<section
+  class="h-40 w-64 bg-linear-to-r from-red-500 to-blue-500 rotate-12 blur-xs mix-blend-screen"
+>
+  Editable paint
+</section>
+```

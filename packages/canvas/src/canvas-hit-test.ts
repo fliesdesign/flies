@@ -1,7 +1,8 @@
 import type { CanvasDocument, CanvasFrame } from "./canvas-document";
 import type { Point } from "./canvas-geometry";
-import { getClippingAncestors, roundedClipsContainPoint } from "./canvas-outline";
+import { getClippingAncestors } from "./canvas-outline";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
+import { worldBounds, worldPointInFrame } from "./canvas-transform";
 
 /** Pointer picking for canvas artwork, independent of mounted HTML or the renderer. */
 export class CanvasHitTester {
@@ -10,19 +11,28 @@ export class CanvasHitTester {
   private order = new Map<string, number>();
 
   constructor(private readonly document: CanvasDocument) {
-    this.index = new CanvasSpatialIndex(document.getCommittedFrames());
+    this.index = new CanvasSpatialIndex(
+      document
+        .getCommittedFrames()
+        .map((frame) => Object.assign(worldBounds(document, frame), { id: frame.id })),
+    );
     this.refreshOrder();
   }
 
   connect = () => {
     // Reconnecting after an effect cleanup also catches edits made while disconnected.
-    this.index = new CanvasSpatialIndex(this.document.getCommittedFrames());
+    this.index = new CanvasSpatialIndex(
+      this.document
+        .getCommittedFrames()
+        .map((frame) => Object.assign(worldBounds(this.document, frame), { id: frame.id })),
+    );
     this.refreshOrder();
 
     return this.document.subscribeChanges((ids) => {
-      for (const id of ids) {
+      for (const id of new Set([...ids, ...this.document.getDescendantIds(ids)])) {
         const frame = this.document.getFrame(id);
-        if (frame) this.index.upsert(frame);
+        if (frame)
+          this.index.upsert(Object.assign(worldBounds(this.document, frame), { id: frame.id }));
         else this.index.remove(id);
       }
 
@@ -32,7 +42,7 @@ export class CanvasHitTester {
 
   hit = (point: Point): string | undefined => {
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-    const previews = new Set(this.document.getPreviewIds());
+    const previews = new Set(this.document.getDescendantIds([...this.document.getPreviewIds()]));
     let result: string | undefined;
     let topOrder = -1;
 
@@ -64,13 +74,6 @@ export class CanvasHitTester {
   }
 
   private contains(frame: CanvasFrame, point: Point) {
-    if (
-      point.x < frame.x ||
-      point.y < frame.y ||
-      point.x > frame.x + frame.width ||
-      point.y > frame.y + frame.height
-    )
-      return false;
     let node: CanvasFrame | undefined = frame;
 
     while (node) {
@@ -78,16 +81,18 @@ export class CanvasHitTester {
       node = node.parentId ? this.document.getFrame(node.parentId) : undefined;
     }
 
-    // Text, groups and pen strokes have rectangular interaction bounds, matching
-    // their HTML buttons; rounded frames, images and shapes use their painted body.
     if (
-      frame.kind !== "text" &&
-      frame.kind !== "group" &&
-      frame.kind !== "pen" &&
-      !roundedClipsContainPoint([frame], point)
+      !worldPointInFrame(
+        this.document,
+        frame,
+        point,
+        frame.kind !== "text" && frame.kind !== "group" && frame.kind !== "pen",
+      )
     )
       return false;
 
-    return roundedClipsContainPoint(getClippingAncestors(this.document, frame), point);
+    return getClippingAncestors(this.document, frame).every((ancestor) =>
+      worldPointInFrame(this.document, ancestor, point),
+    );
   }
 }

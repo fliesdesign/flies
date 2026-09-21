@@ -191,7 +191,7 @@ describe("canvas properties panel", () => {
   it("shows frame auto layout settings and keeps free layout controls compact", () => {
     const free = render([frame], [frame.id]);
     assert.match(free, /aria-label="Auto layout direction"/);
-    assert.match(free, /<option value="none" selected="">Free layout/);
+    assert.match(button(free, "Free layout"), /aria-pressed="true"/);
     assert.doesNotMatch(free, /aria-label="Layout gap"/);
 
     const arranged = render(
@@ -210,7 +210,7 @@ describe("canvas properties panel", () => {
       [frame.id],
     );
 
-    assert.match(arranged, /<option value="row" selected="">Horizontal/);
+    assert.match(button(arranged, "Horizontal"), /aria-pressed="true"/);
     assert.match(input(arranged, "Layout gap"), /value="20"/);
     assert.match(input(arranged, "Layout padding"), /value="12"/);
     assert.match(arranged, /<option value="space-between" selected="">Space between/);
@@ -235,5 +235,68 @@ describe("canvas properties panel", () => {
     assert.doesNotMatch(input(markup, "Width"), /disabled/);
     assert.match(markup, /Position managed by auto layout/);
     assert.doesNotMatch(markup, /aria-label="Auto layout direction"/);
+  });
+});
+
+describe("expanded property controls", () => {
+  it("exposes existing effects and disables their controls under an ancestor lock", () => {
+    const node = {
+      ...rectangle,
+      borderWidth: 3,
+      borderColor: "#abcdef",
+      shadows: [
+        { offsetX: 1, offsetY: 2, blur: 12, spread: -2, color: "#00000040" },
+        { offsetX: 0, offsetY: 1, blur: 4, spread: 0, color: "#ffffff80", inset: true },
+      ],
+    };
+
+    const markup = render([frame, node], [node.id]);
+    assert.match(input(markup, "Border width"), /value="3"/);
+    assert.match(input(markup, "Shadow 1 spread"), /value="-2"/);
+    assert.match(input(markup, "Inner shadow 1 blur"), /value="4"/);
+    assert.match(button(markup, "Border color picker"), /aria-haspopup="dialog"/);
+    const locked = render([{ ...frame, locked: true }, node], [node.id]);
+    for (const label of [
+      "Add shadow",
+      "Remove border",
+      "Remove inner shadow 1",
+      "Border color picker",
+    ])
+      assert.match(button(locked, label), /disabled/);
+    assert.match(input(locked, "Shadow 1 blur"), /disabled/);
+  });
+
+  it("shows custom weights and current text styles accurately", () => {
+    const markup = render(
+      [
+        {
+          ...text,
+          fontWeight: 450,
+          fontStyle: "italic" as const,
+          textDecoration: "underline" as const,
+        },
+      ],
+      [text.id],
+    );
+
+    assert.match(markup, /<option value="450" selected="">450/);
+    assert.match(button(markup, "Italic"), /aria-pressed="true"/);
+    assert.match(button(markup, "Underline"), /aria-pressed="true"/);
+    assert.match(button(markup, "Strikethrough"), /aria-pressed="false"/);
+  });
+
+  it("maps the alignment grid to column layout", () => {
+    const markup = render(
+      [
+        {
+          ...frame,
+          layout: { direction: "column", align: "end", justify: "center", gap: 10, padding: 8 },
+        },
+      ],
+      [frame.id],
+    );
+
+    assert.match(button(markup, "Align content middle right"), /aria-pressed="true"/);
+    assert.match(button(markup, "Vertical"), /aria-pressed="true"/);
   });
 });

@@ -150,8 +150,8 @@ test("Tailwind replacements are atomic and reject unsupported or resource-loadin
 
     for (const cls of [
       "bg-[url(https://example.com/image.png)]",
-      "bg-linear-to-r from-red-500 to-blue-500",
-      "rotate-45",
+      "bg-conic from-red-500 to-blue-500",
+      "skew-x-12",
       "before:content-['bad']",
     ]) {
       try {

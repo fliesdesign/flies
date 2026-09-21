@@ -1,3 +1,4 @@
+import type { FillGradient, Filter } from "pixi.js";
 import {
   AlphaFilter,
   CanvasTextMetrics,
@@ -21,6 +22,8 @@ import type {
 } from "../canvas-document";
 import { ensureCanvasFont } from "../canvas-fonts";
 import { SVG_DATA_URL } from "../canvas-svg";
+import { localTransform } from "../canvas-transform";
+import { gpuGradient, destroyPaintFilter, gpuFilters, gpuBlend } from "./canvas-gpu-paint";
 import { createShadowSprite } from "./canvas-gpu-shadows";
 
 type RendererOptions = {
@@ -47,6 +50,10 @@ type Artwork = {
   outerShadow?: Sprite;
   innerShadow?: Sprite;
   opacityFilter?: AlphaFilter;
+  paintFilters?: Filter[];
+  gradient?: FillGradient;
+  filterZoom?: number;
+  compositing?: boolean;
   unsubscribe: () => void;
 };
 
@@ -66,6 +73,7 @@ function sameVisual(first: CanvasFrame, second: CanvasFrame) {
     first.kind !== second.kind ||
     first.width !== second.width ||
     first.height !== second.height ||
+    JSON.stringify(first.gradient) !== JSON.stringify(second.gradient) ||
     first.cornerRadius !== second.cornerRadius
   )
     return false;
@@ -317,18 +325,54 @@ export class CanvasGpuRenderer {
   };
 
   private updateOpacity(node: Artwork, opacity: number) {
-    if (opacity < 1 && opacity > 0) {
-      if (!node.opacityFilter) {
-        node.opacityFilter = new AlphaFilter();
-        node.outer.filters = [node.opacityFilter];
-      }
+    if (!node.opacityFilter) return;
+    node.opacityFilter.alpha = opacity;
 
-      node.opacityFilter.alpha = opacity;
-    } else if (node.opacityFilter) {
-      node.outer.filters = [];
-      node.opacityFilter.destroy();
-      node.opacityFilter = undefined;
+    const enabled =
+      opacity < 1 ||
+      !node.frame.kind ||
+      node.frame.kind === "frame" ||
+      node.frame.kind === "group" ||
+      Boolean(node.paintFilters?.length);
+
+    if (enabled !== node.compositing) {
+      const paint = node.paintFilters ?? [];
+      const blend = node.frame.blendMode ?? "normal";
+      node.outer.filters = enabled
+        ? [
+            ...paint.slice(0, blend === "normal" ? undefined : -1),
+            node.opacityFilter,
+            ...(blend === "normal" ? [] : paint.slice(-1)),
+          ]
+        : [];
+      node.compositing = enabled;
     }
+  }
+
+  private updatePaint(node: Artwork, frame: CanvasFrame) {
+    const zoom = this.options.camera.getCurrent().viewport.zoom;
+    if (
+      node.initialized &&
+      node.filterZoom === zoom &&
+      node.frame.filters === frame.filters &&
+      node.frame.blendMode === frame.blendMode
+    )
+      return;
+    node.outer.filters = [];
+    node.paintFilters?.forEach(destroyPaintFilter);
+    node.opacityFilter?.destroy();
+    node.opacityFilter = new AlphaFilter({ alpha: frame.opacity ?? 1 });
+    node.paintFilters = gpuFilters(frame.filters, zoom);
+    const blend = frame.blendMode ?? "normal";
+    if (blend !== "normal") node.paintFilters.push(gpuBlend(blend));
+    // Composite children as one isolated layer, apply appearance filters, opacity, then blending.
+    node.outer.filters = [
+      ...node.paintFilters.slice(0, blend === "normal" ? undefined : -1),
+      node.opacityFilter,
+      ...(blend === "normal" ? [] : node.paintFilters.slice(-1)),
+    ];
+    node.compositing = true;
+    node.filterZoom = zoom;
   }
 
   private render(initial = false) {
@@ -378,6 +422,9 @@ export class CanvasGpuRenderer {
 
       this.world.position.set(viewport.x, viewport.y);
       this.world.scale.set(viewport.zoom);
+      for (const node of this.nodes.values())
+        if (node.frame.filters?.blur && node.filterZoom !== viewport.zoom)
+          this.updatePaint(node, node.frame);
       this.renderer.render({ container: this.world });
       if (this.fades.size) this.requestRender();
     } catch (error) {
@@ -461,9 +508,15 @@ export class CanvasGpuRenderer {
 
   private updateNode(node: Artwork, frame: CanvasFrame) {
     const parent = frame.parentId ? this.options.document.getFrame(frame.parentId) : undefined;
-    node.outer.position.set(frame.x - (parent?.x ?? 0), frame.y - (parent?.y ?? 0));
+    const matrix = localTransform(frame, parent);
+    node.outer.position.set(matrix.e, matrix.f);
+    node.outer.rotation = ((frame.rotation ?? 0) * Math.PI) / 180;
+    this.updatePaint(node, frame);
     node.outer.visible = !frame.hidden && (frame.opacity ?? 1) > 0;
+    const previous = node.frame;
+    node.frame = frame;
     this.updateOpacity(node, frame.opacity ?? 1);
+    node.frame = previous;
     node.body.visible = frame.id !== this.editingId || frame.kind !== "text";
     if (!node.initialized || !sameVisual(node.frame, frame)) this.updateBody(node, frame);
     if (!node.initialized || !sameAppearance(node.frame, frame)) this.updateAppearance(node, frame);
@@ -485,7 +538,10 @@ export class CanvasGpuRenderer {
 
     if (isFrame(frame) || frame.kind === "rectangle") {
       const color = "fill" in frame ? (frame.fill ?? "#ffffff") : "#ffffff";
-      node.body.addChild(shape(new Graphics(), frame).fill(color));
+      if (frame.gradient) node.gradient = gpuGradient(frame.gradient, frame.width, frame.height);
+      if (frame.gradient?.background)
+        node.body.addChild(shape(new Graphics(), frame).fill(frame.gradient.background));
+      node.body.addChild(shape(new Graphics(), frame).fill(node.gradient ?? color));
     } else if (frame.kind === "text") {
       this.addText(node, frame);
     } else if (frame.kind === "pen") {
@@ -683,6 +739,9 @@ export class CanvasGpuRenderer {
   }
 
   private clearBody(node: Artwork) {
+    node.gradient?.destroy();
+    node.gradient = undefined;
+
     if (node.image) {
       node.imageAbort?.abort();
       node.imageAbort = undefined;
@@ -702,6 +761,7 @@ export class CanvasGpuRenderer {
     destroySprite(node.outerShadow);
     destroySprite(node.innerShadow);
     node.opacityFilter?.destroy();
+    node.paintFilters?.forEach(destroyPaintFilter);
     node.outer.filters = [];
     node.children.removeChildren();
     node.outer.destroy({ children: true });

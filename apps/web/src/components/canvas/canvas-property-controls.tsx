@@ -261,6 +261,7 @@ export function PropertyField({
 }
 
 type ColorProps = TokenChoiceProps & {
+  label?: string;
   value: string | undefined;
   disabled: boolean;
   onStart: () => void;
@@ -269,6 +270,7 @@ type ColorProps = TokenChoiceProps & {
 };
 
 export function ColorSwatch({
+  label = "Fill color",
   value,
   disabled,
   onStart,
@@ -310,10 +312,10 @@ export function ColorSwatch({
         ref={trigger}
         type="button"
         className="canvas-property-swatch"
-        aria-label="Fill color picker"
+        aria-label={`${label} picker`}
         aria-haspopup="dialog"
         aria-expanded={!!position}
-        title="Choose fill color"
+        title={`Choose ${label.toLowerCase()}`}
         disabled={disabled}
         data-mixed={value === undefined || undefined}
         style={{ backgroundColor: value }}
@@ -330,6 +332,7 @@ export function ColorSwatch({
       />
       {position && (
         <ColorPopover
+          label={label}
           tokens={tokens}
           tokenId={tokenId}
           onToken={(id) => {
@@ -347,6 +350,7 @@ export function ColorSwatch({
 }
 
 function ColorPopover({
+  label,
   tokens,
   tokenId,
   onToken,
@@ -355,6 +359,7 @@ function ColorPopover({
   onPreview,
   onClose,
 }: {
+  label: string;
   tokens?: TokenChoiceProps["tokens"];
   tokenId?: string;
   onToken?: TokenChoiceProps["onToken"];
@@ -424,7 +429,7 @@ function ColorPopover({
     <dialog
       ref={panel}
       open
-      aria-label="Fill color"
+      aria-label={label}
       tabIndex={-1}
       className="canvas-color-popover"
       style={position}
@@ -444,7 +449,7 @@ function ColorPopover({
       }}
     >
       <div className="canvas-color-heading">Color</div>
-      <CanvasTokenSelect tokens={tokens} tokenId={tokenId} onToken={onToken} label="Fill color" />
+      <CanvasTokenSelect tokens={tokens} tokenId={tokenId} onToken={onToken} label={label} />
       <button
         type="button"
         className="canvas-color-spectrum"

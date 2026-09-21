@@ -1,3 +1,5 @@
+import { hasRotation } from "@flies/canvas";
+import { gradientCss, filterCss } from "@flies/canvas";
 import { useCanvasFrame } from "@flies/canvas";
 import type { CanvasCamera } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
@@ -29,6 +31,7 @@ import {
 import { CanvasGpuArtwork } from "./canvas-gpu-artwork";
 import { CanvasGpuChrome } from "./canvas-gpu-chrome";
 import { CanvasNodeAppearance, CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
+import { CanvasTransformedOutline } from "./canvas-transformed-outline";
 
 const HANDLES: ResizeHandle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
@@ -175,7 +178,10 @@ const FrameNode = memo(function FrameNode({
       data-selected={selected || undefined}
       data-editing={editingId === id || undefined}
       style={{
-        transform: `translate(${frame.x}px, ${frame.y}px)`,
+        transform: `translate(${frame.x}px, ${frame.y}px) rotate(${frame.rotation ?? 0}deg)`,
+        transformOrigin: `${frame.width / 2}px ${frame.height / 2}px`,
+        mixBlendMode: frame.blendMode,
+        filter: filterCss(frame.filters),
         width: frame.width,
         height: frame.height,
         opacity: frame.opacity,
@@ -193,7 +199,12 @@ const FrameNode = memo(function FrameNode({
           aria-pressed={selected}
           disabled={locked}
           style={
-            isFrame ? { backgroundColor: frame.fill, borderRadius: frame.cornerRadius } : undefined
+            isFrame
+              ? {
+                  background: frame.gradient ? gradientCss(frame.gradient) : frame.fill,
+                  borderRadius: frame.cornerRadius,
+                }
+              : undefined
           }
         >
           {!isFrame && !isGroup && <CanvasNodeContent frame={frame} />}
@@ -475,6 +486,8 @@ export const CanvasSelectionOutline = memo(function CanvasSelectionOutline({
 
   const frames = getVisibleSelectionFrames(document, ids);
   if (frames.length === 0) return null;
+  if (frames.some((frame) => hasRotation(document, frame)))
+    return <CanvasTransformedOutline document={document} frames={frames} viewport={viewport} />;
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
@@ -569,6 +582,15 @@ export const CanvasOutline = memo(function CanvasOutline({
   const frame = id ? document.getFrame(id) : undefined;
   if (!frame || document.isHidden(frame.id) || isLocked(document, frame)) return null;
   const ancestors = getClippingAncestors(document, frame);
+  if (hasRotation(document, frame))
+    return (
+      <CanvasTransformedOutline
+        document={document}
+        frames={[frame]}
+        viewport={viewport}
+        selection={selection}
+      />
+    );
   if (!isRectVisibleInRoundedClips(frame, ancestors)) return null;
   if (selection) return <CanvasSelectionOutline document={document} camera={camera} ids={ids} />;
 

@@ -1,6 +1,7 @@
 import type { CanvasFrame } from "./canvas-document";
 import type { Point } from "./canvas-geometry";
 import { selectionBounds, selectionRoots } from "./canvas-operations";
+import { frameSource, worldBounds, moveSelectionWorld, hasRotation } from "./canvas-transform";
 
 export type CanvasArrangeAction =
   | "left"
@@ -18,7 +19,27 @@ export function arrangeSelection(
   ids: readonly string[],
   action: CanvasArrangeAction,
 ): CanvasFrame[] {
-  const roots = new Set(selectionRoots(nodes, ids));
+  const source = frameSource(nodes);
+  const rootIds = selectionRoots(nodes, ids);
+
+  if (rootIds.some((id) => hasRotation(source, source.getFrame(id)!))) {
+    const worldNodes = rootIds.map((id) => ({
+      ...source.getFrame(id)!,
+      ...worldBounds(source, source.getFrame(id)!),
+      parentId: undefined,
+      rotation: undefined,
+    }));
+
+    const aligned = arrangeSelection(worldNodes, rootIds, action);
+
+    return aligned.flatMap((next) => {
+      const before = worldNodes.find((node) => node.id === next.id)!;
+
+      return moveSelectionWorld(nodes, [next.id], { x: next.x - before.x, y: next.y - before.y });
+    });
+  }
+
+  const roots = new Set(rootIds);
   const selected = nodes.filter((node) => roots.has(node.id));
   if (selected.length < 2) return [];
   const bounds = selectionBounds(selected, [...roots])!;

@@ -1,6 +1,14 @@
 import { isFontFamily } from "./canvas-fonts";
 import type { FrameRect, Point } from "./canvas-geometry";
 import { canvasLayoutPositions, isCanvasLayout, type CanvasLayout } from "./canvas-layout";
+import {
+  CANVAS_BLEND_MODES,
+  isCanvasGradient,
+  isCanvasFilters,
+  type CanvasGradient,
+  type CanvasBlendMode,
+  type CanvasFilters,
+} from "./canvas-paint";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 /* oxlint-disable unicorn/no-array-sort, unicorn/no-array-reverse -- Sort/reverse only owned arrays; the app targets ES2020. */
 import { SVG_DATA_URL } from "./canvas-svg";
@@ -13,6 +21,7 @@ import {
   type CanvasTheme,
   type TokenBindings,
 } from "./canvas-theme";
+import { reparentTransformed, localTransform, transformPoint } from "./canvas-transform";
 
 export type CanvasShadow = Readonly<{
   offsetX: number;
@@ -31,6 +40,10 @@ type CanvasNodeBase = Readonly<
     locked?: boolean;
     hidden?: boolean;
     opacity?: number;
+    rotation?: number;
+    gradient?: CanvasGradient;
+    blendMode?: CanvasBlendMode;
+    filters?: CanvasFilters;
     cornerRadius?: number;
     borderWidth?: number;
     borderColor?: string;
@@ -163,6 +176,10 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.locked !== second.locked ||
     first.hidden !== second.hidden ||
     first.opacity !== second.opacity ||
+    first.rotation !== second.rotation ||
+    first.blendMode !== second.blendMode ||
+    JSON.stringify(first.gradient) !== JSON.stringify(second.gradient) ||
+    JSON.stringify(first.filters) !== JSON.stringify(second.filters) ||
     first.cornerRadius !== second.cornerRadius ||
     first.borderWidth !== second.borderWidth ||
     first.borderColor !== second.borderColor ||
@@ -283,6 +300,13 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.parentId !== undefined && typeof frame.parentId !== "string") ||
     (frame.locked !== undefined && typeof frame.locked !== "boolean") ||
     (frame.hidden !== undefined && typeof frame.hidden !== "boolean") ||
+    (frame.rotation !== undefined && !isFiniteNumber(frame.rotation)) ||
+    (frame.blendMode !== undefined &&
+      !CANVAS_BLEND_MODES.includes(frame.blendMode as CanvasBlendMode)) ||
+    (frame.gradient !== undefined &&
+      (!isCanvasGradient(frame.gradient) ||
+        (frame.kind !== undefined && frame.kind !== "frame" && frame.kind !== "rectangle"))) ||
+    (frame.filters !== undefined && !isCanvasFilters(frame.filters)) ||
     (frame.opacity !== undefined && !isNumberInRange(frame.opacity, 0, 1)) ||
     (frame.cornerRadius !== undefined &&
       (!isFiniteNumber(frame.cornerRadius) || frame.cornerRadius < 0)) ||
@@ -391,6 +415,35 @@ function immutableShadows(shadows: readonly CanvasShadow[]): readonly CanvasShad
   return frozen;
 }
 
+const immutableGradients = new WeakSet<CanvasGradient>();
+const immutableFilters = new WeakSet<CanvasFilters>();
+
+function immutableGradient(value: CanvasGradient): CanvasGradient {
+  if (immutableGradients.has(value)) return value;
+
+  const frozen = Object.freeze({
+    ...value,
+    stops: Object.freeze(value.stops.map((stop) => Object.freeze({ ...stop }))),
+  });
+
+  immutableGradients.add(frozen);
+
+  return frozen;
+}
+
+function immutableFilterValues(value: CanvasFilters): CanvasFilters {
+  if (immutableFilters.has(value)) return value;
+
+  const frozen = Object.freeze({
+    ...value,
+    ...(value.order ? { order: Object.freeze([...value.order]) } : {}),
+  });
+
+  immutableFilters.add(frozen);
+
+  return frozen;
+}
+
 function immutableFrame(frame: CanvasFrame): CanvasFrame {
   const base = {
     id: frame.id,
@@ -399,6 +452,10 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.locked !== undefined && { locked: frame.locked }),
     ...(frame.hidden !== undefined && { hidden: frame.hidden }),
     ...(frame.opacity !== undefined && { opacity: frame.opacity }),
+    ...(frame.rotation !== undefined && { rotation: frame.rotation }),
+    ...(frame.blendMode !== undefined && { blendMode: frame.blendMode }),
+    ...(frame.gradient !== undefined && { gradient: immutableGradient(frame.gradient) }),
+    ...(frame.filters !== undefined && { filters: immutableFilterValues(frame.filters) }),
     ...(frame.cornerRadius !== undefined && { cornerRadius: frame.cornerRadius }),
     ...(frame.borderWidth !== undefined && { borderWidth: frame.borderWidth }),
     ...(frame.borderColor !== undefined && { borderColor: frame.borderColor }),
@@ -1113,10 +1170,15 @@ export class CanvasDocument {
 
     if (roots.some(isLocked) || isLocked(parentId)) return false;
 
-    const patches = roots.map((id) => {
+    const patches = roots.flatMap((id) => {
       const before = this.frames.get(id)!;
+      const transformed = reparentTransformed(this.getFrames(), id, parentId);
 
-      return { id, before, after: immutableFrame({ ...before, parentId }) };
+      return (transformed.length ? transformed : [{ ...before, parentId }]).map((after) => ({
+        id: after.id,
+        before: this.frames.get(after.id)!,
+        after: immutableFrame(after),
+      }));
     });
 
     const prepared = this.prepare(patches);
@@ -1354,21 +1416,63 @@ export class CanvasDocument {
         continue;
       }
 
-      let x = Infinity;
-      let y = Infinity;
-      let right = -Infinity;
-      let bottom = -Infinity;
+      let x = Infinity,
+        y = Infinity,
+        right = -Infinity,
+        bottom = -Infinity;
 
       for (const node of members) {
-        x = Math.min(x, node.x);
-        y = Math.min(y, node.y);
-        right = Math.max(right, node.x + node.width);
-        bottom = Math.max(bottom, node.y + node.height);
+        const matrix = localTransform(node, group);
+
+        for (const corner of [
+          { x: 0, y: 0 },
+          { x: node.width, y: 0 },
+          { x: node.width, y: node.height },
+          { x: 0, y: node.height },
+        ]) {
+          const point = transformPoint(matrix, corner);
+          x = Math.min(x, point.x);
+          y = Math.min(y, point.y);
+          right = Math.max(right, point.x);
+          bottom = Math.max(bottom, point.y);
+        }
       }
 
-      const width = right - x;
-      const height = bottom - y;
-      const after = immutableFrame({ ...group, x, y, width, height });
+      const width = right - x,
+        height = bottom - y;
+
+      // Changing group bounds must preserve its children's world-space pose,
+      // including the center of rotation when the group itself is rotated.
+      const center = transformPoint(localTransform(group), { x: x + width / 2, y: y + height / 2 });
+
+      const after = immutableFrame({
+        ...group,
+        x: center.x - width / 2,
+        y: center.y - height / 2,
+        width,
+        height,
+      });
+
+      const dx = after.x - group.x - x,
+        dy = after.y - group.y - y;
+
+      if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) {
+        const stack = [...(children.get(id) ?? [])];
+
+        while (stack.length) {
+          const childId = stack.pop()!,
+            child = read(childId);
+
+          if (!child) continue;
+          patches.set(childId, {
+            id: childId,
+            before: patches.has(childId) ? patches.get(childId)!.before : this.frames.get(childId),
+            after: immutableFrame({ ...child, x: child.x + dx, y: child.y + dy }),
+          });
+          stack.push(...(children.get(childId) ?? []));
+        }
+      }
+
       if (!framesEqual(group, after)) patches.set(id, { id, before, after });
     }
 

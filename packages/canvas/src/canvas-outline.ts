@@ -1,5 +1,6 @@
 import type { CanvasDocument, CanvasFrame } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
+import { hasRotation, visibleWorldPolygon } from "./canvas-transform";
 
 export type CanvasClipBounds = { left: number; top: number; right: number; bottom: number };
 
@@ -185,6 +186,11 @@ export function getVisibleSelectionFrames(document: CanvasDocument, ids: readonl
     .filter((id) => !document.isHidden(id))
     .map((id) => document.getFrame(id))
     .filter((frame): frame is CanvasFrame =>
-      Boolean(frame && isRectVisibleInRoundedClips(frame, getClippingAncestors(document, frame))),
+      Boolean(
+        frame &&
+        (hasRotation(document, frame)
+          ? visibleWorldPolygon(document, frame).length > 2
+          : isRectVisibleInRoundedClips(frame, getClippingAncestors(document, frame))),
+      ),
     );
 }

@@ -295,6 +295,9 @@
 }
 
 .canvas-properties-segmented {
+  min-width: 0;
+  margin: 0;
+  border: 0;
   display: flex;
   padding: 2px;
   border-radius: 5px;
@@ -582,4 +585,131 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.canvas-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+
+.canvas-section-toggle svg {
+  color: var(--muted-foreground);
+}
+
+.canvas-section-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.canvas-section-toggle:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.canvas-layout-placement {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.canvas-layout-grid {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--editor-field);
+}
+
+.canvas-layout-grid .canvas-property-icon-button {
+  width: 100%;
+  height: 22px;
+}
+
+.canvas-layout-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.canvas-layout-grid [aria-pressed="true"] .canvas-layout-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.canvas-properties-segmented .canvas-property-icon-button:has(span) {
+  height: 32px;
+  width: auto;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 9px;
+}
+
+.canvas-effect-card {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.canvas-effect-card + .canvas-effect-card {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.canvas-effect-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.canvas-gradient-preview {
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.canvas-gradient-stop {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 60px 20px;
+  align-items: center;
+  gap: 4px;
+}
+.canvas-gradient-stop .canvas-property-swatch {
+  width: 24px;
+  height: 28px;
+}
+.canvas-gradient-stop .canvas-property-icon-button {
+  width: 20px;
+}
+.canvas-gradient-stop .canvas-property-field {
+  padding: 0 4px;
+  gap: 3px;
+}
+.canvas-filter-control {
+  min-width: 0;
+}
+.canvas-filter-control > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--muted-foreground);
 }

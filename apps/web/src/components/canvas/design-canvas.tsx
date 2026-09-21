@@ -1,3 +1,14 @@
+import {
+  worldTransform,
+  inverseMatrix,
+  transformVector,
+  worldBounds,
+  frameSource,
+  hasRotation,
+  moveSelectionWorld,
+  pointBounds,
+  scaleSelectionWorld,
+} from "@flies/canvas";
 import { type CanvasTheme, EMPTY_THEME } from "@flies/canvas";
 import { ensureCanvasFonts } from "@flies/canvas";
 import { useCanvasDocument, useCanvasSnapshot, type CanvasFrame } from "@flies/canvas";
@@ -131,6 +142,7 @@ type Interaction = {
   viewport: Viewport;
   frame?: CanvasFrame;
   frames?: CanvasFrame[];
+  geometryFrames?: readonly CanvasFrame[];
   roots?: string[];
   bounds?: FrameRect;
   initialSelection?: string[];
@@ -1439,7 +1451,23 @@ export function DesignCanvas({
 
     const all = document.getFrames();
     const frames = document.getDescendantIds(roots).map((id) => document.getFrame(id)!);
-    const bounds = selectionBounds(frames, roots) ?? undefined;
+    const geometrySource = frameSource(all);
+    const transformed = roots.some((id) => hasRotation(geometrySource, document.getFrame(id)!));
+
+    const bounds =
+      transformed && roots.length
+        ? pointBounds(
+            roots.flatMap((id) => {
+              const b = worldBounds(geometrySource, document.getFrame(id)!);
+
+              return [
+                { x: b.x, y: b.y },
+                { x: b.x + b.width, y: b.y + b.height },
+              ];
+            }),
+          )
+        : (selectionBounds(frames, roots) ?? undefined);
+
     const kind = hand ? "pan" : handle && roots.length ? "resize" : frame ? "move" : "marquee";
 
     const guideTargets =
@@ -1460,6 +1488,7 @@ export function DesignCanvas({
       frame,
       handle,
       frames,
+      geometryFrames: all,
       roots: [...roots],
       bounds,
       initialSelection: [...selectedIds],
@@ -1613,6 +1642,57 @@ export function DesignCanvas({
           ? active.frames.find((node) => node.id === active.roots![0])
           : undefined;
 
+      const geometry = active.geometryFrames ?? active.frames;
+      const source = frameSource(geometry);
+
+      const transformed = active.roots.some((id) => {
+        const node = source.getFrame(id);
+
+        return node && hasRotation(source, node);
+      });
+
+      if (transformed) {
+        let updates: CanvasFrame[];
+        if (active.kind === "move")
+          updates = moveSelectionWorld(geometry, active.roots, worldDelta);
+        else if (onlyFrame && active.handle) {
+          const matrix = worldTransform(source, onlyFrame);
+          const localDelta = transformVector(inverseMatrix(matrix), worldDelta);
+          const minimum = !onlyFrame.kind || onlyFrame.kind === "frame" ? 40 : 1;
+
+          const rect = (
+            modifiers.shiftKey || onlyFrame.kind === "group"
+              ? resizeFrameProportionally
+              : resizeFrame
+          )(onlyFrame, active.handle, localDelta, minimum);
+
+          const centerDelta = {
+            x: rect.x - onlyFrame.x + (rect.width - onlyFrame.width) / 2,
+            y: rect.y - onlyFrame.y + (rect.height - onlyFrame.height) / 2,
+          };
+
+          const angle = ((onlyFrame.rotation ?? 0) * Math.PI) / 180;
+          const dx = Math.cos(angle) * centerDelta.x - Math.sin(angle) * centerDelta.y;
+          const dy = Math.sin(angle) * centerDelta.x + Math.cos(angle) * centerDelta.y;
+
+          const next = {
+            ...rect,
+            x: onlyFrame.x + onlyFrame.width / 2 + dx - rect.width / 2,
+            y: onlyFrame.y + onlyFrame.height / 2 + dy - rect.height / 2,
+          };
+
+          updates = resizeSelection(active.frames, active.roots, onlyFrame, next);
+        } else if (active.handle) {
+          const next = resizeFrameProportionally(active.bounds, active.handle, worldDelta, 1);
+          updates = scaleSelectionWorld(geometry, active.roots, active.bounds, next);
+        } else return;
+        if (active.kind === "move") active.requestedMove = updates;
+        previewBatch.schedule(updates);
+        guides.set([]);
+
+        return;
+      }
+
       const minimum = onlyFrame && (!onlyFrame.kind || onlyFrame.kind === "frame") ? 40 : 1;
 
       const next =
@@ -1765,7 +1845,7 @@ export function DesignCanvas({
     } else if (event.shiftKey && event.code === "Digit2" && selectedIds.length) {
       changeViewport(
         fitViewport(
-          selectedIds.map((id) => document.getFrame(id)!),
+          selectedIds.map((id) => worldBounds(document, document.getFrame(id)!)),
           size,
         ),
       );
@@ -1818,7 +1898,7 @@ export function DesignCanvas({
               selected && (!selected.kind || selected.kind === "frame") ? 40 : 1,
             ),
           )
-        : moveSelection(all, activeIds, delta);
+        : moveSelectionWorld(all, activeIds, delta);
 
       document.updateMany(updated);
     } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {

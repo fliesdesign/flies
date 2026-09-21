@@ -9,6 +9,12 @@ Use these skills by default, applying each to the relevant work:
 - `$frontend-design`: guide frontend UI design and implementation.
 - `$rust-best-practices`: guide Rust implementation, review, and testing.
 
+## MCP Parity
+
+Always keep MCP in sync with editor capabilities. When adding or changing canvas features,
+update the live editor handlers, desktop tool schemas, import validation, MCP guide and tests
+in the same change. Agent edits must share UI document state, persistence and undo history.
+
 ## Project Structure & Module Organization
 
 Flies is a Vite+ Bun workspace with a Tauri v2 desktop shell.

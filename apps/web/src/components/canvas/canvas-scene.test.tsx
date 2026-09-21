@@ -113,10 +113,7 @@ describe("hierarchical canvas rendering", () => {
     ]);
 
     assert.equal(markup.match(/opacity:0\.5/g)?.length, 1);
-    assert.match(
-      markup,
-      /class="canvas-frame"[^>]*style="background-color:#abcdef;border-radius:24px"/,
-    );
+    assert.match(markup, /class="canvas-frame"[^>]*style="background:#abcdef;border-radius:24px"/);
     assert.match(markup, /class="canvas-node-children"[^>]*style="border-radius:24px"/);
   });
 

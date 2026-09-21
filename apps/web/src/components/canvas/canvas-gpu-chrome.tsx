@@ -1,3 +1,4 @@
+import { localTransform, matrixCss, worldBounds, filterCss } from "@flies/canvas";
 import { useCanvasFrame } from "@flies/canvas";
 import type { CanvasCamera } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
@@ -42,14 +43,15 @@ const RootLabel = memo(function RootLabel({
     const update = () => {
       if (!element.current) return;
       const { viewport } = camera.getSnapshot();
-      element.current.style.transform = `translate3d(${viewport.x + frame.x * viewport.zoom}px, ${viewport.y + frame.y * viewport.zoom}px, 0)`;
-      element.current.style.width = `${frame.width * viewport.zoom}px`;
+      const bounds = worldBounds(document, frame);
+      element.current.style.transform = `translate3d(${viewport.x + bounds.x * viewport.zoom}px, ${viewport.y + bounds.y * viewport.zoom}px, 0)`;
+      element.current.style.width = `${bounds.width * viewport.zoom}px`;
     };
 
     update();
 
     return camera.subscribe(update);
-  }, [camera, frame]);
+  }, [camera, document, frame]);
 
   if (
     !frame ||
@@ -160,6 +162,15 @@ const ActiveEditor = memo(function ActiveEditor({
   }, [camera, frame, editable]);
 
   if (frame?.kind !== "text" || !editable) return null;
+  if (path.some((node) => node.rotation))
+    return (
+      <RotatedTextEditor
+        path={path}
+        camera={camera}
+        onTextCommit={onTextCommit}
+        onTextCancel={onTextCancel}
+      />
+    );
   const opacity = path.reduce((value, node) => value * (node.opacity ?? 1), 1);
 
   let editor: ReactNode = (
@@ -230,3 +241,78 @@ export const CanvasGpuChrome = memo(function CanvasGpuChrome({
     </div>
   );
 });
+
+function RotatedTextEditor({
+  path,
+  camera,
+  onTextCommit,
+  onTextCancel,
+}: {
+  path: readonly CanvasFrame[];
+  camera: CanvasCamera;
+  onTextCommit: CanvasGpuChromeProps["onTextCommit"];
+  onTextCancel: CanvasGpuChromeProps["onTextCancel"];
+}) {
+  const { viewport } = useSyncExternalStore(
+    camera.subscribe,
+    camera.getSnapshot,
+    camera.getSnapshot,
+  );
+
+  const frame = path[0];
+  if (frame.kind !== "text") return null;
+
+  let editor: ReactNode = (
+    <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
+  );
+
+  for (let i = 0; i < path.length; i++) {
+    const node = path[i];
+    const clips = i > 0 && (!node.kind || node.kind === "frame") && node.clipContent !== false;
+    editor = (
+      <div
+        key={node.id}
+        data-frame-id={i === 0 ? node.id : undefined}
+        data-editing={i === 0 ? "true" : undefined}
+        data-node-kind={i === 0 ? "text" : undefined}
+        style={{
+          position: "absolute",
+          width: node.width,
+          height: node.height,
+          transformOrigin: "0 0",
+          transform: matrixCss(localTransform(node, path[i + 1])),
+          opacity: node.opacity,
+          filter: filterCss(node.filters),
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: clips ? "hidden" : "visible",
+            borderRadius: clips ? clippingRadius(node) : undefined,
+          }}
+        >
+          {editor}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={
+        {
+          position: "absolute",
+          inset: 0,
+          transformOrigin: "0 0",
+          transform: `translate(${viewport.x}px,${viewport.y}px) scale(${viewport.zoom})`,
+          "--canvas-inverse-zoom": 1 / viewport.zoom,
+        } as CSSProperties
+      }
+    >
+      {editor}
+    </div>
+  );
+}

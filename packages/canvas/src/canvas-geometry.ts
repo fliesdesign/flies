@@ -1,3 +1,5 @@
+import type { CanvasFrame } from "./canvas-document";
+import { frameSource, worldBounds } from "./canvas-transform";
 export type Point = { x: number; y: number };
 
 /** Screen position = world position × zoom + viewport translation. */
@@ -120,7 +122,10 @@ export function fitViewport(
   let right = -Infinity;
   let bottom = -Infinity;
 
-  for (const frame of frames) {
+  const source = frameSource(frames.filter((frame) => "id" in frame) as CanvasFrame[]);
+
+  for (const original of frames) {
+    const frame = "id" in original ? worldBounds(source, original as CanvasFrame) : original;
     left = Math.min(left, frame.x);
     top = Math.min(top, frame.y);
     right = Math.max(right, frame.x + frame.width);

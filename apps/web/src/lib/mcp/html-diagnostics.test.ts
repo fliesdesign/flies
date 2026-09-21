@@ -86,3 +86,13 @@ test("intentional overflow, hidden ancestry and transparent ancestry stay quiet"
     assert.deepEqual(htmlWarnings(document, [node]), []);
   }
 });
+
+test("text clipping diagnostics use rotations relative to the clipping ancestor", () => {
+  const parent = { ...frame, rotation: 45 };
+  const inside = { ...text, width: 60, height: 25, rotation: 0 };
+  const doc = new CanvasDocument([parent, inside]);
+  assert.deepEqual(htmlWarnings(doc, [doc.getFrame(inside.id)!]), []);
+  const rotated = { ...inside, x: 155, y: 65, rotation: 45 };
+  doc.updateMany([rotated]);
+  assert.equal(htmlWarnings(doc, [doc.getFrame(rotated.id)!])[0].code, "clipped_text");
+});

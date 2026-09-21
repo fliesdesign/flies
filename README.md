@@ -99,6 +99,18 @@ cancels it. Click a fill swatch for live saturation, brightness, hue, alpha, and
 Done or clicking outside commits the color, while Cancel or Escape restores it. Invalid values
 revert, and locked layers can be inspected and unlocked without enabling canvas manipulation.
 
+Appearance controls include rotation, solid/linear/radial fills with editable color stops,
+16 blend modes, borders, inner/outer shadow stacks, and blur, brightness, contrast, saturation,
+grayscale, sepia, invert, and hue filters. Rotation follows nested frames and groups through
+selection, dragging, resizing, clipping, grouping, clipboard, and export. Multiple rotated
+layers resize proportionally to preserve their shape. Gradients support alpha and 2–16 stops.
+All appearance edits use the same preview, undo, project persistence, and MCP document state.
+CSS/Tailwind code export and PNG export preserve these native appearance properties.
+MCP HTML import also supports linear/centered radial gradients, 2D rotation/translation,
+blend modes and ordered filters, including Tailwind utilities. Unsupported effects fail
+before modifying the document. See the [native paint guide](apps/desktop/src/mcp/README.md#native-rotation-and-paint)
+for supported gradient geometry and filter limits.
+
 Frame properties offer **Auto layout** with horizontal or vertical flow, gap, uniform padding,
 cross-axis alignment, and start/center/end/space-between justification. Direct children follow
 their layer order; changing child sizes or the frame bounds reflows them. Their X/Y fields are

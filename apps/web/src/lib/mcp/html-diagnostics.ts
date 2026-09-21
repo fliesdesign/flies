@@ -1,4 +1,11 @@
-import { getClippingAncestors, type CanvasDocument, type CanvasFrame } from "@flies/canvas";
+import {
+  worldTransform,
+  transformPoint,
+  inverseMatrix,
+  getClippingAncestors,
+  type CanvasDocument,
+  type CanvasFrame,
+} from "@flies/canvas";
 
 import { measureCanvasTextHeight } from "@/components/canvas/canvas-node-content";
 
@@ -58,13 +65,26 @@ export function htmlWarnings(
     // Ignore unused height in a generously sized text box. Its own overflow is reported above.
     const visibleHeight = Math.min(node.height, requiredHeight);
 
-    const clippingParent = getClippingAncestors(document, node).find(
-      (parent) =>
-        node.x < parent.x - 1 ||
-        node.y < parent.y - 1 ||
-        node.x + node.width > parent.x + parent.width + 1 ||
-        node.y + visibleHeight > parent.y + parent.height + 1,
-    );
+    const matrix = worldTransform(document, node);
+
+    const corners = [
+      { x: 0, y: 0 },
+      { x: node.width, y: 0 },
+      { x: node.width, y: visibleHeight },
+      { x: 0, y: visibleHeight },
+    ].map((point) => transformPoint(matrix, point));
+
+    const clippingParent = getClippingAncestors(document, node).find((parent) => {
+      const inverse = inverseMatrix(worldTransform(document, parent));
+
+      return corners.some((point) => {
+        const local = transformPoint(inverse, point);
+
+        return (
+          local.x < -1 || local.y < -1 || local.x > parent.width + 1 || local.y > parent.height + 1
+        );
+      });
+    });
 
     if (clippingParent) {
       warnings.push({

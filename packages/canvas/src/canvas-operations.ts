@@ -1,5 +1,21 @@
+/* oxlint-disable oxc/no-map-spread -- Document nodes are immutable; geometry operations return new snapshots. */
 import { loadCanvasFrames, type CanvasFrame } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
+import {
+  localTransform,
+  transformVector,
+  frameSource,
+  worldTransform,
+  worldPointInFrame,
+  worldCorners,
+  transformPoint,
+  inverseMatrix,
+  pointBounds,
+  reparentTransformed,
+  detachCanvasSelection,
+  hasRotation,
+  visibleWorldPolygon,
+} from "./canvas-transform";
 
 export const CANVAS_CLIPBOARD_MIME = "application/x-flies-canvas+json";
 export const LEGACY_CANVAS_CLIPBOARD_MIME = "application/x-lra-canvas+json";
@@ -116,8 +132,33 @@ export function resizeSelection(
   const single = roots.length === 1 ? nodes.find((node) => node.id === roots[0]) : undefined;
 
   if (single && (single.kind === undefined || single.kind === "frame")) {
+    const resized = {
+      ...single,
+      ...next,
+      width: Math.max(40, next.width),
+      height: Math.max(40, next.height),
+    };
+
+    if (!single.rotation) return [resized];
+
+    // Changing a rotated frame's center changes its transform. Counter that change
+    // in the contents so resizing continues to crop, rather than move, children.
+    const before = localTransform(single),
+      after = localTransform(resized);
+
+    const shift = transformVector(inverseMatrix(before), {
+      x: after.e - before.e,
+      y: after.f - before.f,
+    });
+
+    const dx = resized.x - single.x - shift.x,
+      dy = resized.y - single.y - shift.y;
+
     return [
-      { ...single, ...next, width: Math.max(40, next.width), height: Math.max(40, next.height) },
+      resized,
+      ...selectionDescendants(nodes, roots)
+        .filter((node) => node.id !== single.id)
+        .map((node) => ({ ...node, x: node.x + dx, y: node.y + dy })),
     ];
   }
 
@@ -146,15 +187,6 @@ export function resizeSelection(
   }
 
   return updates;
-}
-
-function containsPoint(rect: FrameRect, point: Point) {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
 }
 
 function containsRect(outer: FrameRect, inner: FrameRect) {
@@ -205,7 +237,15 @@ export function marqueeSelection(nodes: readonly CanvasFrame[], rect: FrameRect)
 
   for (const node of nodes) {
     if (node.locked || ancestors(node, byId).some((id) => byId.get(id)!.locked)) continue;
-    const visible = visibleBounds(node, byId);
+    const source = { getFrame: (id: string) => byId.get(id) };
+    const polygon = hasRotation(source, node) ? visibleWorldPolygon(source, node) : undefined;
+
+    const visible = polygon
+      ? polygon.length > 2
+        ? pointBounds(polygon)
+        : undefined
+      : visibleBounds(node, byId);
+
     if (visible && containsRect(rect, visible)) hits.push(node.id);
   }
 
@@ -255,15 +295,23 @@ export function reparentSelection(
     if (!roots.has(node.id)) continue;
     // Groups express explicit membership; their bounds grow when an edited child moves.
     if (node.parentId && byId.get(node.parentId)?.kind === "group") continue;
-    const center = { x: node.x + node.width / 2, y: node.y + node.height / 2 };
+    const source = { getFrame: (id: string) => byId.get(id) };
+
+    const center = transformPoint(worldTransform(source, node), {
+      x: node.width / 2,
+      y: node.height / 2,
+    });
+
     let parent: CanvasFrame | undefined;
     let path: readonly number[] = [];
 
     for (const candidate of candidates) {
       if (
         !(options.requireContainment
-          ? containsRect(candidate.node, node)
-          : containsPoint(candidate.node, center)) ||
+          ? worldCorners(source, node).every((point) =>
+              worldPointInFrame(source, candidate.node, point, false),
+            )
+          : worldPointInFrame(source, candidate.node, center)) ||
         candidate.parents.some((id) => {
           const ancestor = byId.get(id)!;
 
@@ -272,7 +320,7 @@ export function reparentSelection(
             ancestor.hidden ||
             ((ancestor.kind === undefined || ancestor.kind === "frame") &&
               ancestor.clipContent !== false &&
-              !containsPoint(ancestor, center))
+              !worldPointInFrame(source, ancestor, center))
           );
         })
       )
@@ -284,7 +332,8 @@ export function reparentSelection(
       }
     }
 
-    if (node.parentId !== parent?.id) updates.push(withParent(node, parent?.id));
+    if (node.parentId !== parent?.id)
+      updates.push(...reparentTransformed(nodes, node.id, parent?.id));
   }
 
   return updates;
@@ -322,7 +371,19 @@ export function groupSelection(
     rootNodes.every((node) => ancestors(node, byId).includes(id)),
   );
 
-  const bounds = selectionBounds(nodes, roots)!;
+  const source = frameSource(nodes);
+  const parent = parentId ? source.getFrame(parentId) : undefined;
+  const inverse = parent ? inverseMatrix(worldTransform(source, parent)) : undefined;
+
+  const bounds = pointBounds(
+    rootNodes
+      .flatMap((node) => worldCorners(source, node))
+      .map((point) => {
+        const p = inverse ? transformPoint(inverse, point) : point;
+
+        return { x: p.x + (parent?.x ?? 0), y: p.y + (parent?.y ?? 0) };
+      }),
+  );
 
   const container: CanvasFrame = {
     id: group.id,
@@ -333,7 +394,12 @@ export function groupSelection(
   };
 
   return {
-    upsert: [container, ...rootNodes.map((node) => withParent(node, container.id))],
+    upsert: [
+      container,
+      ...rootNodes.flatMap((node) =>
+        reparentTransformed([...nodes, container], node.id, container.id),
+      ),
+    ],
     remove: [],
     selection: [container.id],
   };
@@ -349,7 +415,9 @@ export function ungroupSelection(
   const children = nodes.filter((node) => node.parentId && groupById.has(node.parentId));
 
   return {
-    upsert: children.map((node) => withParent(node, groupById.get(node.parentId!)?.parentId)),
+    upsert: children.flatMap((node) =>
+      reparentTransformed(nodes, node.id, groupById.get(node.parentId!)?.parentId),
+    ),
     remove: groups.map((node) => node.id),
     selection: [
       ...nodes.filter((node) => roots.has(node.id) && node.kind !== "group").map((node) => node.id),
@@ -362,7 +430,11 @@ export function encodeCanvasClipboard(
   nodes: readonly CanvasFrame[],
   ids: readonly string[],
 ): string | null {
-  const selected = selectionDescendants(nodes, ids);
+  const selected = selectionDescendants(
+    detachCanvasSelection(nodes, selectionRoots(nodes, ids)),
+    ids,
+  );
+
   if (!selected.length) return null;
   const included = new Set(selected.map((node) => node.id));
 

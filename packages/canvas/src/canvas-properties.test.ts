@@ -4,7 +4,12 @@ import assert from "node:assert/strict";
 
 import { describe, it } from "vite-plus/test";
 
-import { CanvasDocument, type CanvasFrame, type CanvasText } from "./canvas-document";
+import {
+  CanvasDocument,
+  type CanvasFrame,
+  type CanvasText,
+  type CanvasFrameNode,
+} from "./canvas-document";
 import { changeCanvasProperty, type CanvasProperty } from "./canvas-properties";
 
 const outer: CanvasFrame = {
@@ -430,5 +435,196 @@ describe("canvas property styling and guards", () => {
     assert.deepEqual(changeCanvasProperty(lockedNodes, ["outer"], "locked", false, noMeasurement), [
       { ...outer, locked: false },
     ]);
+  });
+});
+
+describe("canvas effects and compact layout", () => {
+  it("edits matching shadow stacks across mixed selections without overwriting other effects", () => {
+    const outerShadow = { offsetX: 1, offsetY: 2, blur: 8, spread: -2, color: "#123456" };
+    const innerShadow = { ...outerShadow, inset: true };
+    const first = { ...text, shadows: [innerShadow, outerShadow] };
+
+    const second = {
+      ...text,
+      id: "second",
+      shadows: [outerShadow, innerShadow, { ...outerShadow, blur: 32 }],
+    };
+
+    const document = new CanvasDocument([first, second]);
+    const initial = document.getFrames();
+
+    const updates = changeCanvasProperty(
+      initial,
+      [text.id, second.id],
+      "shadowBlur",
+      20,
+      noMeasurement,
+      { shadowIndex: 0, shadowInset: false },
+    );
+
+    assert.ok(document.updateMany(updates));
+    assert.equal(document.getFrame(text.id)?.shadows?.[0].blur, 8);
+    assert.equal(document.getFrame(text.id)?.shadows?.[1].blur, 20);
+    assert.equal(document.getFrame(second.id)?.shadows?.[0].blur, 20);
+    assert.equal(document.getFrame(second.id)?.shadows?.[2].blur, 32);
+    document.undo();
+    assert.deepEqual(document.getFrames(), initial);
+    document.redo();
+    assert.equal(document.getFrame(text.id)?.shadows?.[1].blur, 20);
+
+    const removed = changeCanvasProperty(
+      document.getFrames(),
+      [text.id, second.id],
+      "shadowRemove",
+      true,
+      noMeasurement,
+      { shadowInset: true },
+    );
+
+    assert.ok(removed.every((node) => node.shadows?.every((shadow) => !shadow.inset)));
+  });
+
+  it("validates effects, respects the shadow limit, and blocks locked ancestors", () => {
+    const shadow = { offsetX: 0, offsetY: 4, blur: 12, spread: 0, color: "#00000040" };
+    const node = { ...text, shadows: [shadow] };
+
+    for (const [property, value] of [
+      ["shadowBlur", -1],
+      ["shadowSpread", Infinity],
+      ["shadowColor", "garbage"],
+      ["borderWidth", -1],
+      ["borderColor", "bad"],
+      ["fontStyle", "oblique"],
+      ["textDecoration", "blink"],
+    ] as const) {
+      assert.deepEqual(changeCanvasProperty([node], [node.id], property, value, noMeasurement), []);
+    }
+
+    assert.deepEqual(
+      changeCanvasProperty(
+        [{ ...node, shadows: Array.from({ length: 8 }, () => ({ ...shadow })) }],
+        [node.id],
+        "shadowAdd",
+        true,
+        noMeasurement,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      changeCanvasProperty([node], [node.id], "shadowBlur", 10, noMeasurement, { shadowIndex: -1 }),
+      [],
+    );
+    assert.deepEqual(
+      changeCanvasProperty(
+        [
+          { ...outer, locked: true },
+          { ...node, parentId: outer.id },
+        ],
+        [node.id],
+        "shadowAdd",
+        true,
+        noMeasurement,
+      ),
+      [],
+    );
+
+    const added = changeCanvasProperty([node], [node.id], "shadowAdd", true, noMeasurement, {
+      shadowInset: true,
+    });
+
+    assert.equal(added[0].shadows?.length, 2);
+    assert.equal(added[0].shadows?.[1].inset, true);
+  });
+
+  it("keeps effect scrubs in one undo step and cancels previews cleanly", () => {
+    const document = new CanvasDocument([{ ...text, borderWidth: 1, borderColor: "#abc" }]);
+    const before = document.getFrames();
+    document.beginGesture([text.id]);
+    for (const width of [2, 8, 0])
+      document.previewMany(
+        changeCanvasProperty(before, [text.id], "borderWidth", width, noMeasurement),
+      );
+    document.endGesture();
+    assert.equal(document.getHistoryStats().undoEntries, 1);
+    assert.equal(document.getFrame(text.id)?.borderWidth, 0);
+    document.undo();
+    assert.deepEqual(document.getFrames(), before);
+    document.beginGesture([text.id]);
+    document.previewMany(
+      changeCanvasProperty(before, [text.id], "borderColor", "#fff", noMeasurement),
+    );
+    document.endGesture(true);
+    assert.deepEqual(document.getFrames(), before);
+    const removed = changeCanvasProperty(before, [text.id], "borderRemove", true, noMeasurement)[0];
+    assert.equal(removed.borderWidth, undefined);
+    assert.equal(removed.borderColor, undefined);
+  });
+
+  it("maps visual alignment for each direction and undoes child reflow atomically", () => {
+    const layout = {
+      direction: "row",
+      gap: 8,
+      padding: 12,
+      align: "start",
+      justify: "start",
+    } as const;
+
+    const document = new CanvasDocument([
+      { ...outer, layout },
+      { ...rectangle, parentId: outer.id },
+    ]);
+
+    const before = document.getFrames();
+    document.updateMany(
+      changeCanvasProperty(before, [outer.id], "layoutPosition", "end:center", noMeasurement),
+    );
+    assert.deepEqual((document.getFrame(outer.id) as CanvasFrameNode).layout, {
+      ...layout,
+      align: "center",
+      justify: "end",
+    });
+    assert.equal(document.getFrame(rectangle.id)?.x, outer.x + outer.width - 12 - rectangle.width);
+    document.undo();
+    assert.deepEqual(document.getFrames(), before);
+    const column = { ...outer, layout: { ...layout, direction: "column" as const } };
+
+    const changed = changeCanvasProperty(
+      [column],
+      [outer.id],
+      "layoutPosition",
+      "end:center",
+      noMeasurement,
+    )[0];
+
+    assert.deepEqual((changed as CanvasFrameNode).layout, {
+      ...column.layout,
+      align: "end",
+      justify: "center",
+    });
+    assert.deepEqual(
+      changeCanvasProperty([column], [outer.id], "layoutPosition", "bad:end", noMeasurement),
+      [],
+    );
+  });
+
+  it("remeasures italic text and applies decoration without changing geometry", () => {
+    const changed = changeCanvasProperty([text], [text.id], "fontStyle", "italic", (node) => {
+      assert.equal(node.fontStyle, "italic");
+
+      return 76;
+    })[0] as CanvasText;
+
+    assert.equal(changed.height, 76);
+
+    const decorated = changeCanvasProperty(
+      [changed],
+      [text.id],
+      "textDecoration",
+      "underline",
+      noMeasurement,
+    )[0] as CanvasText;
+
+    assert.equal(decorated.textDecoration, "underline");
+    assert.equal(decorated.height, 76);
   });
 });

@@ -1,4 +1,4 @@
-import { canvasAppearanceStyle, fontFamilyCss } from "@flies/canvas";
+import { canvasAppearanceStyle, fontFamilyCss, gradientCss } from "@flies/canvas";
 import type { CanvasFrame, CanvasPen, CanvasText } from "@flies/canvas";
 import {
   memo,
@@ -101,7 +101,10 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
       return (
         <span
           className="canvas-rectangle-content"
-          style={{ background: frame.fill, borderRadius: frame.cornerRadius ?? 0 }}
+          style={{
+            background: frame.gradient ? gradientCss(frame.gradient) : frame.fill,
+            borderRadius: frame.cornerRadius ?? 0,
+          }}
         />
       );
     case "text":

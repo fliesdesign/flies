@@ -2,6 +2,7 @@ import type { CanvasCamera } from "./canvas-camera";
 import type { CanvasDocument, CanvasFrame } from "./canvas-document";
 import type { FrameRect } from "./canvas-geometry";
 import { CanvasSpatialIndex, viewportBounds } from "./canvas-spatial-index";
+import { worldBounds } from "./canvas-transform";
 
 const EMPTY_IDS: readonly string[] = Object.freeze([]);
 
@@ -25,7 +26,11 @@ export class CanvasScene {
     private readonly document: CanvasDocument,
     private readonly camera: CanvasCamera,
   ) {
-    this.index = new CanvasSpatialIndex(document.getFrames());
+    this.index = new CanvasSpatialIndex(
+      document
+        .getFrames()
+        .map((frame) => Object.assign(worldBounds(document, frame), { id: frame.id })),
+    );
     this.refresh();
   }
 
@@ -38,9 +43,10 @@ export class CanvasScene {
       // insufficient to invalidate selected descendants after a commit.
       this.pinnedSubtree = undefined;
 
-      for (const id of ids) {
+      for (const id of new Set([...ids, ...this.document.getDescendantIds(ids)])) {
         const frame = this.document.getFrame(id);
-        if (frame) this.index.upsert(frame);
+        if (frame)
+          this.index.upsert(Object.assign(worldBounds(this.document, frame), { id: frame.id }));
         else this.index.remove(id);
       }
 
@@ -140,7 +146,8 @@ export class CanvasScene {
     // for selected subtrees and their derived layout changes, while retaining culling.
     for (const id of pinnedSubtree) {
       const frame = this.document.getFrame(id);
-      if (frame && hasViewport && intersects(frame, bounds)) candidates.push(id);
+      if (frame && hasViewport && intersects(worldBounds(this.document, frame), bounds))
+        candidates.push(id);
     }
 
     for (const id of this.pinnedIds) candidates.push(id);

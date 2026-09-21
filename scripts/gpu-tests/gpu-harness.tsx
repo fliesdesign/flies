@@ -1,4 +1,4 @@
-import type { CanvasFrame } from "@flies/canvas";
+import { setCanvasInspection, type CanvasFrame } from "@flies/canvas";
 import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -192,6 +192,7 @@ export async function mountGpuFixture({ strict = false }: { strict?: boolean } =
 
   return {
     controls,
+    setInspection: setCanvasInspection,
     dispose: () => {
       root.unmount();
       host.remove();

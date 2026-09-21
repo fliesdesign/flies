@@ -1,5 +1,11 @@
 import {
   normalizeTheme,
+  worldTransform,
+  worldBounds,
+  inverseMatrix,
+  transformPoint,
+  worldCorners,
+  resizeSelection,
   applyTokenBindings,
   isTokenBindings,
   THEME_PROPERTIES,
@@ -171,7 +177,11 @@ export async function editorTool(
     case "get_node_info": {
       const node = getNode(stringArg(args, "nodeId"));
 
-      return textResult({ node, children: doc.getChildren(node.id) });
+      return textResult({
+        node,
+        worldBounds: worldBounds(doc, node),
+        children: doc.getChildren(node.id),
+      });
     }
 
     case "get_tree": {
@@ -296,26 +306,51 @@ export async function editorTool(
 
       if (!children.length) throw new Error("This node has no visible content to fit.");
 
+      const inverse = inverseMatrix(worldTransform(doc, node));
+
+      const corners = children.flatMap((child) =>
+        worldCorners(doc, child).map((point) => transformPoint(inverse, point)),
+      );
+
       const updated = {
         ...node,
         width:
           axis === "height"
             ? node.width
-            : children.reduce(
-                (extent, child) => Math.max(extent, child.x + child.width - node.x + padding),
+            : corners.reduce(
+                (extent, point) => Math.max(extent, point.x + padding),
                 node.kind === "group" ? 1 : 40,
               ),
         height:
           axis === "width"
             ? node.height
-            : children.reduce(
-                (extent, child) => Math.max(extent, child.y + child.height - node.y + padding),
+            : corners.reduce(
+                (extent, point) => Math.max(extent, point.y + padding),
                 node.kind === "group" ? 1 : 40,
               ),
         ...(node.kind !== "group" && { clipContent: args.clipContent ?? true }),
       } as CanvasFrame;
 
-      commit([], [updated]);
+      const angle = ((node.rotation ?? 0) * Math.PI) / 180;
+
+      const halfWidth = (updated.width - node.width) / 2,
+        halfHeight = (updated.height - node.height) / 2;
+
+      // Keep the painted origin fixed while changing a rotated frame's center.
+      const fitted = {
+        ...updated,
+        x: updated.x + Math.cos(angle) * halfWidth - Math.sin(angle) * halfHeight - halfWidth,
+        y: updated.y + Math.sin(angle) * halfWidth + Math.cos(angle) * halfHeight - halfHeight,
+      };
+
+      const contents =
+        node.kind === "group"
+          ? []
+          : resizeSelection(doc.getFrames(), [node.id], node, fitted).filter(
+              (child) => child.id !== node.id,
+            );
+
+      commit([], [fitted, ...contents]);
 
       return textResult({ node: doc.getFrame(node.id) });
     }
@@ -401,6 +436,8 @@ export async function editorTool(
         parentId: args.validateOnly ? undefined : node.parentId,
         name: node.name,
         kind: node.kind ?? "frame",
+        ...(node.rotation !== undefined ? { rotation: node.rotation } : {}),
+        worldBounds: worldBounds(resultDoc, node),
         x: node.x,
         y: node.y,
         width: node.width,
@@ -440,6 +477,10 @@ export async function editorTool(
         "hidden",
         "locked",
         "opacity",
+        "rotation",
+        "gradient",
+        "blendMode",
+        "filters",
         "cornerRadius",
         "borderWidth",
         "borderColor",
@@ -508,6 +549,10 @@ export async function editorTool(
         "hidden",
         "locked",
         "opacity",
+        "rotation",
+        "gradient",
+        "blendMode",
+        "filters",
         "cornerRadius",
         "borderWidth",
         "borderColor",
@@ -539,16 +584,29 @@ export async function editorTool(
       }
 
       const updates = [updated];
+
+      const resized =
+        (!before.kind || before.kind === "frame") &&
+        before.rotation &&
+        (updated.width !== before.width || updated.height !== before.height)
+          ? resizeSelection(doc.getFrames(), [before.id], before, {
+              ...before,
+              width: updated.width,
+              height: updated.height,
+            })
+          : [];
+
+      const resizedById = new Map(resized.map((child) => [child.id, child]));
       const dx = updated.x - before.x;
       const dy = updated.y - before.y;
 
       if (
         (!before.kind || before.kind === "frame" || before.kind === "group") &&
-        (dx !== 0 || dy !== 0)
+        (dx !== 0 || dy !== 0 || resized.length > 0)
       ) {
-        // Nodes store world coordinates; moving a container must move its whole subtree.
+        // Match UI frame cropping, then translate the contents with the container.
         for (const id of doc.getDescendantIds(doc.getChildren(before.id))) {
-          const child = getNode(id);
+          const child = resizedById.get(id) ?? getNode(id);
           updates.push({ ...child, x: child.x + dx, y: child.y + dy });
         }
       }

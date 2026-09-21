@@ -70,7 +70,7 @@ test("untrusted or unsupported HTML is rejected without scripts or network reque
       '<img src="https://example.com/test.png">',
       '<div onclick="alert(1)">Hi</div>',
       '<div style="background:image-set(&quot;https://example.com/image.png&quot;)">Hi</div>',
-      '<div style="transform:rotate(20deg)">Hi</div>',
+      '<div style="transform:skewX(20deg)">Hi</div>',
     ];
 
     return Promise.all(

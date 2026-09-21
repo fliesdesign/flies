@@ -1,6 +1,13 @@
 import { SVG_DATA_URL, svgDataUrl, ensureCanvasFonts } from "@flies/canvas";
 import type { CanvasFrame } from "@flies/canvas";
 
+import {
+  captureTransform,
+  nativeTransform,
+  nativeFilters,
+  nativeBlend,
+  nativeGradient,
+} from "./html-paint";
 import { sanitizeHtml } from "./html-sanitize";
 import { effectsStyle, htmlColor, nodeName, resolveFontFamily, textStyle } from "./html-style";
 import { validateSharedCss } from "./styles";
@@ -139,20 +146,13 @@ export async function importHtmlFragment(
       for (const element of Array.from(layout.querySelectorAll<HTMLElement>("*"))) {
         const style = getComputedStyle(element);
         if (
-          style.backgroundImage !== "none" ||
-          style.transform !== "none" ||
-          style.translate !== "none" ||
-          style.rotate !== "none" ||
-          style.scale !== "none" ||
-          style.filter !== "none" ||
           style.backdropFilter !== "none" ||
           style.clipPath !== "none" ||
           style.maskImage !== "none" ||
-          style.animationName !== "none" ||
-          style.mixBlendMode !== "normal"
+          style.animationName !== "none"
         )
           throw new Error(
-            "Tailwind gradients, transforms, filters, masks, animations and blend modes are not supported by editable canvas layers yet.",
+            "Backdrop filters, masks, clipping paths and animations are not supported by editable canvas layers.",
           );
         if (!["static", "relative", "absolute"].includes(style.position))
           throw new Error("Use static, relative or absolute positioning.");
@@ -208,6 +208,33 @@ export async function importHtmlFragment(
       await Promise.all(Array.from(layout.querySelectorAll("img"), (img) => img.decode()));
     }
 
+    // Measure layout boxes and text ranges without transformed axis-aligned bounds.
+    // Keep the original transform as native rotation plus a layout-space translation.
+    const elements = Array.from(layout.querySelectorAll<HTMLElement>("*"));
+
+    const transforms = new Map(
+      elements.map((element) => [element, captureTransform(getComputedStyle(element))]),
+    );
+
+    for (const element of elements) {
+      const saved = transforms.get(element)!;
+
+      const active = [saved.transform, saved.translate, saved.rotate, saved.scale].some(
+        (v) => v !== "none",
+      );
+
+      if (!active) continue;
+      const style = getComputedStyle(element);
+      if (style.display === "inline")
+        throw new Error("Use inline-block for transformed inline elements.");
+      // Transforms establish an absolute-positioning containing block even on static elements.
+      if (style.position === "static")
+        element.style.setProperty("position", "relative", "important");
+      for (const property of ["transform", "translate", "rotate", "scale"])
+        element.style.setProperty(property, "none", "important");
+    }
+
+    const shifts = new Map<string, { dx: number; dy: number }>();
     const origin = layout.getBoundingClientRect();
     const nodes: CanvasFrame[] = [];
     let textFragments = 0;
@@ -307,7 +334,27 @@ export async function importHtmlFragment(
       if (rect.width > 8192 || rect.height > 8192)
         throw new Error("HTML elements must be no larger than 8192px per side.");
       const name = nodeName(element, style);
-      const base = { ...baseFor(rect, parentId, name), opacity: Number(style.opacity) };
+      const pose = nativeTransform(transforms.get(element)!, rect.width, rect.height);
+
+      const filters = nativeFilters(style.filter),
+        blendMode = nativeBlend(style.mixBlendMode);
+
+      const gradient = nativeGradient(style, rect.width, rect.height);
+
+      const transformed =
+        Math.abs(pose.rotation) > 1e-8 || Math.abs(pose.dx) > 1e-8 || Math.abs(pose.dy) > 1e-8;
+
+      const painted = transformed || Boolean(filters || blendMode);
+
+      const base = {
+        ...baseFor(rect, parentId, name),
+        opacity: Number(style.opacity),
+        ...(transformed ? { rotation: pose.rotation } : {}),
+        ...(filters ? { filters } : {}),
+        ...(blendMode ? { blendMode } : {}),
+      };
+
+      if (transformed) shifts.set(base.id, pose);
       const effects = effectsStyle(style, rect.width, rect.height);
       const fill = htmlColor(style.backgroundColor);
       const hasFill = !fill.endsWith("00");
@@ -328,7 +375,7 @@ export async function importHtmlFragment(
       ];
 
       const separateBorders = !effects.borderWidth && borderWidths.some((width) => width > 0);
-      const decorated = hasFill || hasEffects || separateBorders;
+      const decorated = hasFill || hasEffects || separateBorders || Boolean(gradient);
       let clipped = [style.overflowX, style.overflowY].some((v) => ["hidden", "clip"].includes(v));
 
       if (clipped && (rect.width < 40 || rect.height < 40) && options.onUnsupportedClip) {
@@ -394,6 +441,7 @@ export async function importHtmlFragment(
         !section &&
         !input &&
         !decorated &&
+        !painted &&
         !clipped &&
         (style.display === "inline" ||
           style.display.includes("flex") ||
@@ -409,6 +457,7 @@ export async function importHtmlFragment(
         leafText &&
         !section &&
         !decorated &&
+        !painted &&
         !clipped &&
         !style.display.includes("flex") &&
         !style.display.includes("grid") &&
@@ -447,7 +496,7 @@ export async function importHtmlFragment(
         !(element instanceof HTMLImageElement)
       ) {
         if (decorated) {
-          add({ ...base, ...effects, kind: "rectangle", fill });
+          add({ ...base, ...effects, kind: "rectangle", fill, ...(gradient ? { gradient } : {}) });
         }
 
         return;
@@ -458,6 +507,7 @@ export async function importHtmlFragment(
         !isRoot &&
         element.localName === "div" &&
         !decorated &&
+        !painted &&
         !clipped &&
         base.opacity === 1 &&
         !element.dataset.name &&
@@ -477,7 +527,14 @@ export async function importHtmlFragment(
       const frame = (section || decorated || clipped) && rect.width >= 40 && rect.height >= 40;
       add(
         frame
-          ? { ...base, ...effects, kind: "frame", fill, clipContent: clipped }
+          ? {
+              ...base,
+              ...effects,
+              kind: "frame",
+              fill,
+              clipContent: clipped,
+              ...(gradient ? { gradient } : {}),
+            }
           : { ...base, kind: "group" },
       );
       if (!frame && decorated)
@@ -489,6 +546,10 @@ export async function importHtmlFragment(
           name: "Background",
           kind: "rectangle",
           fill,
+          rotation: undefined,
+          filters: undefined,
+          blendMode: undefined,
+          ...(gradient ? { gradient } : {}),
           opacity: 1,
         });
 
@@ -555,6 +616,9 @@ export async function importHtmlFragment(
             width: horizontal ? base.width : width,
             height: horizontal ? width : base.height,
             fill: htmlColor(borderColors[side]),
+            rotation: undefined,
+            filters: undefined,
+            blendMode: undefined,
             opacity: 1,
           });
         });
@@ -565,7 +629,22 @@ export async function importHtmlFragment(
       visit(child as HTMLElement, options.parentId, true);
     if (!nodes.length) throw new Error("HTML did not produce visible layers.");
 
-    return nodes;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+
+    return nodes.map((node) => {
+      let ancestor: CanvasFrame | undefined = node,
+        dx = 0,
+        dy = 0;
+
+      while (ancestor) {
+        const shift = shifts.get(ancestor.id);
+        dx += shift?.dx ?? 0;
+        dy += shift?.dy ?? 0;
+        ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+      }
+
+      return dx || dy ? Object.assign({}, node, { x: node.x + dx, y: node.y + dy }) : node;
+    });
   } finally {
     host.remove();
     viewport?.remove();

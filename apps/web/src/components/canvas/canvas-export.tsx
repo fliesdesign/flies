@@ -1,3 +1,4 @@
+import { gradientCss, filterCss, detachCanvasSelection, exportBounds } from "@flies/canvas";
 import { CanvasDocument, ensureCanvasFonts, type CanvasFrame } from "@flies/canvas";
 import { selectionBounds } from "@flies/canvas";
 import { flushSync } from "react-dom";
@@ -27,6 +28,9 @@ function ExportNode({
         height: node.height,
         opacity: node.opacity ?? 1,
         isolation: "isolate",
+        transform: `rotate(${node.rotation ?? 0}deg)`,
+        mixBlendMode: node.blendMode,
+        filter: filterCss(node.filters),
       }}
     >
       {frame ? (
@@ -34,7 +38,7 @@ function ExportNode({
           style={{
             position: "absolute",
             inset: 0,
-            background: node.fill ?? "#fff",
+            background: node.gradient ? gradientCss(node.gradient) : (node.fill ?? "#fff"),
             borderRadius: node.cornerRadius ?? 0,
           }}
         />
@@ -65,8 +69,14 @@ export function CanvasExportScene({
   document: CanvasDocument;
   ids: readonly string[];
 }) {
-  const nodes = ids.map((id) => document.getFrame(id)!).filter(Boolean);
-  const bounds = selectionBounds(nodes, ids);
+  const detached = new CanvasDocument(detachCanvasSelection(document.getFrames(), ids));
+  const nodes = ids.map((id) => detached.getFrame(id)!).filter(Boolean);
+
+  const bounds = selectionBounds(
+    nodes.map((node) => ({ ...node, ...exportBounds(detached, node), parentId: undefined })),
+    ids,
+  );
+
   if (!bounds) return null;
 
   return (
@@ -82,7 +92,7 @@ export function CanvasExportScene({
       }}
     >
       {nodes.map((node) => (
-        <ExportNode key={node.id} node={node} document={document} origin={bounds} />
+        <ExportNode key={node.id} node={node} document={detached} origin={bounds} />
       ))}
     </div>
   );
@@ -99,7 +109,16 @@ export async function exportCanvasPng(
   await ensureCanvasFonts(
     nodes.filter((node) => node.kind === "text").filter((node) => exportedIds.has(node.id)),
   );
-  const bounds = selectionBounds(nodes, roots);
+
+  const bounds = selectionBounds(
+    roots.map((id) => ({
+      ...snapshot.getFrame(id)!,
+      ...exportBounds(snapshot, snapshot.getFrame(id)!),
+      parentId: undefined,
+    })),
+    roots,
+  );
+
   if (!bounds) throw new Error("Select a visible frame or layer to export.");
   const width = Math.ceil(bounds.width);
   const height = Math.ceil(bounds.height);

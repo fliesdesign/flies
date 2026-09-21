@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 
-import { CanvasDocument } from "@flies/canvas";
+import {
+  worldCorners,
+  worldTransform,
+  inverseMatrix,
+  transformPoint,
+  CanvasDocument,
+  type CanvasFrame,
+} from "@flies/canvas";
 import { test } from "vite-plus/test";
 
 import type { CanvasControls } from "@/components/canvas/design-canvas";
@@ -264,4 +271,69 @@ test("shared styles are saved as undoable document metadata and layout patches m
   await assert.rejects(
     editorTool(controls, "set_styles", { nodeId: "frame", css: '@import "https://example.com";' }),
   );
+});
+
+test("MCP resizing and fitting rotated frames preserve child painting", async () => {
+  const parent: CanvasFrame = {
+    id: "rotated",
+    name: "Rotated",
+    x: 100,
+    y: 100,
+    width: 120,
+    height: 120,
+    rotation: 35,
+  };
+
+  const child: CanvasFrame = {
+    id: "shape",
+    name: "Shape",
+    parentId: parent.id,
+    kind: "rectangle",
+    x: 180,
+    y: 140,
+    width: 80,
+    height: 60,
+    rotation: 45,
+    fill: "#f00",
+  };
+
+  const document = new CanvasDocument([parent, child]);
+
+  const controls = {
+    document,
+    prepare: () => {},
+    select: () => {},
+    getSelection: () => [],
+  } as unknown as CanvasControls;
+
+  const before = worldCorners(document, document.getFrame(child.id)!);
+  const info = await editorTool(controls, "get_node_info", { nodeId: child.id });
+  const bounds = JSON.parse((info.content[0] as { text: string }).text).worldBounds;
+  assert.ok(Math.abs(bounds.x - Math.min(...before.map((point) => point.x))) < 1e-7);
+  await editorTool(controls, "update_node", {
+    nodeId: parent.id,
+    properties: { width: 180, height: 160 },
+  });
+  const afterResize = worldCorners(document, document.getFrame(child.id)!);
+
+  for (let i = 0; i < 4; i++) {
+    assert.ok(Math.abs(before[i].x - afterResize[i].x) < 1e-7);
+    assert.ok(Math.abs(before[i].y - afterResize[i].y) < 1e-7);
+  }
+
+  document.undo();
+  await editorTool(controls, "fit_node", { nodeId: parent.id, padding: 10 });
+
+  const fitted = document.getFrame(parent.id)!,
+    afterFit = worldCorners(document, document.getFrame(child.id)!);
+
+  const inverse = inverseMatrix(worldTransform(document, fitted));
+
+  for (let i = 0; i < 4; i++) {
+    assert.ok(Math.abs(before[i].x - afterFit[i].x) < 1e-7);
+    assert.ok(Math.abs(before[i].y - afterFit[i].y) < 1e-7);
+    const local = transformPoint(inverse, afterFit[i]);
+    assert.ok(local.x <= fitted.width - 10 + 1e-7);
+    assert.ok(local.y <= fitted.height - 10 + 1e-7);
+  }
 });
