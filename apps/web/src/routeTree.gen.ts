@@ -14,6 +14,8 @@ import { Route as WorkspaceRouteImport } from './routes/_workspace'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as ComponentsRouteImport } from './routes/components'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as WorkspaceArchiveRouteImport } from './routes/_workspace.archive'
 import { Route as WorkspaceFilesRouteImport } from './routes/_workspace.files'
 import { Route as WorkspaceRecentsRouteImport } from './routes/_workspace.recents'
@@ -42,6 +44,16 @@ const BenchmarkRoute = BenchmarkRouteImport.update({
 const ComponentsRoute = ComponentsRouteImport.update({
   id: '/components',
   path: '/components',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkspaceArchiveRoute = WorkspaceArchiveRouteImport.update({
@@ -75,6 +87,8 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/archive': typeof WorkspaceArchiveRoute
   '/files': typeof WorkspaceFilesRouteWithChildren
   '/recents': typeof WorkspaceRecentsRoute
@@ -86,6 +100,8 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/archive': typeof WorkspaceArchiveRoute
   '/files': typeof WorkspaceFilesRouteWithChildren
   '/recents': typeof WorkspaceRecentsRoute
@@ -99,6 +115,8 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/benchmark': typeof BenchmarkRoute
   '/components': typeof ComponentsRoute
+  '/login': typeof LoginRoute
+  '/signup': typeof SignupRoute
   '/_workspace/archive': typeof WorkspaceArchiveRoute
   '/_workspace/files': typeof WorkspaceFilesRouteWithChildren
   '/_workspace/recents': typeof WorkspaceRecentsRoute
@@ -112,6 +130,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/benchmark'
     | '/components'
+    | '/login'
+    | '/signup'
     | '/archive'
     | '/files'
     | '/recents'
@@ -123,6 +143,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/benchmark'
     | '/components'
+    | '/login'
+    | '/signup'
     | '/archive'
     | '/files'
     | '/recents'
@@ -135,6 +157,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/benchmark'
     | '/components'
+    | '/login'
+    | '/signup'
     | '/_workspace/archive'
     | '/_workspace/files'
     | '/_workspace/recents'
@@ -148,6 +172,8 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   BenchmarkRoute: typeof BenchmarkRoute
   ComponentsRoute: typeof ComponentsRoute
+  LoginRoute: typeof LoginRoute
+  SignupRoute: typeof SignupRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -185,6 +211,20 @@ declare module '@tanstack/react-router' {
       path: '/components'
       fullPath: '/components'
       preLoaderRoute: typeof ComponentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_workspace/archive': {
@@ -261,6 +301,8 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   BenchmarkRoute: BenchmarkRoute,
   ComponentsRoute: ComponentsRoute,
+  LoginRoute: LoginRoute,
+  SignupRoute: SignupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

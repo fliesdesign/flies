@@ -111,3 +111,38 @@ describe("desktop session persistence", () => {
     expect(fetchMock.mock.calls[0][1].credentials).toBe("include");
   });
 });
+
+describe("web sign-in routing", () => {
+  it("redirects web sign-in to hosted AuthKit", async () => {
+    native.isTauri.mockReturnValue(false);
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { pathname: "/recents", assign } });
+    const { signIn } = await import("./api");
+    await signIn();
+    expect(assign).toHaveBeenCalledWith("https://api.example.test/auth/login?returnTo=%2Frecents");
+    expect(native.invoke).not.toHaveBeenCalled();
+  });
+  it("keeps the editor open while signing in in another tab", async () => {
+    native.isTauri.mockReturnValue(false);
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    const open = vi.fn();
+    vi.stubGlobal("window", { location: { pathname: "/files/design", assign }, open });
+
+    try {
+      const { signIn } = await import("./api");
+      const pending = signIn(true);
+      expect(open).toHaveBeenCalledWith(
+        "https://api.example.test/auth/login?returnTo=%2Ffiles%2Fdesign",
+        "_blank",
+        "noopener,noreferrer",
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+      await pending;
+      expect(assign).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls[0][0]).toBe("https://api.example.test/api/me");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
