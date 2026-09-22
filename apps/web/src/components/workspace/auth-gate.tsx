@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { ArrowUpRightIcon, MousePointer2Icon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, signIn, type Account } from "@/lib/api";
 
@@ -43,7 +44,9 @@ export function AuthGate() {
     );
   if (account)
     return (
-      <FileWorkspace key={account.user.id} account={account} onSignedOut={() => setAccount(null)} />
+      <OnboardingProvider key={account.user.id} userId={account.user.id}>
+        <FileWorkspace account={account} onSignedOut={() => setAccount(null)} />
+      </OnboardingProvider>
     );
 
   return (

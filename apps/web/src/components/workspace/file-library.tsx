@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties } from "react";
 
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -92,6 +93,7 @@ export function FileLibraryView({
   section: routeSection,
   onSectionChange,
 }: Props) {
+  const tour = useOnboarding();
   const [creating, setCreating] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState("");
@@ -238,7 +240,7 @@ export function FileLibraryView({
           <SidebarContent>
             <SidebarGroup className="pt-0">
               <SidebarGroupContent>
-                <SidebarMenu className="gap-0.5">
+                <SidebarMenu className="gap-0.5" data-onboarding="navigation">
                   {SECTIONS.map((item) => (
                     <SidebarMenuItem key={item.id}>
                       <SidebarMenuButton
@@ -261,16 +263,31 @@ export function FileLibraryView({
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
+          <Button
+            variant="ghost"
+            className="mx-3 mb-3 justify-start text-xs"
+            onClick={() => {
+              tour?.dispatch({ type: "restart" });
+              setSection("files");
+              onSectionChange?.("files");
+            }}
+          >
+            Take a quick tour
+          </Button>
           {account && <WorkspaceBilling />}
           {!desktop && <GetDesktop />}
         </Sidebar>
         <SidebarInset className="library-home">
           <div className="library-pane">
-            <header className="library-header">
+            <header className="library-header" data-onboarding="dashboard">
               <h1 className="library-heading">{heading}</h1>
               {showActions && (
                 <div className="library-actions">
-                  <Button disabled={busy} onClick={() => setCreating("Untitled")}>
+                  <Button
+                    data-onboarding="create"
+                    disabled={busy}
+                    onClick={() => setCreating("Untitled")}
+                  >
                     New file
                   </Button>
                   <Button
@@ -357,7 +374,7 @@ export function FileLibraryView({
               if (!open && !pending) setCreating(null);
             }}
           >
-            <DialogContent>
+            <DialogContent data-onboarding-dialog="">
               <DialogTitle>New file</DialogTitle>
               <form
                 className="flex flex-col gap-4"

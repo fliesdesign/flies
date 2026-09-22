@@ -76,6 +76,7 @@ export function CanvasToolbar({
                 <button
                   type="button"
                   className="canvas-tool"
+                  data-onboarding={item === "frame" ? "frame" : undefined}
                   aria-label={`${label} (${shortcut})`}
                   aria-pressed={tool === item}
                   tabIndex={focusTool === item ? 0 : -1}

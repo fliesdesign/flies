@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
+import { OnboardingCanvas } from "@/components/onboarding/onboarding-canvas";
+import { OnboardingGuide } from "@/components/onboarding/onboarding-guide";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -60,7 +63,9 @@ function FileEditor({
   register,
   onSaved,
   avatarTarget,
+  active,
 }: {
+  active: boolean;
   avatarTarget: HTMLDivElement | null;
   register: (id: string, session: FileSession | null) => void;
   onSaved: (file: DesignFile) => void;
@@ -101,6 +106,7 @@ function FileEditor({
     <>
       {avatarTarget && createPortal(<CollaboratorAvatars realtime={save} />, avatarTarget)}
       <TopLoader active={opening} />
+      <OnboardingCanvas controls={controls} fileId={file.id} active={active} />
       <DesignCanvas
         initialFrames={file.nodes}
         initialTheme={file.theme}
@@ -155,6 +161,7 @@ export function FileWorkspace({
   account: Account;
   onSignedOut: () => void;
 }) {
+  const tour = useOnboarding();
   const desktop = isTauri();
   const [avatarTarget, setAvatarTarget] = useState<HTMLDivElement | null>(null);
   const [library, setLibrary] = useState<FileLibrary | null>(null);
@@ -783,6 +790,7 @@ export function FileWorkspace({
         files.map((file) => (
           <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
             <FileEditor
+              active={activeId === file.id}
               avatarTarget={activeId === file.id ? avatarTarget : null}
               file={file}
               register={register}
@@ -799,6 +807,11 @@ export function FileWorkspace({
           {error}
         </div>
       )}
+      <OnboardingGuide
+        activeId={activeId}
+        ready={ready && !!library}
+        onNavigate={(id) => void navigateFile(id)}
+      />
       <DesktopUpdateBanner desktop={desktop} />
       {!ready && <TopLoader active />}
       {ready && activeId === null && (
@@ -815,6 +828,7 @@ export function FileWorkspace({
             }}
             onCreate={async (name) => {
               const file = await createFile(name);
+              tour?.dispatch({ type: "file", id: file.id });
               activateFile(file);
             }}
             onOpen={(id) => void run(() => openFile(id))}

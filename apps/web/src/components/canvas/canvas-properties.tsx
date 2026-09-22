@@ -925,7 +925,7 @@ export const CanvasProperties = memo(function CanvasProperties({
               <Section title={allPens ? "Stroke" : "Fill"}>
                 {gradientEligible && <CanvasGradientControls {...paintProps} />}
                 {solidSelection && (
-                  <div className="canvas-properties-color">
+                  <div className="canvas-properties-color" data-onboarding="fill">
                     <ColorSwatch
                       {...tokenChoice("fill")}
                       value={fill}
