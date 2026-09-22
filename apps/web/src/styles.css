@@ -290,3 +290,56 @@
 html[data-native-titlebar] body {
   padding-top: var(--desktop-titlebar-height);
 }
+
+/* A shared tint lets the native window material show through desktop chrome. */
+:root[data-desktop] {
+  --desktop-glass-background: color-mix(in srgb, var(--card) 55%, transparent);
+  --desktop-glass-highlight: color-mix(in srgb, var(--accent) 55%, transparent);
+  --desktop-glass-filter: blur(24px) saturate(1.25);
+}
+
+/* Native blur is available on macOS and Windows; other platforms keep the base fill. */
+html[data-native-titlebar],
+html[data-native-titlebar] body,
+html[data-desktop] .library-shell {
+  background: transparent;
+}
+
+html[data-desktop]
+  :is(.library-sidebar, .canvas-layers, .canvas-properties, .workspace-tabs, .desktop-drag-region) {
+  background: var(--desktop-glass-background);
+  -webkit-backdrop-filter: var(--desktop-glass-filter);
+  backdrop-filter: var(--desktop-glass-filter);
+}
+
+/* The tab strip replaces the empty drag strip, so the material is only painted once. */
+html[data-desktop]:has(.workspace-tabs) .desktop-drag-region {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-desktop] :is(.canvas-layers-header, .desktop-menu-toggle) {
+  background: transparent;
+}
+
+html[data-desktop]
+  :is(
+    .workspace-tab-group[data-active],
+    .workspace-tab[data-active],
+    .workspace-tab-group:hover,
+    .workspace-tab:hover,
+    .workspace-tab-close:hover,
+    .workspace-tab-add:hover,
+    .desktop-menu-toggle:hover
+  ) {
+  background: var(--desktop-glass-highlight);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-desktop] {
+    --desktop-glass-background: var(--card);
+    --desktop-glass-highlight: var(--accent);
+    --desktop-glass-filter: none;
+  }
+}

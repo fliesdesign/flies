@@ -213,6 +213,7 @@ export function FileLibraryView({
           <SidebarHeader>
             <WorkspaceSwitcher
               workspace={library?.workspace ?? account?.workspace ?? null}
+              onSignOut={onSignOut}
               onSettings={() => {
                 setSection("settings");
                 onSectionChange?.("settings");
@@ -361,10 +362,7 @@ export function FileLibraryView({
             {section === "settings" && (
               <WorkspaceSettings
                 desktop={desktop}
-                account={account}
-                workspaceName={library?.workspace.name}
                 fileCount={library?.files.filter((file) => !file.archived).length ?? 0}
-                onSignOut={onSignOut}
               />
             )}
           </div>

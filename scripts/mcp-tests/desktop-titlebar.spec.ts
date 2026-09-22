@@ -46,6 +46,17 @@ for (const platform of ["windows", "macos", "browser"] as const) {
         workspace: { id: "workspace", name: "My workspace" },
       };
 
+      const file = {
+        format: "flies",
+        version: 1,
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        name: "Glass preview",
+        createdAt: 1,
+        updatedAt: 1,
+        revision: 0,
+        nodes: [],
+      };
+
       await page.route("**/api/**", async (route) => {
         const path = new URL(route.request().url()).pathname;
         if (path === "/api/me")
@@ -53,7 +64,15 @@ for (const platform of ["windows", "macos", "browser"] as const) {
             signedIn ? { json: account } : { status: 401, json: { error: "Sign in" } },
           );
         if (path === "/api/files")
-          return route.fulfill({ json: { workspace: account.workspace, warnings: [], files: [] } });
+          return route.fulfill({
+            json: {
+              workspace: account.workspace,
+              warnings: [],
+              files: [{ ...file, preview: [], nodeCount: 0, archived: false }],
+            },
+          });
+        if (path === `/api/files/${file.id}`) return route.fulfill({ json: file });
+        if (path === "/api/sync/ticket") return route.fulfill({ json: { enabled: false } });
 
         return route.fulfill({ status: 404, json: { error: "Not found" } });
       });
@@ -81,6 +100,36 @@ for (const platform of ["windows", "macos", "browser"] as const) {
       signedIn = true;
       await page.reload();
       await expect(page.locator(".workspace-tabs")).toHaveCount(platform === "browser" ? 0 : 1);
+      await expect(page.locator(".library-sidebar")).toBeVisible();
+
+      const expectPanelMaterial = async (selector: string) => {
+        const panel = page.locator(selector);
+        await expect(panel).toBeVisible();
+        await expect(panel).toHaveCSS(
+          "backdrop-filter",
+          platform === "browser" ? "none" : "blur(24px) saturate(1.25)",
+        );
+
+        if (platform === "browser") {
+          await expect(panel).toHaveCSS("background-color", "rgb(42, 42, 42)");
+        } else {
+          await expect(panel).toHaveCSS("background-color", /\/ 0\.55\)$/);
+        }
+      };
+
+      await expectPanelMaterial(".library-sidebar");
+      await expect(page.locator(".library-home")).toHaveCSS("background-color", "rgb(36, 36, 36)");
+
+      if (platform !== "browser") {
+        await expect(page.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+        await expectPanelMaterial(".workspace-tabs");
+        await expect(page.locator(".desktop-drag-region")).toHaveCSS("backdrop-filter", "none");
+        await expect(page.locator(".desktop-drag-region")).toHaveCSS(
+          "background-color",
+          "rgba(0, 0, 0, 0)",
+        );
+        await page.screenshot({ path: testInfo.outputPath(`${platform}-dashboard.png`) });
+      }
 
       if (platform === "windows") {
         await page.setViewportSize({ width: 800, height: 600 });
@@ -113,6 +162,14 @@ for (const platform of ["windows", "macos", "browser"] as const) {
         await expect.poll(() => page.evaluate(() => Reflect.get(window, "menuCalls"))).toBe(1);
         await page.screenshot({ path: testInfo.outputPath("windows-titlebar-layout.png") });
       }
+
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByRole("button", { name: /Glass preview,/ }).click();
+      await expectPanelMaterial(".canvas-layers");
+      await expectPanelMaterial(".canvas-properties");
+      await expect(page.locator(".design-canvas")).toHaveCSS("background-color", "rgb(36, 36, 36)");
+      await expect(page.locator(".workspace-tabs")).toHaveCount(platform === "browser" ? 0 : 1);
+      await page.screenshot({ path: testInfo.outputPath(`${platform}-canvas.png`) });
 
       expect(errors).toEqual([]);
     });

@@ -19,38 +19,11 @@
   user-select: none;
 }
 
-.canvas-properties-header {
-  display: flex;
-  height: var(--canvas-header-height, 48px);
+.canvas-properties-collaborators {
   flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--muted);
-}
-
-.canvas-properties-header > div {
   min-width: 0;
-}
-
-.canvas-properties-header h2 {
-  overflow: hidden;
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.canvas-properties-header > div > span {
-  display: block;
-  color: var(--muted-foreground);
-  font-size: 10px;
-  line-height: 13px;
-  text-transform: capitalize;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .canvas-properties-body {

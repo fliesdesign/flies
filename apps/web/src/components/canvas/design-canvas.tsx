@@ -73,7 +73,7 @@ import {
 import { viewportBounds } from "@flies/canvas";
 import { penFromPoints, rectFromPoints, type CanvasTool } from "@flies/canvas";
 import { detectSourceFormat } from "@flies/html/source";
-import { PanelLeftOpenIcon, PanelRightOpenIcon } from "lucide-react";
+import { PanelLeftOpenIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -85,6 +85,7 @@ import {
   type KeyboardEvent,
   type ClipboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -149,6 +150,7 @@ export type CanvasControls = {
 };
 
 type DesignCanvasProps = {
+  collaborators?: ReactNode;
   realtime?: RealtimeFile;
   fileActions?: CanvasFileActions;
   initialFrames?: CanvasFrame[];
@@ -231,6 +233,7 @@ function DrawingPreview({ frame, camera }: { frame: CanvasFrame; camera: CanvasC
 }
 
 export function DesignCanvas({
+  collaborators,
   initialFrames,
   initialTheme,
   fileActions,
@@ -278,11 +281,13 @@ export function DesignCanvas({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const pendingImportsRef = useRef(0);
-  const [layersOpen, setLayersOpen] = useState(true);
 
-  const [propertiesOpen, setPropertiesOpen] = useState(
+  const [layersOpen, setLayersOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 760,
   );
+
+  // The inspector stays open in the editor. Headless render harnesses can hide chrome.
+  const [propertiesOpen, setPropertiesOpen] = useState(true);
 
   const setPanelsOpen = useCallback((open: boolean) => {
     setLayersOpen(open);
@@ -290,8 +295,6 @@ export function DesignCanvas({
   }, []);
 
   const propertyPreviewRef = useRef<{ frames: CanvasFrame[]; ids: readonly string[] } | null>(null);
-  const reopenPropertiesRef = useRef<HTMLButtonElement>(null);
-  const propertiesCollapsedRef = useRef(false);
   const layerAnchorRef = useRef<string | null>(null);
   const reopenLayersRef = useRef<HTMLButtonElement>(null);
   const [tool, setTool] = useState<CanvasTool>("select");
@@ -325,9 +328,6 @@ export function DesignCanvas({
       snapshot.ids.length ? document.getRootIds(selection.filter((id) => sceneIds.has(id))) : [],
     [document, selection, snapshot, sceneIds],
   );
-
-  const hasPropertySelection = propertyIds.length > 0;
-  const showProperties = propertiesOpen && hasPropertySelection;
 
   const selectedIds = useMemo(
     () =>
@@ -649,30 +649,6 @@ export function DesignCanvas({
   const collapseLayers = useCallback(() => {
     setLayersOpen(false);
     setHoveredId(null);
-  }, []);
-
-  const collapseProperties = useCallback(() => {
-    propertiesCollapsedRef.current = true;
-    setPropertiesOpen(false);
-  }, []);
-
-  useEffect(() => {
-    if (!propertiesOpen && propertiesCollapsedRef.current) {
-      reopenPropertiesRef.current?.focus({ preventScroll: true });
-      propertiesCollapsedRef.current = false;
-    }
-  }, [propertiesOpen]);
-
-  useEffect(() => {
-    const compact = window.matchMedia("(max-width: 760px)");
-
-    const update = () => {
-      if (compact.matches) setPropertiesOpen(false);
-    };
-
-    compact.addEventListener("change", update);
-
-    return () => compact.removeEventListener("change", update);
   }, []);
 
   useEffect(() => {
@@ -2209,7 +2185,7 @@ export function DesignCanvas({
       className="canvas-editor"
       aria-label="Canvas editor"
       data-layers-open={layersOpen || undefined}
-      data-properties-open={showProperties || undefined}
+      data-properties-open={propertiesOpen || undefined}
       onKeyDown={keyDown}
       onCopy={(event) => copySelection(event)}
       onCut={(event) => copySelection(event, true)}
@@ -2266,15 +2242,15 @@ export function DesignCanvas({
           aria-label="Show layers"
           title="Show layers"
           onClick={() => {
-            if (window.innerWidth <= 760) setPropertiesOpen(false);
             setLayersOpen(true);
           }}
         >
           <PanelLeftOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
         </button>
       )}
-      {showProperties ? (
+      {propertiesOpen && (
         <CanvasProperties
+          collaborators={collaborators}
           document={document}
           selectedIds={propertyIds}
           onChange={changeProperty}
@@ -2283,7 +2259,6 @@ export function DesignCanvas({
           onPreviewEnd={endPropertyPreview}
           onArrange={arrangeFromProperties}
           onFitText={fitTextHeight}
-          onCollapse={collapseProperties}
           onSelect={selectOne}
           vectorEditingId={vectorEditingId}
           onEditVector={(id) => {
@@ -2305,21 +2280,7 @@ export function DesignCanvas({
               setSelection(plan.selection);
           }}
         />
-      ) : hasPropertySelection ? (
-        <button
-          ref={reopenPropertiesRef}
-          type="button"
-          className="canvas-properties-reopen"
-          aria-label="Show properties"
-          title="Show properties"
-          onClick={() => {
-            if (window.innerWidth <= 760) setLayersOpen(false);
-            setPropertiesOpen(true);
-          }}
-        >
-          <PanelRightOpenIcon size={16} strokeWidth={1.65} aria-hidden="true" />
-        </button>
-      ) : null}
+      )}
       <ContextMenu
         open={menuOpen}
         onOpenChange={(open, details) => {

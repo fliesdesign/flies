@@ -53,7 +53,6 @@ function render(nodes: readonly CanvasFrame[], selectedIds: readonly string[]) {
       onPreviewEnd={() => {}}
       onArrange={() => {}}
       onFitText={() => {}}
-      onCollapse={() => {}}
       onPlan={() => {}}
       onSelect={() => {}}
       onEditVector={() => {}}
@@ -90,7 +89,7 @@ describe("canvas properties panel", () => {
   it("provides a quiet empty state with no inapplicable editing controls", () => {
     const markup = render([frame], []);
     assert.match(markup, /Select a layer to edit its properties/);
-    assert.match(markup, /aria-label="Collapse properties"/);
+    assert.doesNotMatch(markup, /Collapse properties|canvas-properties-header/);
     assert.doesNotMatch(markup, /<input|aria-label="Layout"/);
   });
 

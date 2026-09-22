@@ -37,4 +37,18 @@ describe("guided onboarding", () => {
       ),
     ).toEqual({ step: "frame", fileId: "practice" });
   });
+  it("keeps progress made before a draft receives its server ID", () => {
+    const state: TourState = {
+      step: "color",
+      fileId: "draft",
+      frameId: "frame",
+      initialFill: "#ffffff",
+    };
+
+    expect(tourReducer(state, { type: "file-saved", draftId: "draft", id: "saved" })).toEqual({
+      ...state,
+      fileId: "saved",
+    });
+    expect(tourReducer(state, { type: "file-saved", draftId: "other", id: "saved" })).toBe(state);
+  });
 });

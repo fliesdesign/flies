@@ -46,30 +46,11 @@
   outline-offset: 2px;
 }
 
-.canvas-properties-reopen {
-  position: fixed;
-  top: calc(var(--desktop-titlebar-height, 0px) + 8px);
-  right: 16px;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--popover);
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-
-.canvas-properties-reopen:hover {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
-.canvas-properties-reopen:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+/* On compact windows, layers overlay the canvas instead of squeezing out the inspector. */
+@media (max-width: 760px) {
+  .canvas-editor[data-layers-open] > .design-canvas {
+    left: 0;
+  }
 }
 
 @media (max-width: 640px) {

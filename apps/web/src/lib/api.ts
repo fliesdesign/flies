@@ -77,22 +77,16 @@ export type Account = {
   workspace: { id: string; name: string; ownerId?: string };
 };
 
-export async function signIn(
-  preserveEditor = false,
-  extras?: { returnTo?: string; passkey?: boolean },
-) {
+export async function signIn(preserveEditor = false) {
   if (!isTauri()) {
     const returnTo =
-      extras?.returnTo ??
       window.location.pathname +
-        (window.location.pathname === "/settings" &&
-        /^#(?:billing|members|account)$/.test(window.location.hash)
-          ? window.location.hash
-          : "");
+      (window.location.pathname === "/settings" &&
+      /^#(?:billing|members)$/.test(window.location.hash)
+        ? window.location.hash
+        : "");
 
-    const loginUrl = apiUrl(
-      `/auth/login?returnTo=${encodeURIComponent(returnTo)}${extras?.passkey ? "&passkey=1" : ""}`,
-    );
+    const loginUrl = apiUrl(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
 
     if (!preserveEditor) {
       window.location.assign(loginUrl);
@@ -132,7 +126,7 @@ export async function signIn(
   ).join("");
 
   const { openUrl } = await import("@tauri-apps/plugin-opener");
-  await openUrl(apiUrl(`/auth/login?desktop=${challenge}${extras?.passkey ? "&passkey=1" : ""}`));
+  await openUrl(apiUrl(`/auth/login?desktop=${challenge}`));
   const deadline = Date.now() + 10 * 60_000;
 
   while (Date.now() < deadline) {

@@ -3,10 +3,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Account } from "@/lib/api";
 
-import { AccountMfa } from "./account-mfa";
-import { AccountPasskeys } from "./account-passkeys";
 import { AppearanceSettings } from "./appearance-settings";
 import { UpdateSettings } from "./update-settings";
 import { BillingSettings } from "./workspace-billing";
@@ -57,27 +54,12 @@ function WebManagement({ section }: { section: "billing" | "members" }) {
   );
 }
 
-export function WorkspaceSettings({
-  desktop,
-  account,
-  workspaceName,
-  fileCount,
-  onSignOut,
-}: {
-  desktop: boolean;
-  account?: Account;
-  workspaceName?: string;
-  fileCount: number;
-  onSignOut?: () => Promise<void>;
-}) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-
+export function WorkspaceSettings({ desktop, fileCount }: { desktop: boolean; fileCount: number }) {
   return (
     <Tabs
       defaultValue={
         typeof window !== "undefined" &&
-        ["billing", "members", "account"].includes(window.location.hash.slice(1))
+        ["billing", "members"].includes(window.location.hash.slice(1))
           ? window.location.hash.slice(1)
           : "appearance"
       }
@@ -89,7 +71,6 @@ export function WorkspaceSettings({
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="members">Members</TabsTrigger>
           <TabsTrigger value="updates">Updates</TabsTrigger>
-          <TabsTrigger value="account">Account</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="appearance">
@@ -115,64 +96,6 @@ export function WorkspaceSettings({
           </p>
         </div>
         <UpdateSettings desktop={desktop} />
-      </TabsContent>
-      <TabsContent value="account">
-        <section className="space-y-6" aria-label="Account details">
-          <div className="space-y-1">
-            <h2 className="text-base font-medium">Your account</h2>
-            <p className="text-sm text-muted-foreground">Your profile and current workspace.</p>
-          </div>
-          <dl className="grid gap-5 text-sm">
-            {account && (
-              <>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Name</dt>
-                  <dd className="mt-1 break-words">{account.user.name}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Email</dt>
-                  <dd className="mt-1 break-words">{account.user.email}</dd>
-                </div>
-              </>
-            )}
-            <div>
-              <dt className="text-xs text-muted-foreground">Workspace</dt>
-              <dd className="mt-1 break-words">
-                {workspaceName ?? account?.workspace.name ?? "Loading…"}
-              </dd>
-            </div>
-          </dl>
-          <AccountMfa />
-          <AccountPasskeys />
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {onSignOut && (
-            <div className="border-t pt-5">
-              <Button
-                variant="outline"
-                disabled={pending}
-                onClick={() => {
-                  setPending(true);
-                  setError("");
-                  void onSignOut()
-                    .catch((cause) =>
-                      setError(
-                        cause instanceof Error
-                          ? cause.message
-                          : "Could not sign out. Please retry.",
-                      ),
-                    )
-                    .finally(() => setPending(false));
-                }}
-              >
-                {pending ? "Signing out…" : "Sign out"}
-              </Button>
-            </div>
-          )}
-        </section>
       </TabsContent>
     </Tabs>
   );

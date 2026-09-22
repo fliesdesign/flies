@@ -1,4 +1,4 @@
-import { CheckIcon, ChevronsUpDownIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, ChevronsUpDownIcon, LogOutIcon, SettingsIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -17,14 +17,33 @@ import { switchWorkspace, type WorkspaceList } from "./workspace-members";
 export function WorkspaceSwitcher({
   workspace,
   onSettings,
+  onSignOut,
 }: {
   workspace: { id: string; name: string } | null;
   onSettings: () => void;
+  onSignOut?: () => Promise<void>;
 }) {
   const [list, setList] = useState<WorkspaceList | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+  const busy = pending || signingOut;
   const name = workspace?.name ?? "Loading workspace…";
+
+  async function handleSignOut() {
+    if (!onSignOut || busy) return;
+    setSigningOut(true);
+    setSignOutError("");
+
+    try {
+      await onSignOut();
+    } catch (cause) {
+      setSignOutError(cause instanceof Error ? cause.message : "Could not sign out. Please retry.");
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   return (
     <DropdownMenu
@@ -64,7 +83,7 @@ export function WorkspaceSwitcher({
             <DropdownMenuItem
               key={item.id}
               aria-current={item.id === workspace?.id ? "true" : undefined}
-              disabled={pending}
+              disabled={busy}
               onClick={() => {
                 if (item.id === workspace?.id) return;
                 setPending(true);
@@ -84,7 +103,7 @@ export function WorkspaceSwitcher({
             </DropdownMenuItem>
           ))}
           {!!list?.invitations.length && (
-            <DropdownMenuItem onClick={onSettings}>
+            <DropdownMenuItem disabled={busy} onClick={onSettings}>
               {list.invitations.length} pending invitations · Settings → Members
             </DropdownMenuItem>
           )}
@@ -95,10 +114,25 @@ export function WorkspaceSwitcher({
           )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onSettings}>
+        <DropdownMenuItem disabled={busy} onClick={onSettings}>
           <SettingsIcon aria-hidden="true" />
           Settings
         </DropdownMenuItem>
+        {onSignOut && (
+          <DropdownMenuItem
+            disabled={busy}
+            closeOnClick={false}
+            onClick={() => void handleSignOut()}
+          >
+            <LogOutIcon aria-hidden="true" />
+            {signingOut ? "Signing out…" : "Sign out"}
+          </DropdownMenuItem>
+        )}
+        {signOutError && (
+          <p role="alert" className="max-w-64 px-2 py-1 text-xs text-destructive">
+            {signOutError}
+          </p>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

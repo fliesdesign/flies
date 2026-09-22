@@ -11,15 +11,22 @@
     "frontendDist": "../web/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Flies",
+        "theme": "Dark",
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["sidebar"],
+          "state": "active"
+        },
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": { "x": 14, "y": 20 },
         "dragDropEnabled": false,
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 800
       }
     ],
     "security": {

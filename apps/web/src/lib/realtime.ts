@@ -50,6 +50,9 @@ export class RealtimeFile {
   private queue: DocumentDelta[] = [];
   private inFlight: { mutationId: string; delta: DocumentDelta; count: number } | null = null;
   private running: Promise<void> | null = null;
+  private creating: Promise<void> | null = null;
+  private connecting: { generation: number; promise: Promise<void> } | null = null;
+  private creationFailed = false;
   private reading: Promise<void> | null = null;
   private requestedRevision = -1;
   private socket: WebSocket | null = null;
@@ -78,6 +81,7 @@ export class RealtimeFile {
     file: DesignFile,
     private status: (message: string) => void,
     private onSaved: (file: DesignFile) => void,
+    private create?: () => Promise<DesignFile>,
   ) {
     this.base = file;
     this.observed = snapshot(file);
@@ -141,12 +145,14 @@ export class RealtimeFile {
     this.observed = next;
     if (!hasDocumentDelta(delta)) return;
     this.queue.push(delta);
+    // A failed create needs an explicit retry; edits remain in the mounted document.
+    if (this.creationFailed) return;
     this.status("Unsaved changes");
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.flush().catch(() => {}), 180);
   }
 
-  isDirty = () => this.queue.length > 0 || this.running !== null;
+  isDirty = () => !!this.create || this.queue.length > 0 || this.running !== null;
   rename = async (name: string) => {
     this.enqueue({ ...this.observed, name });
     await this.flush();
@@ -165,8 +171,56 @@ export class RealtimeFile {
     this.socket.send(JSON.stringify({ type: "presence", presence: this.ownPresence }));
   }
 
-  private async connect() {
+  private ensureCreated(): Promise<void> {
+    if (this.creating) return this.creating;
+    if (!this.create) return Promise.resolve();
+    this.creationFailed = false;
+    this.status("Creating…");
+    this.creating = this.create()
+      .then((file) => {
+        this.base = file;
+        this.create = undefined;
+        this.needsSignIn = false;
+        this.onSaved({ ...file, name: this.observed.name });
+        this.status(this.queue.length ? "Unsaved changes" : "Saved");
+
+        return;
+      })
+      .catch((error: unknown) => {
+        this.creationFailed = true;
+        clearTimeout(this.saveTimer);
+        this.needsSignIn = error instanceof ApiError && error.status === 401;
+        this.status(`Save failed: Could not create file. ${String(error)}`);
+        throw error;
+      })
+      .finally(() => {
+        this.creating = null;
+      });
+
+    return this.creating;
+  }
+
+  private connect(): Promise<void> {
+    if (this.connecting?.generation === this.generation) return this.connecting.promise;
+    const connection = { generation: this.generation, promise: this.connectOnce() };
+    this.connecting = connection;
+    void connection.promise.finally(() => {
+      if (this.connecting === connection) this.connecting = null;
+    });
+
+    return connection.promise;
+  }
+
+  private async connectOnce() {
     const generation = this.generation;
+
+    try {
+      await this.ensureCreated();
+    } catch {
+      return;
+    }
+
+    if (this.stopped || generation !== this.generation) return;
 
     try {
       const result = await post<{ enabled: boolean; ticket?: string; socketUrl?: string }>(
@@ -345,7 +399,12 @@ export class RealtimeFile {
   };
 
   private async drain() {
+    const wasDraft = !!this.create;
+    await this.ensureCreated();
+    if (wasDraft && this.mode === "unknown") await this.connect();
     if (!this.queue.length) return;
+
+    if (this.mode === "unknown") await this.connect();
 
     if (this.mode === "unknown") {
       this.status("Save failed: Connecting. Your changes are retained.");

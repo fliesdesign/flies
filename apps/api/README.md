@@ -26,9 +26,9 @@ The provisioned development database is Neon project `blue-art-89162937`, branch
 
 `GET /auth/login` redirects to hosted WorkOS AuthKit. The callback verifies a single-use state bound to an HttpOnly browser cookie and exchanges the code using PKCE. WorkOS credentials are sealed with the server-only cookie password and stored in Postgres. The browser receives an opaque HttpOnly, SameSite=Lax session cookie. HTTPS deployments use Secure cookies. Session tokens are hashed in the session table; every authenticated request validates the sealed WorkOS session and refreshes it under a database row lock when needed.
 
-AuthKit MFA is optional. Account settings enrolls a TOTP authenticator through WorkOS User Management, shows a QR code and secret, and confirms a 6-digit code before the factor stays on the account. After enrollment, AuthKit challenges for that code at sign-in. Turning 2FA off deletes the WorkOS factor. SSO sign-in does not require MFA.
+AuthKit MFA is optional. Users with an enrolled TOTP authenticator are challenged for its code at sign-in. SSO sign-in does not require MFA.
 
-Passkeys are enabled on hosted AuthKit, including progressive enrollment after a password sign-in. Account settings starts that AuthKit sign-in so the user can add a passkey. WorkOS only registers passkeys on the AuthKit domain; a custom AuthKit domain should be configured before relying on them in production.
+Passkeys are enabled on hosted AuthKit, including progressive enrollment after a password sign-in. WorkOS only registers passkeys on the AuthKit domain; a custom AuthKit domain should be configured before relying on them in production.
 
 Desktop opens AuthKit in the system browser. A random verifier held in the webview claims the finished login through `/auth/desktop/complete`; only its hash appears in the login URL. No session token is put in a URL. The desktop app keeps its opaque token in memory, so restarting requires signing in again. The encrypted WorkOS refresh credentials stay on the server.
 
@@ -125,19 +125,21 @@ To enable billing, set all four server-only values:
 requires its own token, webhook secret, organization, and product IDs. Run
 `bun run db:migrate` before enabling billing. Secrets remain outside source control.
 
-| Entitlement                                          | Free                       | Pro ($12/user/month) |
-| ---------------------------------------------------- | -------------------------- | -------------------- |
-| Design files per workspace, including archived files | 5                          | 250                  |
-| Maximum decoded size per image                       | 30 MB                      | 250 MB               |
-| MCP tool calls per workspace per UTC week            | 300                        | 500,000              |
-| Public MCP access                                    | No                         | Yes                  |
-| Workspace type                                       | Personal, single workspace | Team workspace       |
-| License                                              | Personal use               | Commercial use       |
-| Share links                                          | No                         | Yes                  |
+| Entitlement                               | Free                       | Pro ($12/user/month) |
+| ----------------------------------------- | -------------------------- | -------------------- |
+| Active design files per workspace         | 5                          | Unlimited            |
+| Maximum decoded size per image            | 30 MB                      | 250 MB               |
+| MCP tool calls per workspace per UTC week | 300                        | 500,000              |
+| Public MCP access                         | No                         | Yes                  |
+| Workspace type                            | Personal, single workspace | Team workspace       |
+| Share links                               | No                         | Yes                  |
+
+All plans allow commercial use.
 
 MB means 1,000,000 bytes. Plan limits are per workspace, not multiplied by paid
-seats. Existing files remain readable on downgrade; new files stop at the cap,
-and saves validate each embedded image. Archived files still count. Billing-enabled
+seats. Pro returns `limits.designFiles: null` to indicate unlimited files. Existing
+files remain readable on downgrade; new files and restores stop at the Free cap,
+and saves validate each embedded image. Archived files do not count toward the cap. Billing-enabled
 requests allow up to 350 MiB to accommodate a base64-encoded 250 MB image; disabled
 mode retains the original 100 MiB request cap.
 
@@ -177,10 +179,8 @@ still need verification after credentials and deployment are configured.
 
 ## Workspace members and seats
 
-Settings has Appearance, Billing, Members, Updates, and Account tabs. Account settings
-can enroll an optional authenticator app; AuthKit then asks for that code at sign-in.
-Passkeys are added through hosted AuthKit after a password sign-in.
-The sidebar
+Settings has Appearance, Billing, Members, and Updates tabs. Sign out is available
+in the workspace switcher and saves pending edits before ending the session. The sidebar
 keeps the Upgrade to Pro action for Free workspace owners. Checkout lets the owner
 choose seats; existing subscribers manage seats in the Polar billing portal.
 

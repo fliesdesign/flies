@@ -68,6 +68,23 @@ export const createFile = (
   theme: CanvasTheme = EMPTY_THEME,
 ) => post<DesignFile>("/api/files", { name, nodes, theme });
 
+/** An editable local file whose page IDs also travel in the create request. */
+export function draftFile(name: string): DesignFile {
+  const now = Date.now();
+
+  return withPages({
+    format: "flies",
+    version: 1,
+    id: `draft-${ulid()}`,
+    name: name.trim(),
+    createdAt: now,
+    updatedAt: now,
+    revision: 0,
+    nodes: [],
+    theme: EMPTY_THEME,
+  });
+}
+
 /** Derived from the file id so collaborators migrating the same file agree on the page. */
 export const migratedPageId = (fileId: string) => `page-${fileId}`;
 

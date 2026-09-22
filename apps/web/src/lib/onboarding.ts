@@ -10,6 +10,7 @@ export type TourAction =
   | { type: "skip" }
   | { type: "restart" }
   | { type: "file"; id: string }
+  | { type: "file-saved"; draftId: string; id: string }
   | { type: "frame"; fileId: string; id: string; fill: string }
   | { type: "color"; fileId: string; id: string; fill: string }
   | { type: "removed"; fileId: string };
@@ -28,6 +29,8 @@ export function tourReducer(state: TourState, action: TourAction): TourState {
       return state;
     case "file":
       return state.step === "create" ? { step: "frame", fileId: action.id } : state;
+    case "file-saved":
+      return state.fileId === action.draftId ? { ...state, fileId: action.id } : state;
     case "frame":
       return state.step === "frame" && state.fileId === action.fileId
         ? { ...state, step: "color", frameId: action.id, initialFill: action.fill.toLowerCase() }

@@ -1,0 +1,36 @@
+.workspace-collaborators {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.workspace-collaborator-peers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.workspace-collaborator-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #0002;
+  border-radius: 50%;
+  color: #151515;
+  font: 600 11px var(--font-sans);
+  cursor: default;
+}
+.workspace-collaborator-avatar[data-self] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.workspace-collaborator-avatar[data-highlighted],
+.workspace-collaborator-avatar:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 1px;
+}

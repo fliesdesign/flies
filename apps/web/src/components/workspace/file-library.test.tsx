@@ -143,7 +143,7 @@ describe("file library startup sidebar", () => {
       assert.match(markup, /role="tablist"/);
       assert.match(markup, />Billing</);
       assert.match(markup, />Updates</);
-      assert.match(markup, />Account</);
+      assert.doesNotMatch(markup, />Account</);
       assert.match(markup, /Brightness/);
       assert.doesNotMatch(markup, /Check for updates/);
       assert.doesNotMatch(markup, /<h1[^>]*>Recents<\/h1>/);

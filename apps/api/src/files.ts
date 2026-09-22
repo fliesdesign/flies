@@ -129,7 +129,7 @@ async function assertFileCapacity(
   workspaceId: string,
   entitlements: Entitlements,
 ) {
-  if (!entitlements.enabled) return;
+  if (!entitlements.enabled || entitlements.limits.designFiles === null) return;
 
   const [usage] = await tx
     .select({ total: count() })

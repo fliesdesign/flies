@@ -31,6 +31,7 @@ test("onboarding follows real file creation, drawing, committed fill, and surviv
     if (path === "/api/files") {
       if (route.request().method() === "POST") {
         created = true;
+        file = { ...file, ...route.request().postDataJSON() };
 
         return route.fulfill({ json: file });
       }
@@ -71,6 +72,12 @@ test("onboarding follows real file creation, drawing, committed fill, and surviv
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(guide.getByText("Draw your first frame")).toBeVisible();
   await expect(page.locator(".workspace-tabs")).toHaveCount(0);
+  const properties = page.getByRole("complementary", { name: "Properties panel" });
+  await expect(properties).toBeVisible();
+  await expect(properties.getByRole("button", { name: "Test (you)" })).toBeVisible();
+  await expect(properties.getByText("Select a layer to edit its properties.")).toBeVisible();
+  await expect(page.locator(".canvas-properties-header")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Collapse properties" })).toHaveCount(0);
   await page.getByRole("button", { name: "Frame (F)", exact: true }).click();
   const canvas = page.getByRole("application", { name: "Design canvas" });
   const bounds = (await canvas.boundingBox())!;
@@ -79,6 +86,7 @@ test("onboarding follows real file creation, drawing, committed fill, and surviv
   await page.mouse.move(bounds.x + 320, bounds.y + 310, { steps: 8 });
   await page.mouse.up();
   await expect(guide.getByText("Make it yours")).toBeVisible();
+  await expect(page.locator(".canvas-properties-header")).toHaveCount(0);
   const fillBounds = (await page.locator('[data-onboarding="fill"]').boundingBox())!;
   expect(fillBounds.y).toBeGreaterThanOrEqual(0);
   expect(fillBounds.y + fillBounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
@@ -86,6 +94,7 @@ test("onboarding follows real file creation, drawing, committed fill, and surviv
   await expect.poll(() => file.nodes.some((node) => node.kind === "frame")).toBe(true);
   await page.reload();
   await expect(guide.getByText("Make it yours")).toBeVisible();
+  await expect(properties.getByRole("button", { name: "Test (you)" })).toBeVisible();
   const fill = page.getByRole("textbox", { name: "Fill color", exact: true });
   await fill.fill("924FF7");
   await fill.press("Enter");
@@ -103,6 +112,17 @@ test("onboarding follows real file creation, drawing, committed fill, and surviv
   await page.reload();
   await expect(canvas).toBeVisible();
   await expect(guide).toBeHidden();
+  await page.getByRole("button", { name: "Select (V)", exact: true }).click();
+  await canvas.focus();
+  await page.keyboard.press("Escape");
+  await expect(properties).toBeVisible();
+  await expect(properties.getByText("Select a layer to edit its properties.")).toBeVisible();
+  await page.setViewportSize({ width: 700, height: 800 });
+  await expect(properties).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(properties.getByRole("button", { name: "Test (you)" })).toBeVisible();
+  await expect(page.locator(".workspace-tabs .workspace-collaborators")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/flies-properties-open.png" });
   await page.goto("/files");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });

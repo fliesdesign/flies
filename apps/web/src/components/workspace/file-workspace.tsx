@@ -5,7 +5,6 @@ import { Menu } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FileIcon, LayoutGridIcon, PlusIcon, XIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { DesignCanvas, type CanvasControls } from "@/components/canvas/design-canvas";
 import { OnboardingCanvas } from "@/components/onboarding/onboarding-canvas";
@@ -18,6 +17,7 @@ import { signIn, signOut, type Account } from "@/lib/api";
 import {
   archiveFile,
   createFile,
+  draftFile,
   importFile,
   listFiles,
   openFile,
@@ -56,26 +56,39 @@ type FileSession = {
   rename: (name: string) => Promise<void>;
 };
 
+// Keep the React key stable when a local draft receives its server ID.
+type OpenFile = DesignFile & { draftId?: string };
+
 function FileEditor({
   file,
   onHome,
   onOpen,
   register,
   onSaved,
-  avatarTarget,
+  currentUser,
   active,
 }: {
   active: boolean;
-  avatarTarget: HTMLDivElement | null;
+  currentUser: Account["user"];
   register: (id: string, session: FileSession | null) => void;
-  onSaved: (file: DesignFile) => void;
-  file: DesignFile;
+  onSaved: (file: DesignFile, draftId?: string) => void;
+  file: OpenFile;
   onHome: () => void;
   onOpen: (file: DesignFile) => void;
 }) {
-  const [status, setStatus] = useState("Saved");
+  const [status, setStatus] = useState(file.draftId ? "Creating…" : "Saved");
   const [controls, setControls] = useState<CanvasControls | null>(null);
-  const [save] = useState(() => new RealtimeFile(file, setStatus, onSaved));
+
+  const [save] = useState(
+    () =>
+      new RealtimeFile(
+        file,
+        setStatus,
+        (saved) => onSaved(saved, file.draftId),
+        file.draftId ? () => createFile(file.name, file.nodes, file.theme) : undefined,
+      ),
+  );
+
   const [opening, setOpening] = useState(false);
   useEffect(() => {
     if (!controls) return;
@@ -104,7 +117,6 @@ function FileEditor({
 
   return (
     <>
-      {avatarTarget && createPortal(<CollaboratorAvatars realtime={save} />, avatarTarget)}
       <TopLoader active={opening} />
       <OnboardingCanvas controls={controls} fileId={file.id} active={active} />
       <DesignCanvas
@@ -113,6 +125,7 @@ function FileEditor({
         persist={false}
         onReady={setControls}
         realtime={save}
+        collaborators={<CollaboratorAvatars realtime={save} currentUser={currentUser} />}
         fileActions={{
           name: file.name,
           status,
@@ -163,12 +176,13 @@ export function FileWorkspace({
 }) {
   const tour = useOnboarding();
   const desktop = isTauri();
-  const [avatarTarget, setAvatarTarget] = useState<HTMLDivElement | null>(null);
   const [library, setLibrary] = useState<FileLibrary | null>(null);
-  const [files, setFiles] = useState<DesignFile[]>([]);
+  const [files, setFiles] = useState<OpenFile[]>([]);
+  const createdIds = useRef(new Map<string, string>());
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const activeId = /^\/files\/([^/]+)\/?$/.exec(pathname)?.[1] ?? null;
+  const routeId = /^\/files\/([^/]+)\/?$/.exec(pathname)?.[1] ?? null;
+  const activeId = files.find((file) => file.draftId === routeId)?.id ?? routeId;
 
   const section =
     pathname === "/settings"
@@ -182,9 +196,15 @@ export function FileWorkspace({
   const [fileError, setFileError] = useState<{ id: string; message: string } | null>(null);
 
   const navigateFile = useCallback(
-    (id: string | null) =>
-      id ? navigate({ to: "/files/$id", params: { id } }) : navigate({ to: "/files" }),
-    [navigate],
+    (id: string | null, options?: { replace?: boolean; ignoreBlocker?: boolean }) =>
+      id
+        ? navigate({
+            to: "/files/$id",
+            params: { id: createdIds.current.get(id) ?? id },
+            ...options,
+          })
+        : navigate({ to: "/files", ...options }),
+    [navigate, createdIds],
   );
 
   const [ready, setReady] = useState(false);
@@ -223,6 +243,24 @@ export function FileWorkspace({
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function createNewFile(name: string) {
+    const draft = draftFile(name);
+    const file: OpenFile = { ...draft, draftId: draft.id };
+    setError("");
+    setFiles((current) => [...current, file]);
+    setLibrary(
+      (current) =>
+        current && {
+          ...current,
+          files: [{ ...draft, nodeCount: 0, preview: [], archived: false }, ...current.files],
+        },
+    );
+    tour?.dispatch({ type: "file", id: file.id });
+    // Existing desktop editors stay mounted and keep saving in the background.
+    // The draft must not wait for their flush or its own create request to navigate.
+    void navigateFile(file.id, { ignoreBlocker: true });
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -282,6 +320,11 @@ export function FileWorkspace({
     });
   }, [ready, files, activeId]);
 
+  useEffect(() => {
+    const savedId = routeId !== activeId ? activeId : routeId && createdIds.current.get(routeId);
+    if (savedId) void navigateFile(savedId, { replace: true, ignoreBlocker: true });
+  }, [routeId, activeId, navigateFile]);
+
   useBlocker({
     enableBeforeUnload: false,
     shouldBlockFn: async () => {
@@ -315,6 +358,9 @@ export function FileWorkspace({
 
       return;
     }
+
+    // A history entry for a closed draft is being replaced with its saved URL.
+    if (createdIds.current.has(activeId)) return;
 
     let cancelled = false;
     setFileError(null);
@@ -357,7 +403,10 @@ export function FileWorkspace({
       try {
         const saveId = closeId ?? activeId;
         if (saveId) await savers.current.get(saveId)?.flush();
-        if (closeId) setFiles((current) => current.filter((file) => file.id !== closeId));
+        if (closeId)
+          setFiles((current) =>
+            current.filter((file) => file.id !== closeId && file.draftId !== closeId),
+          );
         await navigateFile(id);
         setError("");
         if (id === null) void refresh();
@@ -431,11 +480,43 @@ export function FileWorkspace({
   const [renameError, setRenameError] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
 
-  const onSaved = useCallback((saved: DesignFile) => {
-    setFiles((current) =>
-      current.map((file) => (file.id === saved.id ? { ...file, name: saved.name } : file)),
-    );
-  }, []);
+  const tourDispatch = tour?.dispatch;
+
+  const onSaved = useCallback(
+    (saved: DesignFile, draftId?: string) => {
+      const created = draftId && !createdIds.current.has(draftId);
+      if (created) createdIds.current.set(draftId, saved.id);
+      setFiles((current) =>
+        current.map((file) =>
+          file.id === saved.id || file.id === draftId
+            ? { ...file, id: saved.id, name: saved.name }
+            : file,
+        ),
+      );
+
+      if (created) {
+        setLibrary(
+          (current) =>
+            current && {
+              ...current,
+              files: current.files.map((file) =>
+                file.id === draftId
+                  ? {
+                      ...file,
+                      id: saved.id,
+                      name: saved.name,
+                      createdAt: saved.createdAt,
+                      updatedAt: saved.updatedAt,
+                    }
+                  : file,
+              ),
+            },
+        );
+        tourDispatch?.({ type: "file-saved", draftId, id: saved.id });
+      }
+    },
+    [tourDispatch, createdIds],
+  );
 
   const beginRename = (file: DesignFile) => {
     setRenameError("");
@@ -726,7 +807,7 @@ export function FileWorkspace({
                 }}
                 className="workspace-tab-group"
                 data-active={activeId === file.id || undefined}
-                key={file.id}
+                key={file.draftId ?? file.id}
               >
                 <button
                   className="workspace-tab"
@@ -761,18 +842,11 @@ export function FileWorkspace({
             aria-label="New file"
             title="New file"
             disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                if (activeId) await savers.current.get(activeId)?.flush();
-
-                return createFile("Untitled");
-              })
-            }
+            onClick={() => createNewFile("Untitled")}
           >
             <PlusIcon aria-hidden="true" />
           </button>
           <div className="workspace-tab-drag" data-tauri-drag-region />
-          <div ref={setAvatarTarget} className="workspace-collaborators-slot" />
         </div>
       )}
       {ready &&
@@ -788,10 +862,14 @@ export function FileWorkspace({
         ))}
       {ready &&
         files.map((file) => (
-          <div key={file.id} hidden={activeId !== file.id} inert={activeId !== file.id}>
+          <div
+            key={file.draftId ?? file.id}
+            hidden={activeId !== file.id}
+            inert={activeId !== file.id}
+          >
             <FileEditor
               active={activeId === file.id}
-              avatarTarget={activeId === file.id ? avatarTarget : null}
+              currentUser={account.user}
               file={file}
               register={register}
               onSaved={onSaved}
@@ -827,9 +905,7 @@ export function FileWorkspace({
               void navigate({ to: `/${next}` });
             }}
             onCreate={async (name) => {
-              const file = await createFile(name);
-              tour?.dispatch({ type: "file", id: file.id });
-              activateFile(file);
+              createNewFile(name);
             }}
             onOpen={(id) => void run(() => openFile(id))}
             onImport={() => void run(importFile)}

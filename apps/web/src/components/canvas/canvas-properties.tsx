@@ -39,7 +39,6 @@ import {
   EyeOffIcon,
   LinkIcon,
   LockKeyholeIcon,
-  PanelRightCloseIcon,
   ScanTextIcon,
   UnlinkIcon,
   UnlockKeyholeIcon,
@@ -68,6 +67,7 @@ import "./canvas-properties.css";
 export type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
 
 type CanvasPropertiesProps = {
+  collaborators?: ReactNode;
   document: CanvasDocument;
   selectedIds: readonly string[];
   onChange: (
@@ -84,7 +84,6 @@ type CanvasPropertiesProps = {
   onPreviewEnd: (cancel: boolean) => void;
   onArrange: (action: CanvasArrangeAction) => void;
   onFitText: () => void;
-  onCollapse: () => void;
   onPlan: (plan: CanvasOperationPlan) => void;
   onSelect: (id: string) => void;
   vectorEditingId?: string | null;
@@ -302,6 +301,7 @@ function useSelectedNodes(document: CanvasDocument, selectedIds: readonly string
 }
 
 export const CanvasProperties = memo(function CanvasProperties({
+  collaborators,
   document,
   selectedIds,
   onChange,
@@ -310,7 +310,6 @@ export const CanvasProperties = memo(function CanvasProperties({
   onPreviewEnd,
   onArrange,
   onFitText,
-  onCollapse,
   onPlan,
   onSelect,
   vectorEditingId,
@@ -508,17 +507,7 @@ export const CanvasProperties = memo(function CanvasProperties({
       data-canvas-ui=""
       tabIndex={-1}
     >
-      <header className="canvas-properties-header">
-        <div>
-          <h2 title={single?.name}>
-            {single?.name ?? (nodes.length > 1 ? `${nodes.length} layers` : "Canvas")}
-          </h2>
-          {single && <span>{single.kind ?? "frame"}</span>}
-        </div>
-        <IconButton label="Collapse properties" onClick={onCollapse}>
-          <PanelRightCloseIcon size={16} />
-        </IconButton>
-      </header>
+      {collaborators && <div className="canvas-properties-collaborators">{collaborators}</div>}
       <div className="canvas-properties-body" key={selectedKey}>
         {tokenError && (
           <p role="alert" className="canvas-theme-error">

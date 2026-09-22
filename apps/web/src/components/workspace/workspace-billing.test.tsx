@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { WorkspaceBilling, WorkspaceBillingProvider } from "./workspace-billing";
+import { BillingSettings, WorkspaceBilling, WorkspaceBillingProvider } from "./workspace-billing";
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), post: vi.fn(), openUrl: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: mocks.api, post: mocks.post }));
@@ -15,7 +15,7 @@ const free = {
   limits: { designFiles: 5, imageUploadBytes: 30_000_000, mcpCallsPerWeek: 300 },
 };
 
-const pro = { ...free, plan: "pro", limits: { ...free.limits, designFiles: 250 } };
+const pro = { ...free, plan: "pro", limits: { ...free.limits, designFiles: null } };
 let root: Root;
 let element: HTMLDivElement;
 
@@ -64,6 +64,7 @@ describe("workspace billing UI", () => {
     await mount();
     await click("Upgrade to Pro");
     expect(document.body.textContent).toContain("$12");
+    expect(document.body.textContent).toContain("Unlimited design files");
     expect(document.body.textContent).toContain("coming soon");
     await click("Continue to checkout");
     expect(mocks.post).toHaveBeenCalledWith("/api/billing/checkout", { seats: 1 });
@@ -80,6 +81,23 @@ describe("workspace billing UI", () => {
     expect(element.textContent).toBe("");
     expect(mocks.post).not.toHaveBeenCalled();
   });
+  it.each([
+    { status: free, fileCount: 5, allowance: "5 / 5" },
+    { status: pro, fileCount: 251, allowance: "251 / Unlimited" },
+  ])(
+    "shows the $status.plan file allowance in billing settings",
+    async ({ status, fileCount, allowance }) => {
+      mocks.api.mockResolvedValue(status);
+      await act(async () =>
+        root.render(
+          <WorkspaceBillingProvider desktop={false}>
+            <BillingSettings fileCount={fileCount} />
+          </WorkspaceBillingProvider>,
+        ),
+      );
+      expect(element.textContent).toContain(allowance);
+    },
+  );
   it("shows checkout failures and allows retry without claiming an upgrade", async () => {
     await mount();
     await click("Upgrade to Pro");

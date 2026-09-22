@@ -20,7 +20,7 @@ export type BillingStatus =
       enabled: true;
       plan: "free" | "pro";
       seats?: number;
-      limits: { designFiles: number; imageUploadBytes: number; mcpCallsPerWeek: number };
+      limits: { designFiles: number | null; imageUploadBytes: number; mcpCallsPerWeek: number };
     };
 
 async function openBillingUrl(url: string, desktop: boolean) {
@@ -200,10 +200,9 @@ export function WorkspaceBillingProvider({
           </div>
           <ul className="grid gap-2.5 text-sm">
             {[
-              "250 design files",
+              "Unlimited design files",
               "Image uploads up to 250 MB",
               "500,000 MCP calls per week",
-              "Commercial use",
               "Team workspace with paid seats",
             ].map((feature) => (
               <li key={feature} className="flex items-center gap-2">
@@ -305,7 +304,7 @@ export function BillingSettings({ fileCount }: { fileCount: number }) {
             <div>
               <dt className="text-xs text-muted-foreground">Design files</dt>
               <dd className="mt-1 text-sm font-medium">
-                {fileCount} / {status.limits.designFiles}
+                {fileCount} / {status.limits.designFiles ?? "Unlimited"}
               </dd>
               <p className="mt-1 text-xs text-muted-foreground">Including archived files</p>
             </div>
@@ -331,7 +330,7 @@ export function BillingSettings({ fileCount }: { fileCount: number }) {
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
               {pro
                 ? "Update your payment method, download invoices, or cancel your subscription in the billing portal."
-                : "Pro includes 250 files, 250 MB image uploads, 500,000 MCP calls per week, and commercial use for $12 per user per month."}
+                : "Pro includes unlimited files, 250 MB image uploads, and 500,000 MCP calls per week for $12 per user per month."}
             </p>
           </div>
         </>

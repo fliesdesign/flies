@@ -7,9 +7,13 @@
         "create": false,
         "title": "Flies",
         "theme": "Dark",
+        "transparent": true,
+        "windowEffects": {
+          "effects": ["acrylic"]
+        },
         "dragDropEnabled": false,
-        "width": 800,
-        "height": 600
+        "width": 1280,
+        "height": 800
       }
     ]
   }

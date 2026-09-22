@@ -17,16 +17,14 @@ export const PLANS = {
     mcpCallsPerWeek: 300,
     publicMcp: false,
     teamWorkspace: false,
-    commercialUse: false,
     shareLinks: false,
   },
   pro: {
-    designFiles: 250,
+    designFiles: null,
     imageUploadBytes: 250_000_000,
     mcpCallsPerWeek: 500_000,
     publicMcp: true,
     teamWorkspace: true,
-    commercialUse: true,
     shareLinks: true,
   },
 } as const;

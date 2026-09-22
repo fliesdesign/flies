@@ -12,6 +12,8 @@ applyStoredAppearance();
 
 // Browser windows never receive the desktop titlebar or its reserved space.
 if (isTauri()) {
+  document.documentElement.dataset.desktop = "true";
+
   if (/Mac/.test(navigator.userAgent)) {
     document.documentElement.dataset.nativeTitlebar = "macos";
   } else if (/Windows/.test(navigator.userAgent)) {

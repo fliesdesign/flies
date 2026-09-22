@@ -556,9 +556,26 @@ describe("Polar billing boundaries", () => {
       .where(eq(mcpUsage.workspaceId, workspaceId));
     expect((await (await call("/api/billing/mcp/consume", {})).json()).remaining).toBe(299);
     pro = true;
-    expect((await (await call("/api/billing/refresh", {})).json()).plan).toBe("pro");
+    const proStatus = await (await call("/api/billing/refresh", {})).json();
+    expect(proStatus.plan).toBe("pro");
+    expect(proStatus.limits.designFiles).toBeNull();
     expect((await call("/api/billing/checkout", { seats: 1 })).status).toBe(409);
+
+    // Seed beyond the former Pro cap, then exercise both ways to add an active file.
+    await db.insert(files).values(
+      Array.from({ length: 250 }, () => ({
+        id: ulid(),
+        workspaceId,
+        name: "Pro capacity fixture",
+        revision: 0,
+        objectKey: `${config.S3_PREFIX}/capacity/${ulid()}.json.gz`,
+        nodeCount: 0,
+        preview: [],
+      })),
+    );
     expect((await call("/api/files", snapshot)).status).toBe(201);
+    expect((await call(`/api/files/${firstId}/archive`, { archived: true })).status).toBe(200);
+    expect((await call(`/api/files/${firstId}/archive`, { archived: false })).status).toBe(200);
     expect((await instance.billing.consumeMcp(workspaceId, true)).enabled).toBe(true);
     pro = false;
 

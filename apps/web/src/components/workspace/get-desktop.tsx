@@ -91,6 +91,18 @@ export function GetDesktop() {
                 </Button>
               ))}
           </div>
+          {(platform === "mac" || platform === "all") && (
+            <section className="min-w-0 space-y-2 rounded-md border bg-muted/50 p-3 text-sm">
+              <h3 className="font-medium">Opening Flies on macOS</h3>
+              <p className="text-muted-foreground">
+                Flies is not signed yet. After moving Flies to Applications, run this command in
+                Terminal to remove quarantine, then open the app:
+              </p>
+              <code className="block rounded bg-background p-2 font-mono text-xs break-all select-text">
+                sudo xattr -rd com.apple.quarantine /Applications/Flies.app
+              </code>
+            </section>
+          )}
         </DialogContent>
       </Dialog>
     </>
