@@ -5,7 +5,7 @@ import * as v from "valibot";
 
 import { realtimeConfig } from "../src/config";
 import { commitSchema, presenceSchema } from "../src/realtime/protocol";
-import { syncCipher } from "../src/realtime/redis";
+import { SyncRedis, syncCipher } from "../src/realtime/redis";
 
 describe("sync security boundaries", () => {
   test("AES-GCM hides payload and rejects tampering or another room", () => {
@@ -55,41 +55,97 @@ describe("sync security boundaries", () => {
       v.safeParse(commitSchema, { mutationId: "bad", delta: { nodes: [], tokens: [] } }).success,
     ).toBe(false);
   });
-  test("configuration allows Redis with or without TLS on any host", () => {
-    const key = randomBytes(32).toString("base64");
-    expect(realtimeConfig({ API_URL: "https://api.example.com" })).toBeNull();
+  test("configuration requires complete Upstash credentials and secure endpoints", () => {
+    const config = {
+      API_URL: "https://api.example.com",
+      UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
+      UPSTASH_REDIS_REST_TOKEN: "test-token",
+      SYNC_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+    };
 
+    expect(realtimeConfig({ API_URL: config.API_URL })).toBeNull();
+    expect(realtimeConfig(config)).toEqual({
+      url: config.UPSTASH_REDIS_REST_URL,
+      token: config.UPSTASH_REDIS_REST_TOKEN,
+      key: config.SYNC_ENCRYPTION_KEY,
+    });
+    for (const field of [
+      "UPSTASH_REDIS_REST_URL",
+      "UPSTASH_REDIS_REST_TOKEN",
+      "SYNC_ENCRYPTION_KEY",
+    ])
+      expect(() => realtimeConfig({ ...config, [field]: "" })).toThrow("Realtime needs");
     for (const url of [
-      "redis://redis.example.com",
-      "redis://redis.railway.internal:6379",
-      "redis://localhost:6379",
-      "redis://192.168.1.10:6379",
-      "redis://[::1]:6379",
-      "redis://user:password@redis.example.com:6379/1",
-      "rediss://redis.example.com",
-    ]) {
-      expect(
-        realtimeConfig({
-          API_URL: "https://api.example.com",
-          REDIS_URL: url,
-          SYNC_ENCRYPTION_KEY: key,
-        }),
-      ).toEqual({ url, key });
-    }
+      "redis://example.com",
+      "http://example.com",
+      "https://user:password@example.com",
+    ])
+      expect(() => realtimeConfig({ ...config, UPSTASH_REDIS_REST_URL: url })).toThrow(
+        "must use HTTPS",
+      );
+    expect(() => realtimeConfig({ ...config, API_URL: "http://api.example.com" })).toThrow(
+      "requires HTTPS",
+    );
+    expect(realtimeConfig({ ...config, API_URL: "http://localhost:3001" })).not.toBeNull();
+  });
+});
 
-    expect(() =>
-      realtimeConfig({
-        API_URL: "https://api.example.com",
-        REDIS_URL: "https://redis.example.com",
-        SYNC_ENCRYPTION_KEY: key,
-      }),
-    ).toThrow("Redis URL must use redis:// or rediss://.");
-    expect(() =>
-      realtimeConfig({
-        API_URL: "http://api.example.com",
-        REDIS_URL: "rediss://redis.example.com",
-        SYNC_ENCRYPTION_KEY: key,
-      }),
-    ).toThrow();
+describe("Upstash subscription lifecycle", () => {
+  test("upstream errors reject joins, notify active rooms, and release streams", async () => {
+    const redis = new SyncRedis(
+      "https://example.upstash.io",
+      "test-token",
+      randomBytes(32).toString("base64"),
+    );
+
+    const listeners = new Map<string, (value?: unknown) => void>();
+    let stopped = 0;
+    let disconnected = 0;
+
+    const originalSubscribe = redis.client.subscribe;
+    redis.client.subscribe = <TMessage>() =>
+      ({
+        on: (event: string, listener: (value?: unknown) => void) => {
+          listeners.set(event, listener);
+        },
+        unsubscribe: async () => {
+          stopped++;
+        },
+      }) as ReturnType<typeof redis.client.subscribe<TMessage>>;
+
+    redis.onDisconnect = () => {
+      disconnected++;
+    };
+
+    try {
+      const joining = redis.subscribe("room", () => {});
+      const rejected = joining.catch((error: Error) => error);
+      listeners.get("error")!();
+      expect(await rejected).toMatchObject({ message: "Sync subscription closed." });
+      expect(stopped).toBe(1);
+      expect(disconnected).toBe(1);
+
+      const messages: unknown[] = [];
+      const connected = redis.subscribe("room", (value) => messages.push(value));
+      listeners.get("subscribe")!();
+      const unsubscribe = await connected;
+      listeners.get("message")!({
+        message: { event: "sync", data: redis.cipher.seal({ type: "changed" }, "other-room") },
+      });
+      expect(messages).toEqual([]);
+      listeners.get("message")!({
+        message: { event: "sync", data: redis.cipher.seal({ type: "changed" }, "room") },
+      });
+      expect(messages).toEqual([{ type: "changed" }]);
+      listeners.get("error")!();
+      await unsubscribe();
+      expect(stopped).toBe(2);
+      expect(disconnected).toBe(2);
+      await redis.close();
+      await expect(redis.subscribe("room", () => {})).rejects.toThrow("stopped");
+    } finally {
+      await redis.close();
+      redis.client.subscribe = originalSubscribe;
+    }
   });
 });

@@ -208,10 +208,11 @@ WorkOS environment.
 ## Realtime collaboration
 
 The editor uses Bun WebSockets for shared cursors, selections, presence, and document
-changes. Bun's native `RedisClient` distributes events between API replicas; no sticky
-sessions are required. Configure `REDIS_URL` with a `redis://` or `rediss://`
-URL and set `SYNC_ENCRYPTION_KEY` to a randomly generated, base64-encoded 32-byte key.
-Every API replica must use the same key. If both variables are absent, the editor
+changes. `@upstash/realtime` distributes encrypted events between API replicas through
+Upstash Redis REST/SSE; no sticky sessions are required. Configure the backend with
+`UPSTASH_REDIS_REST_URL` (HTTPS), `UPSTASH_REDIS_REST_TOKEN`, and
+`SYNC_ENCRYPTION_KEY` (a randomly generated, base64-encoded 32-byte key).
+Every API replica must use the same key. If all three variables are absent, the editor
 retains ordinary autosave. Partial configuration fails startup.
 
 Changes merge on the server under the file's database row lock. Only changed fields
@@ -226,8 +227,11 @@ in-progress pointer drags are represented by live cursors and selections.
 
 Security boundaries:
 
-- Production browser/desktop connections use WSS. Redis URLs accept both `redis://`
-  (without TLS) and `rediss://` (with TLS) on any host.
+- Production browser/desktop connections use WSS. Upstash REST and SSE connections
+  use HTTPS. Upstash credentials never reach the browser or desktop client.
+- Upstash Realtime history is capped at 100 encrypted events per room and expires
+  after 60 seconds of inactivity. Reconnects use file revisions, not stale presence
+  history. Upstream failures or stalled streams close sockets for reconciliation.
 - Redis relay messages, connection tickets, and stored presence use AES-256-GCM
   with fresh nonces and room-bound authentication. Room names and credential lookup
   keys are HMAC-derived. The key stays on the API; Redis does not store plaintext
@@ -246,9 +250,9 @@ Security boundaries:
   Closing a tab with unsaved changes still requires the existing save confirmation.
 
 The integration suite in `test/realtime.integration.test.ts` uses two Bun API replicas,
-the isolated test Postgres database, and **the existing Railway Redis**. It writes
-only test-scoped expiring Redis data and removes its database fixtures. Set
-`TEST_REDIS_URL` to an authenticated TLS URL or a loopback SSH tunnel to Railway;
-never start a separate Redis for these tests. Optional `SYNC_BROWSER_URL` exercises
+the isolated test Postgres database, and Upstash Redis using the backend REST
+credentials above. It writes only test-scoped expiring Redis data and removes its
+database fixtures. Run `bun run test:realtime` with `DATABASE_URL` set to
+`TEST_DATABASE_URL`. Optional `SYNC_BROWSER_URL` exercises
 two Chromium contexts against a Vite server configured with
 `VITE_API_URL=http://127.0.0.1:3221` (test API) and origin `http://127.0.0.1:1423`.

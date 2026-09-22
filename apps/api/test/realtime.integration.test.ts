@@ -11,10 +11,8 @@ import { connectDatabase } from "../src/db/client";
 import { files, revisions, sessions, users, workspaceMembers, workspaces } from "../src/db/schema";
 import { SyncRedis } from "../src/realtime/redis";
 
-if (!process.env.TEST_REDIS_URL)
-  throw new Error(
-    "TEST_REDIS_URL must point to the Railway Redis instance (an encrypted SSH tunnel is supported).",
-  );
+if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN)
+  throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required.");
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL)
   throw new Error("Use the isolated TEST_DATABASE_URL.");
 
@@ -22,7 +20,8 @@ const config = {
   ...readConfig(),
   API_URL: "http://127.0.0.1:3221",
   WEB_URL: "http://127.0.0.1:1423",
-  REDIS_URL: process.env.TEST_REDIS_URL,
+  UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+  UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
   SYNC_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
   POLAR_ACCESS_TOKEN: undefined,
   POLAR_WEBHOOK_SECRET: undefined,
@@ -235,7 +234,7 @@ afterAll(async () => {
   await client.close();
 }, 30_000);
 
-test("Railway Redis relays presence and durable concurrent edits across Bun replicas", async () => {
+test("Upstash Realtime relays presence and durable concurrent edits across Bun replicas", async () => {
   expect((await call(0, 2, "/api/sync/ticket", { fileId })).status).toBe(404);
   const first = await connect(0, 0);
   const second = await connect(1, 1);
@@ -327,7 +326,12 @@ test("Railway Redis relays presence and durable concurrent edits across Bun repl
 }, 60_000);
 
 test("Redis stores only authenticated ciphertext and consumes tickets once", async () => {
-  const redis = new SyncRedis(config.REDIS_URL!, config.SYNC_ENCRYPTION_KEY, `test-sync-${ulid()}`);
+  const redis = new SyncRedis(
+    config.UPSTASH_REDIS_REST_URL!,
+    config.UPSTASH_REDIS_REST_TOKEN!,
+    config.SYNC_ENCRYPTION_KEY,
+    `test-sync-${ulid()}`,
+  );
 
   try {
     const ticket = await redis.ticket({ name: "PRIVATE", expires: Date.now() + 30000 });
@@ -335,12 +339,31 @@ test("Redis stores only authenticated ciphertext and consumes tickets once", asy
     expect(await redis.consume(ticket)).toBeNull();
     const room = redis.room(workspaceId, fileId);
     await redis.presence(room, "connection", { name: "PRIVATE", updatedAt: Date.now() });
-    const raw = await redis.client.send("HVALS", [`${room}:peers`]);
+    const raw = await redis.client.hvals(`${room}:peers`);
     expect(JSON.stringify(raw)).not.toContain("PRIVATE");
     expect(await redis.peers(room)).toEqual([{ name: "PRIVATE", updatedAt: expect.any(Number) }]);
-    await redis.client.send("DEL", [`${room}:peers`, `${room}:peers:expiry`]);
+    await redis.publish(room, { type: "presence", name: "PRIVATE", at: Date.now() });
+    const history = await redis.client.xrange(room, "-", "+");
+    expect(Object.keys(history)).toHaveLength(1);
+    expect(JSON.stringify(history)).not.toContain("PRIVATE");
+    expect(Object.values(history)[0]).toMatchObject({ event: "sync", channel: room });
+    expect(await redis.client.ttl(room)).toBeGreaterThan(0);
+    expect(await redis.client.ttl(room)).toBeLessThanOrEqual(60);
+    expect(await redis.rateLimit("test", "edits", 1, 30)).toBe(true);
+    expect(await redis.rateLimit("test", "edits", 1, 30)).toBe(false);
+
+    const leases = await Promise.all(
+      Array.from({ length: 13 }, (_, index) => redis.lease("test", String(index))),
+    );
+
+    expect(leases.filter(Boolean)).toHaveLength(12);
+    const held = String(leases.indexOf(true));
+    const denied = String(leases.indexOf(false));
+    await redis.release("test", held);
+    expect(await redis.lease("test", denied)).toBe(true);
+    await redis.client.del(room, `${room}:peers`, `${room}:peers:expiry`);
   } finally {
-    redis.close();
+    await redis.close();
   }
 }, 20_000);
 

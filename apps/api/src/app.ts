@@ -54,7 +54,7 @@ export function createApp(
         billing,
         origins,
         requireTLS: new URL(config.API_URL).protocol === "https:",
-        redis: new SyncRedis(syncConfig.url, syncConfig.key),
+        redis: new SyncRedis(syncConfig.url, syncConfig.token, syncConfig.key),
       })
     : null;
 

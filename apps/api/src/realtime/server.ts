@@ -436,7 +436,7 @@ export function createRealtime({
       clearInterval(timer);
       for (const room of rooms.values())
         for (const ws of room.sockets) ws.close(1001, "Server restarting.");
-      redis.close();
+      await redis.close();
     },
   };
 }
