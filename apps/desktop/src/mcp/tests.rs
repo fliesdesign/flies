@@ -390,6 +390,15 @@ async fn modern_stateless_guide_and_gate_responses_are_complete() {
                 .as_str()
                 .unwrap()
                 .starts_with("FIRST CALL"));
+            // Structured-output clients read only structuredContent; it must hold the guide.
+            assert_eq!(
+                body["result"]["structuredContent"]["guide"],
+                body["result"]["content"][1]["text"]
+            );
+            assert_eq!(
+                body["result"]["structuredContent"]["instructions"],
+                body["result"]["content"][0]["text"]
+            );
         } else {
             assert_eq!(body["result"]["isError"], true);
         }

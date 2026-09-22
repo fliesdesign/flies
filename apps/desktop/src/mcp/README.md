@@ -53,7 +53,9 @@ your session.
 
 For clients sending `Mcp-Session-Id`, the guide status belongs to that transport session.
 For stateless clients, including MCP 2026-07-28, `get_guide` returns a `guideSessionId`
-in its text instructions and structured content. Pass it in every later tool's
+in its text instructions and structured content. The structured content also carries the
+full guide (`guide`) and session instructions (`instructions`), because clients that
+support structured output may show it instead of the text blocks. Pass it in every later tool's
 arguments. Reuse it when rereading the guide to preserve the opened file. This receipt
 is workflow state, not authentication; it expires when the desktop server restarts.
 

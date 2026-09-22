@@ -500,12 +500,16 @@ impl ServerHandler for FliesServer {
                 None => "Guide read for this MCP transport session. Keep using the same Mcp-Session-Id; other sessions must call get_guide independently.".to_owned(),
             };
             let mut result = CallToolResult::success(vec![
-                ContentBlock::text(session_instructions),
+                ContentBlock::text(session_instructions.clone()),
                 ContentBlock::text(tools::GUIDE),
             ]);
+            // Clients that understand structured output may show only structuredContent
+            // and skip the text blocks, so it must carry the guide itself too.
             result.structured_content = Some(json!({
                 "guideSessionId": guide_session_id,
-                "guideRead": true
+                "guideRead": true,
+                "instructions": session_instructions,
+                "guide": tools::GUIDE
             }));
             return Ok(result.into());
         }
