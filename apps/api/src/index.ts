@@ -3,9 +3,13 @@ import { workosProvider } from "./auth";
 import { billingService } from "./billing";
 import { readConfig, billingConfig } from "./config";
 import { connectDatabase } from "./db/client";
+import { runMigrations } from "./db/migrations";
 import { revisionCleanup, startRevisionCleanup } from "./revision-cleanup";
 import { createStorage } from "./storage";
 const config = readConfig();
+// Fail startup before accepting traffic if the deployed schema cannot be applied.
+await runMigrations(config.DATABASE_URL_UNPOOLED ?? config.DATABASE_URL);
+
 const { db, client } = connectDatabase(config.DATABASE_URL);
 const storage = createStorage(config);
 const { app } = createApp(db, storage, config, workosProvider(config));

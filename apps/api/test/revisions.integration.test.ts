@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
-import { and, eq, inArray, lt } from "drizzle-orm";
-import { migrate } from "drizzle-orm/bun-sql/migrator";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { ulid } from "ulid";
 
 import { BILLING_DISABLED, PLANS, type Entitlements } from "../src/billing";
 import { connectDatabase } from "../src/db/client";
+import { runMigrations } from "../src/db/migrations";
 import {
   revisions,
   revisionObjects,
@@ -41,9 +41,24 @@ const free = { enabled: true, plan: "free", limits: PLANS.free } as const;
 const pro = { enabled: true, plan: "pro", limits: PLANS.pro } as const;
 
 beforeAll(async () => {
-  await migrate(db, { migrationsFolder: new URL("../drizzle", import.meta.url).pathname });
+  await Promise.all([runMigrations(url), runMigrations(url)]);
 });
 afterAll(() => client.close());
+
+test("concurrent startup migrations apply each journal entry once and can run again", async () => {
+  const before = await db.execute(
+    sql`select hash, count(*)::int as count from drizzle.__drizzle_migrations group by hash order by hash`,
+  );
+
+  expect(before).toHaveLength(4);
+  expect(before.every((row) => row.count === 1)).toBe(true);
+  await runMigrations(url);
+  expect(
+    await db.execute(
+      sql`select hash, count(*)::int as count from drizzle.__drizzle_migrations group by hash order by hash`,
+    ),
+  ).toEqual(before);
+});
 
 const source = "data:image/png;base64,YWJj";
 

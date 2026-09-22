@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import * as v from "valibot";
 
 import { configSchema } from "../src/config";
+import { migrationConnectionString } from "../src/db/migrations";
 import { parseSnapshot } from "../src/files";
 import { idSchema } from "../src/ids";
 import { totpCodeSchema } from "../src/mfa";
@@ -36,6 +37,14 @@ describe("API input validation", () => {
   });
   test("configuration requires secrets and a valid database URL", () => {
     expect(v.safeParse(configSchema, {}).success).toBe(false);
+  });
+  test("migrations use direct Neon connections without altering other database hosts", () => {
+    const pooled =
+      "postgres://test:password@ep-example-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require";
+
+    expect(migrationConnectionString(pooled)).toBe(pooled.replace("-pooler.", "."));
+    const local = "postgres://test:password@localhost:5432/test";
+    expect(migrationConnectionString(local)).toBe(local);
   });
   test("TOTP codes are exactly six digits", () => {
     expect(v.safeParse(totpCodeSchema, "123456").success).toBe(true);

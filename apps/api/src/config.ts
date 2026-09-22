@@ -4,6 +4,7 @@ export const configSchema = v.object({
   SYNC_SERVER_URL: v.optional(v.string()),
   SYNC_SERVER_SECRET: v.optional(v.string()),
   DATABASE_URL: v.pipe(v.string(), v.url()),
+  DATABASE_URL_UNPOOLED: v.optional(v.pipe(v.string(), v.url())),
   WORKOS_API_KEY: v.pipe(v.string(), v.minLength(1)),
   WORKOS_CLIENT_ID: v.pipe(v.string(), v.minLength(1)),
   WORKOS_COOKIE_PASSWORD: v.pipe(v.string(), v.minLength(32)),

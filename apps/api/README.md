@@ -68,7 +68,7 @@ Bun uploads before committing the file pointer. Every save first creates a durab
 
 New save operation IDs must be ULIDs created within the workspace's retention window (allowing five minutes of future clock skew). Retrying a retained mutation still returns its original result. Once a mutation is pruned, its expired ID returns 409 instead of applying a delta twice; local edits remain available to reconcile with the latest file. Legacy mutation IDs already in history still support retries.
 
-Apply migration `0003_revision_retention` **before** deploying this API. The bucket credentials need List, Get, Put, and Delete object permissions. Deploy readers/writers together: new compact snapshots require this API version or later, so an older API binary cannot be used as a rollback reader. Cleanup starts automatically after deployment and reclaims existing expired revision objects; it does not require a cron service.
+The API applies pending migrations, including `0003_revision_retention`, **before** accepting requests or starting cleanup. Concurrent replicas serialize migrations with a database advisory lock, and a migration failure stops startup. The bucket credentials need List, Get, Put, and Delete object permissions. Deploy readers/writers together: new compact snapshots require this API version or later, so an older API binary cannot be used as a rollback reader. Cleanup starts automatically after deployment and reclaims existing expired revision objects; it does not require a cron service.
 
 ## Deployment
 
@@ -77,7 +77,7 @@ docker build -f Dockerfile.api -t flies-api .
 docker run --env-file .env -p 3001:3001 flies-api
 ```
 
-Production runs on Unkey in project `flies`, app `api`, environment `production`, using `Dockerfile.api` from the repository root. Keep Unkey's runtime port and API `PORT` set to `3000`. Provide the server environment variables and run `bun run db:migrate` before deploying database changes (inside the image use `bun src/db/migrate.ts`). The API image's working directory is `/app/apps/api`. Migrations are explicit and are not run by every web process.
+Production runs on Unkey in project `flies`, app `api`, environment `production`, using `Dockerfile.api` from the repository root. Keep Unkey's runtime port and API `PORT` set to `3000`. The API's production entry point automatically applies pending migrations before it listens. Manual migrations remain available through `bun run db:migrate` (inside the image use `bun src/db/migrate.ts`). Both paths share the same migration lock and journal. Set `DATABASE_URL_UNPOOLED` when migrations need a separate direct connection; otherwise Neon `-pooler` hosts are converted to their direct endpoint for migrations only. Normal API queries keep using `DATABASE_URL`. The API image's working directory is `/app/apps/api`.
 
 The web image remains `Dockerfile`. Production uses `app.flies.design` for the web app and `board.flies.design` for the API. Configure the API with:
 

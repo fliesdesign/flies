@@ -43,13 +43,21 @@ jobs:
         if: matrix.name == 'api'
         run: >-
           docker run --rm --entrypoint bun flies-api-ci:latest
-          test test/unit.test.ts test/billing.test.ts test/realtime.test.ts
+          run test
       - name: Verify the API production command starts
         if: matrix.name == 'api'
         run: |
-          # Placeholder configuration and loopback-only networking keep this independent of services.
-          docker run --detach --name flies-api-ci --network none \
-            --env DATABASE_URL=postgres://ci:ci@127.0.0.1:1/ci \
+          # Start with an empty database so the production entry point must migrate it.
+          docker network create --internal flies-api-ci
+          trap 'docker logs flies-api-ci || true; docker rm --force flies-api-ci flies-api-db-ci || true; docker network rm flies-api-ci' EXIT
+          docker run --detach --name flies-api-db-ci --network flies-api-ci \
+            --env POSTGRES_USER=ci --env POSTGRES_PASSWORD=ci --env POSTGRES_DB=ci postgres:18
+          for attempt in $(seq 1 30); do
+            if docker exec flies-api-db-ci pg_isready -U ci -d ci; then break; fi
+            sleep 1
+          done
+          docker run --detach --name flies-api-ci --network flies-api-ci \
+            --env DATABASE_URL=postgres://ci:ci@flies-api-db-ci:5432/ci \
             --env WORKOS_API_KEY=ci-placeholder \
             --env WORKOS_CLIENT_ID=ci-placeholder \
             --env WORKOS_COOKIE_PASSWORD=container-ci-placeholder-password-32bytes \
@@ -63,7 +71,6 @@ jobs:
             --env S3_ACCESS_KEY_ID=ci-placeholder \
             --env S3_SECRET_ACCESS_KEY=ci-placeholder \
             flies-api-ci:latest
-          trap 'docker logs flies-api-ci; docker rm --force flies-api-ci' EXIT
           docker exec flies-api-ci bun --eval '
             for (let attempt = 0; attempt < 30; attempt++) {
               try {
@@ -76,6 +83,8 @@ jobs:
             }
             throw new Error("API production entry point did not become healthy");
           '
+          docker exec flies-api-db-ci psql -U ci -d ci --set ON_ERROR_STOP=1 --command \
+            'SELECT "id", "fileId", "prefix", "cursor", "createdAt" FROM revision_uploads LIMIT 1;'
       - name: Verify the web image serves the application
         if: matrix.name == 'web'
         run: |
