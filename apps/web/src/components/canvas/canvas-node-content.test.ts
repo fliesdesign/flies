@@ -49,7 +49,8 @@ describe("canvas node content", () => {
     assert.match(markup, /aria-label="Edit Caption"/);
     assert.match(markup, /First line\n&lt;\/textarea&gt;&lt;script&gt;/);
     assert.ok(!markup.includes("<script>"));
-    assert.equal(markup.match(/<\/textarea>/g)?.length, 1);
+    assert.match(markup, /contentEditable="true"/i);
+    assert.match(markup, /role="textbox"/);
   });
 
   it("uses identical typography for the text node and its editor", () => {

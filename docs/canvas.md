@@ -71,11 +71,36 @@ dragging, resizing, clipping, grouping, clipboard, and export. Multiple rotated 
 proportionally to preserve their shape. Gradients support alpha and 2–16 stops. All appearance
 edits use the same preview, undo, project persistence, and MCP document state.
 
-**Auto layout.** Frame properties offer horizontal or vertical flow, gap, uniform padding,
-cross-axis alignment, and start/center/end/space-between justification. Direct children follow
+**Auto layout.** Frame properties offer horizontal or vertical flow, wrapping, item and line gaps,
+uniform or per-side padding, cross-axis alignment, and start/center/end/space-between justification.
+Wrapping moves children to a new row or column as the parent narrows. Fit sizing on the main axis
+keeps one line; Fit on the cross axis follows the wrapped content. Size limits bound fixed, Fill
+and Fit dimensions, and Fill redistributes space when a child reaches its limit. Direct children follow
 their layer order; changing child sizes or the frame bounds reflows them. Their X/Y fields are
 read-only while layout manages their positions. Choose **Free layout** to keep the current
 positions and return to manual placement.
+
+**Resize constraints.** Children of free-layout frames offer **Resize with parent** and independent
+horizontal/vertical modes: pin to either edge, keep centered, stretch between both edges, or scale.
+Children without constraints retain their existing crop behavior. Minimum and maximum dimensions
+apply during resizing; leaving a size-limit field blank removes it. Groups derive dimensions from
+their contents and do not accept size limits. Constraints and all derived
+child changes form one undo entry, including drag previews and cancellation.
+
+**Components and variants.** Turn a frame into a reusable component, then insert linked instances.
+Source changes propagate while each instance can override text and image content. The properties
+panel offers reset, detach and named variants; detaching preserves the current appearance.
+Components cannot contain other components or instances. Removing a source detaches its instances.
+
+**Image crop and masks.** Image crops choose a normalized rectangle of the original source without
+replacing its pixels. A layer can use an unmasked leaf sibling as an alpha mask; the source is then
+used for masking and does not paint separately. Removing the mask or deleting its source restores
+the target. Crops and masks persist and share the same undo history in both renderers.
+
+**Editable vectors.** Compatible shapes and simple SVGs can become editable paths with anchor and
+Bézier control points. Closed paths support union, subtraction, intersection and exclusion;
+boolean operations flatten curves within 0.25 document pixels and undo restores the operands.
+Unsupported SVG features fail conversion without altering the source.
 
 ## Text and fonts
 
@@ -85,7 +110,9 @@ entry keeps ordinary editing shortcuts separate from canvas shortcuts. Text prop
 family, weight, size, line height, letter spacing, alignment, and color. Typography changes and
 direct width edits fit the text's height to its new wrapping; an explicit height or
 proportion-locked resize keeps the requested bounds. **Fit text height** fits an existing box
-without changing its width. Rendering and editing use the same typography.
+without changing its width. Rendering and editing use the same typography. Formatting selected text
+creates sparse style runs for color, family, size, weight, italic, underline, strike and links.
+Runs survive text edits, undo, save/reopen and export; unformatted ranges inherit the layer style.
 
 The font picker lists installed system fonts in the desktop app and a starter collection of Google
 Fonts on the web. Type any Google Fonts family name to load it on demand; desktop also uses Google

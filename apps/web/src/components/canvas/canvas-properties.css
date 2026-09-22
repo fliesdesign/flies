@@ -713,3 +713,36 @@
   font-size: 10px;
   color: var(--muted-foreground);
 }
+
+.canvas-crop-preview {
+  position: relative;
+  width: 100%;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--muted);
+}
+.canvas-crop-preview > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.canvas-crop-region {
+  position: absolute;
+  background: transparent;
+  border: 1px solid var(--primary);
+  cursor: move;
+  touch-action: none;
+}
+.canvas-crop-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  background: white;
+  border: 1px solid var(--primary);
+  touch-action: none;
+  cursor: crosshair;
+}

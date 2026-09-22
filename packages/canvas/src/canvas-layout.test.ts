@@ -440,3 +440,106 @@ describe("auto layout document operations", () => {
     assert.equal(document.getFrame("b")?.x, 230);
   });
 });
+
+describe("wrapping layout and bounded sizing", () => {
+  it("wraps rows with per-side padding and a separate line gap, then updates hug height", () => {
+    const document = new CanvasDocument([
+      {
+        ...parent,
+        width: 260,
+        heightSizing: "hug",
+        layout: {
+          ...layout,
+          padding: 10,
+          paddingTop: 15,
+          paddingBottom: 25,
+          rowGap: 20,
+          wrap: true,
+        },
+      },
+      child("a", { width: 100, height: 30 }),
+      child("b", { width: 100, height: 30 }),
+      child("c", { width: 100, height: 30 }),
+    ]);
+
+    assert.deepEqual(position(document, "a"), { x: 110, y: 215 });
+    assert.deepEqual(position(document, "b"), { x: 220, y: 215 });
+    assert.deepEqual(position(document, "c"), { x: 110, y: 265 });
+    assert.equal(document.getFrame("parent")?.height, 120);
+    document.update({ ...document.getFrame("parent")!, width: 150 });
+    assert.equal(document.getFrame("parent")?.height, 170);
+    assert.deepEqual(position(document, "c"), { x: 110, y: 315 });
+    document.undo();
+    assert.equal(document.getFrame("parent")?.height, 120);
+  });
+
+  it("wraps columns using horizontal line gap and independent padding", () => {
+    const document = new CanvasDocument([
+      {
+        ...parent,
+        height: 140,
+        layout: {
+          ...layout,
+          direction: "column",
+          padding: 10,
+          paddingLeft: 15,
+          paddingBottom: 20,
+          wrap: true,
+          rowGap: 15,
+        },
+      },
+      child("a", { height: 50 }),
+      child("b", { height: 50 }),
+      child("c", { height: 50 }),
+    ]);
+
+    assert.deepEqual(position(document, "a"), { x: 115, y: 210 });
+    assert.deepEqual(position(document, "b"), { x: 115, y: 270 });
+    assert.deepEqual(position(document, "c"), { x: 180, y: 210 });
+  });
+
+  it("redistributes fill space when one child reaches its maximum", () => {
+    const document = new CanvasDocument([
+      { ...parent, width: 400 },
+      child("a", { widthSizing: "fill", minWidth: 100, maxWidth: 120 }),
+      child("b", { widthSizing: "fill", minWidth: 80 }),
+    ]);
+
+    assert.equal(document.getFrame("a")?.width, 120);
+    assert.equal(document.getFrame("b")?.width, 230);
+    assert.equal(document.getFrame("b")?.x, 250);
+  });
+
+  it("caps hugged frames and rejects malformed extended layout options", () => {
+    const document = new CanvasDocument([
+      { ...parent, widthSizing: "hug", maxWidth: 200 },
+      child("a", { width: 150 }),
+      child("b", { width: 150 }),
+    ]);
+
+    assert.equal(document.getFrame("parent")?.width, 200);
+    for (const invalid of [
+      { wrap: "true" },
+      { rowGap: -1 },
+      { paddingLeft: Infinity },
+      { paddingTop: -2 },
+    ])
+      assert.equal(isCanvasLayout({ ...layout, ...invalid }), false);
+  });
+});
+
+describe("mixed bounded fill allocation", () => {
+  it("rebalances opposing minimum and maximum limits without exceeding available space", () => {
+    const document = new CanvasDocument([
+      { ...parent, width: 100, layout: { ...layout, padding: 0, gap: 0 } },
+      child("min", { widthSizing: "fill", minWidth: 80 }),
+      child("cap", { widthSizing: "fill", maxWidth: 10 }),
+      child("flex", { widthSizing: "fill", maxWidth: 30 }),
+    ]);
+
+    assert.equal(document.getFrame("min")?.width, 80);
+    assert.equal(document.getFrame("cap")?.width, 10);
+    assert.equal(document.getFrame("flex")?.width, 10);
+    assert.equal(document.getFrame("flex")!.x + document.getFrame("flex")!.width, parent.x + 100);
+  });
+});

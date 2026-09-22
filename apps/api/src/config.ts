@@ -86,10 +86,8 @@ export function realtimeConfig(
   if (!config.REDIS_URL?.trim() || !config.SYNC_ENCRYPTION_KEY?.trim())
     throw new Error("Realtime needs REDIS_URL and SYNC_ENCRYPTION_KEY.");
   const url = new URL(config.REDIS_URL);
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  const privateNetwork = url.hostname.endsWith(".railway.internal");
-  if (url.protocol !== "rediss:" && !(url.protocol === "redis:" && (local || privateNetwork)))
-    throw new Error("Redis must use TLS or Railway private networking.");
+  if (url.protocol !== "redis:" && url.protocol !== "rediss:")
+    throw new Error("Redis URL must use redis:// or rediss://.");
   const api = new URL(config.API_URL);
   if (api.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(api.hostname))
     throw new Error("Realtime requires HTTPS outside local development.");

@@ -214,7 +214,7 @@ test("captured text remains editable and its paste event is left to the active t
   await page
     .locator(`${fixture} .canvas-frame-position[data-frame-id="${textNode.id}"]`)
     .dblclick();
-  const editor = page.locator(`${fixture} textarea.canvas-text-editor`);
+  const editor = page.locator(`${fixture} [contenteditable].canvas-text-editor`);
   await expect(editor).toBeVisible();
   const before = await frames(page);
 

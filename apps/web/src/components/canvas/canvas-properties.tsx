@@ -1,3 +1,19 @@
+import {
+  convertCanvasNodeToVector,
+  fitCanvasVectorNode,
+  updateCanvasVector,
+  booleanCanvasVectors,
+} from "@flies/canvas";
+import {
+  createCanvasComponent,
+  instantiateCanvasComponent,
+  detachCanvasInstance,
+  resetCanvasInstanceOverrides,
+  setCanvasInstanceVariant,
+  captureCanvasInstanceVariant,
+  removeCanvasComponentVariant,
+  type CanvasOperationPlan,
+} from "@flies/canvas";
 import { BUILTIN_FONT_FAMILIES, hasRotation, worldBounds } from "@flies/canvas";
 import {
   applyTokenBindings,
@@ -32,8 +48,10 @@ import { memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactN
 
 import { prepareTokenUpdates } from "@/lib/canvas-theme-actions";
 
+import { CanvasComponentControls, CanvasComponentLibrary } from "./canvas-component-controls";
 import { CanvasEffects } from "./canvas-effects";
 import { CanvasFontPicker } from "./canvas-font-picker";
+import { CanvasMediaControls } from "./canvas-media-controls";
 import {
   CanvasGradientControls,
   CanvasBlendControls,
@@ -42,7 +60,9 @@ import {
 import { ColorSwatch, PropertyField, type PropertyPreview } from "./canvas-property-controls";
 import { IconButton, Section } from "./canvas-property-section";
 import { normalizeCanvasHex } from "./canvas-property-values";
+import { CanvasSizeConstraints, CanvasWrappingControls } from "./canvas-responsive-controls";
 import { CanvasTokenSelect, type TokenChoiceProps } from "./canvas-token-select";
+import { CanvasVectorControls, CanvasVectorBooleanControls } from "./canvas-vector-controls";
 import "./canvas-properties.css";
 
 export type { CanvasProperty, CanvasPropertyOptions } from "@flies/canvas";
@@ -65,6 +85,10 @@ type CanvasPropertiesProps = {
   onArrange: (action: CanvasArrangeAction) => void;
   onFitText: () => void;
   onCollapse: () => void;
+  onPlan: (plan: CanvasOperationPlan) => void;
+  onSelect: (id: string) => void;
+  vectorEditingId?: string | null;
+  onEditVector: (id: string) => void;
 };
 
 function AlignIcon({ action }: { action: CanvasArrangeAction }) {
@@ -287,10 +311,52 @@ export const CanvasProperties = memo(function CanvasProperties({
   onArrange,
   onFitText,
   onCollapse,
+  onPlan,
+  onSelect,
+  vectorEditingId,
+  onEditVector,
 }: CanvasPropertiesProps) {
   const nodes = useSelectedNodes(document, selectedIds);
   const theme = useSyncExternalStore(document.subscribe, document.getTheme, document.getTheme);
   const [tokenError, setTokenError] = useState("");
+
+  const snapshot = useSyncExternalStore(
+    document.subscribe,
+    document.getSnapshot,
+    document.getSnapshot,
+  );
+
+  const components = useMemo(
+    () =>
+      snapshot.ids.flatMap((id) => {
+        const node = document.getFrame(id);
+
+        return node?.component ? [node] : [];
+      }),
+    [document, snapshot],
+  );
+
+  const componentAction = (operation: () => CanvasOperationPlan) => {
+    try {
+      onPreviewEnd(false);
+      onPlan(operation());
+      setTokenError("");
+    } catch (error) {
+      setTokenError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const insertComponent = (id: string, variantId?: string) =>
+    componentAction(() => {
+      const source = document.getFrame(id)!;
+
+      return instantiateCanvasComponent(
+        document.getFrames(),
+        id,
+        { x: source.x + source.width + 40, y: source.y },
+        variantId,
+      );
+    });
 
   const tokenChoice = (property: ThemeProperty) => ({
     tokens: [
@@ -459,6 +525,74 @@ export const CanvasProperties = memo(function CanvasProperties({
             {tokenError}
           </p>
         )}
+        {single && (
+          <CanvasVectorControls
+            node={single}
+            disabled={anyLocked}
+            editing={vectorEditingId === single.id}
+            onConvert={() => {
+              try {
+                const node = convertCanvasNodeToVector(single);
+                onPlan({ upsert: [node], remove: [], selection: [node.id] });
+                onEditVector(node.id);
+                setTokenError("");
+              } catch (error) {
+                setTokenError(error instanceof Error ? error.message : String(error));
+              }
+            }}
+            onEdit={() => onEditVector(single.id)}
+            onPreviewStart={() => document.beginGesture(single.id)}
+            onPreview={(vector) => {
+              if (single.kind === "svg") document.preview(updateCanvasVector(single, vector));
+            }}
+            onPreviewEnd={(cancel) => document.endGesture(cancel)}
+            onChange={(vector) => {
+              if (single.kind === "svg") document.update(fitCanvasVectorNode(single, vector));
+            }}
+          />
+        )}
+        {nodes.length > 1 &&
+          nodes.every((node) => ["svg", "rectangle", "pen"].includes(node.kind ?? "frame")) && (
+            <CanvasVectorBooleanControls
+              disabled={anyLocked}
+              onBoolean={(operation) =>
+                componentAction(() =>
+                  booleanCanvasVectors(document.getFrames(), selectedIds, operation),
+                )
+              }
+            />
+          )}
+        {single && <CanvasMediaControls document={document} node={single} disabled={anyLocked} />}
+        {single && (
+          <CanvasComponentControls
+            node={single}
+            components={components}
+            disabled={anyLocked}
+            onCreate={(id) =>
+              componentAction(() => createCanvasComponent(document.getFrames(), id))
+            }
+            onInsert={insertComponent}
+            onDetach={(id) => componentAction(() => detachCanvasInstance(document.getFrames(), id))}
+            onReset={(id) =>
+              componentAction(() => resetCanvasInstanceOverrides(document.getFrames(), id))
+            }
+            onVariant={(id, variant) =>
+              componentAction(() => setCanvasInstanceVariant(document.getFrames(), id, variant))
+            }
+            onSaveVariant={(id, name) =>
+              componentAction(() => captureCanvasInstanceVariant(document.getFrames(), id, name))
+            }
+            onRemoveVariant={(id, variant) =>
+              componentAction(() => removeCanvasComponentVariant(document.getFrames(), id, variant))
+            }
+            onSelectSource={onSelect}
+          />
+        )}
+        <CanvasComponentLibrary
+          components={components}
+          disabled={anyLocked}
+          onInsert={insertComponent}
+        />
         {!nodes.length ? (
           <div className="canvas-properties-empty">
             <svg
@@ -609,6 +743,12 @@ export const CanvasProperties = memo(function CanvasProperties({
                 </div>
               )}
             </Section>
+            <CanvasSizeConstraints
+              nodes={nodes}
+              document={document}
+              disabled={anyLocked}
+              onChange={onChange}
+            />
             {allFrames && (
               <Section title="Auto layout">
                 <fieldset
@@ -660,6 +800,11 @@ export const CanvasProperties = memo(function CanvasProperties({
                         onCommit={numberChange("layoutPadding")}
                       />
                     </div>
+                    <CanvasWrappingControls
+                      nodes={nodes}
+                      disabled={anyLocked}
+                      onChange={onChange}
+                    />
                     <div className="canvas-layout-placement">
                       <fieldset className="canvas-layout-grid" aria-label="Layout alignment">
                         {(["start", "center", "end"] as const).flatMap((y, row) =>

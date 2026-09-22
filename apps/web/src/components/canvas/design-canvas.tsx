@@ -1,3 +1,4 @@
+import type { CanvasTextRun } from "@flies/canvas";
 import {
   themeCss,
   worldTransform,
@@ -103,7 +104,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Input } from "@/components/ui/input";
 import {
   CANVAS_CODE_FORMATS,
-  exportCanvasCode,
+  exportCanvasCodeWithAssets,
   type CanvasCodeFormat,
 } from "@/lib/canvas-code-export";
 import { importPaperSnapshot, isPaperSnapshot } from "@/lib/paper-snapshot";
@@ -125,6 +126,7 @@ import {
   type FrameContentComponent,
 } from "./canvas-scene";
 import { CanvasToolbar } from "./canvas-toolbar";
+import { CanvasVectorEditing } from "./canvas-vector-editing";
 import "./design-canvas.css";
 
 export type CanvasControls = {
@@ -169,7 +171,7 @@ type Interaction = {
   axisLock?: "x" | "y";
   snapState?: AlignmentSnapState;
   spacing?: {
-    property: "layoutGap" | "layoutPadding";
+    property: LayoutHandle["property"];
     axis: "x" | "y";
     sign: number;
     value: number;
@@ -315,6 +317,7 @@ export function DesignCanvas({
   const menuPointRef = useRef<Point>({ x: 0, y: 0 });
   const spaceRef = useRef(false);
   const [selection, setSelection] = useState<string[]>([]);
+  const [vectorEditingId, setVectorEditingId] = useState<string | null>(null);
   const selectOne = useCallback((id: string | null) => setSelection(id ? [id] : []), []);
 
   const propertyIds = useMemo(
@@ -680,7 +683,10 @@ export function DesignCanvas({
       const texts = document.getSceneFrames().filter((node) => node.kind === "text");
 
       const key = texts
-        .map((node) => `${node.fontFamily}:${node.fontWeight}:${node.fontStyle}:${node.text}`)
+        .map(
+          (node) =>
+            `${node.fontFamily}:${node.fontWeight}:${node.fontStyle}:${node.text}:${JSON.stringify(node.textRuns)}`,
+        )
         .join("|");
 
       if (key === lastKey) return;
@@ -1075,12 +1081,18 @@ export function DesignCanvas({
   }
 
   const commitText = useCallback(
-    (id: string, text: string, height: number) => {
+    (id: string, text: string, height: number, textRuns?: readonly CanvasTextRun[]) => {
       const frame = document.getFrame(id);
 
       if (frame?.kind === "text") {
         if (!text.trim()) document.remove(id);
-        else document.update({ ...frame, text, height: Math.max(1, Math.ceil(height)) });
+        else
+          document.update({
+            ...frame,
+            text,
+            textRuns: textRuns?.length ? textRuns : undefined,
+            height: Math.max(1, Math.ceil(height)),
+          });
       }
 
       setEditingId(null);
@@ -1184,7 +1196,7 @@ export function DesignCanvas({
     const payload = encodeCanvasClipboard(document.getFrames(), selectedIds);
     const decoded = payload && decodeCanvasClipboard(payload);
     if (!decoded) return;
-    const copy = pasteCanvasClipboard(decoded, { x: 24, y: 24 });
+    const copy = pasteCanvasClipboard(decoded, { x: 24, y: 24 }, undefined, document.getFrames());
 
     const parents = new Map(
       copy.selection.map((id, index) => [id, document.getFrame(selectedIds[index])?.parentId]),
@@ -1229,7 +1241,7 @@ export function DesignCanvas({
 
   async function copyAs(format: CanvasCodeFormat) {
     try {
-      const code = exportCanvasCode(document.getFrames(), selectedIds, format);
+      const code = await exportCanvasCodeWithAssets(document.getFrames(), selectedIds, format);
       await navigator.clipboard.writeText(code);
       setNotice(`Copied as ${format}.`);
     } catch (error) {
@@ -1269,7 +1281,7 @@ export function DesignCanvas({
           ? { x: targetFrame.x + 24 - bounds.x, y: targetFrame.y + 24 - bounds.y }
           : { x: count * 24, y: count * 24 };
 
-    const copy = pasteCanvasClipboard(decoded, offset);
+    const copy = pasteCanvasClipboard(decoded, offset, undefined, document.getFrames());
     let nodes = copy.nodes;
 
     if (inPlace) {
@@ -2272,6 +2284,26 @@ export function DesignCanvas({
           onArrange={arrangeFromProperties}
           onFitText={fitTextHeight}
           onCollapse={collapseProperties}
+          onSelect={selectOne}
+          vectorEditingId={vectorEditingId}
+          onEditVector={(id) => {
+            finishInteraction(true);
+            setEditingId(null);
+            selectOne(id);
+            setVectorEditingId(id);
+          }}
+          onPlan={(plan) => {
+            finishInteraction(true);
+            endPropertyPreview(false);
+            if (
+              document.transact({
+                add: plan.upsert.filter((node) => !document.getFrame(node.id)),
+                update: plan.upsert.filter((node) => document.getFrame(node.id)),
+                remove: plan.remove,
+              })
+            )
+              setSelection(plan.selection);
+          }}
         />
       ) : hasPropertySelection ? (
         <button
@@ -2351,6 +2383,9 @@ export function DesignCanvas({
             if (node?.kind === "text") {
               selectOne(id);
               setEditingId(id);
+            } else if (node?.kind === "svg" && node.vector) {
+              selectOne(id);
+              setVectorEditingId(id);
             } else if (node?.kind === "group") {
               setGroupScope(id);
               selectOne(
@@ -2439,6 +2474,14 @@ export function DesignCanvas({
             onRendererChange={setRendererBackend}
             inspectHtml={inspectHtml}
           />
+          {vectorEditingId && selectedIds.includes(vectorEditingId) && (
+            <CanvasVectorEditing
+              document={document}
+              camera={camera}
+              id={vectorEditingId}
+              onClose={() => setVectorEditingId(null)}
+            />
+          )}
           {draft && <DrawingPreview frame={draft} camera={camera} />}
           <CanvasOutline
             document={document}

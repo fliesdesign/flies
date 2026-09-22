@@ -1,0 +1,86 @@
+name: Container checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containers-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            dockerfile: Dockerfile
+          - name: api
+            dockerfile: Dockerfile.api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the production image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          push: false
+          tags: flies-${{ matrix.name }}-ci:latest
+          cache-from: type=gha,scope=container-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.name }}
+      - name: Run API unit tests inside its image
+        if: matrix.name == 'api'
+        run: >-
+          docker run --rm --entrypoint bun flies-api-ci:latest
+          test test/unit.test.ts test/billing.test.ts test/realtime.test.ts
+      - name: Verify the API production command starts
+        if: matrix.name == 'api'
+        run: |
+          # Placeholder configuration and loopback-only networking keep this independent of services.
+          docker run --detach --name flies-api-ci --network none \
+            --env DATABASE_URL=postgres://ci:ci@127.0.0.1:1/ci \
+            --env WORKOS_API_KEY=ci-placeholder \
+            --env WORKOS_CLIENT_ID=ci-placeholder \
+            --env WORKOS_COOKIE_PASSWORD=container-ci-placeholder-password-32bytes \
+            --env WORKOS_REDIRECT_URI=http://127.0.0.1/auth/callback \
+            --env WEB_URL=http://127.0.0.1 \
+            --env API_URL=http://127.0.0.1:3001 \
+            --env PORT=3001 \
+            --env S3_ENDPOINT=http://127.0.0.1:1 \
+            --env S3_BUCKET=ci \
+            --env S3_REGION=us-east-1 \
+            --env S3_ACCESS_KEY_ID=ci-placeholder \
+            --env S3_SECRET_ACCESS_KEY=ci-placeholder \
+            flies-api-ci:latest
+          trap 'docker logs flies-api-ci; docker rm --force flies-api-ci' EXIT
+          docker exec flies-api-ci bun --eval '
+            for (let attempt = 0; attempt < 30; attempt++) {
+              try {
+                const response = await fetch("http://127.0.0.1:3001/health", {
+                  signal: AbortSignal.timeout(1000),
+                });
+                if (response.ok && (await response.json()).ok === true) process.exit(0);
+              } catch {}
+              await Bun.sleep(200);
+            }
+            throw new Error("API production entry point did not become healthy");
+          '
+      - name: Verify the web image serves the application
+        if: matrix.name == 'web'
+        run: |
+          docker run --detach --name flies-web-ci --publish 8080:8080 flies-web-ci:latest
+          trap 'docker logs flies-web-ci; docker rm --force flies-web-ci' EXIT
+          curl --fail --silent --show-error --retry 10 --retry-delay 1 --retry-connrefused http://127.0.0.1:8080/ > /tmp/flies-index.html
+          test -s /tmp/flies-index.html
+          grep -q 'id="root"' /tmp/flies-index.html

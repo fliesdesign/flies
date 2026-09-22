@@ -1,3 +1,11 @@
+import {
+  canvasMaskSourceIds,
+  rasterizeCanvasMask,
+  worldTransform,
+  inverseMatrix,
+  multiplyMatrix,
+  type CanvasMaskStyle,
+} from "@flies/canvas";
 import { gradientCss, filterCss, detachCanvasSelection, exportBounds } from "@flies/canvas";
 import { CanvasDocument, ensureCanvasFonts, type CanvasFrame } from "@flies/canvas";
 import { selectionBounds } from "@flies/canvas";
@@ -10,12 +18,16 @@ function ExportNode({
   node,
   document,
   origin,
+  masks,
+  maskSources,
 }: {
   node: CanvasFrame;
   document: CanvasDocument;
   origin: { x: number; y: number };
+  masks: ReadonlyMap<string, CanvasMaskStyle>;
+  maskSources: ReadonlySet<string>;
 }) {
-  if (node.hidden) return null;
+  if (node.hidden || maskSources.has(node.id)) return null;
   const frame = !node.kind || node.kind === "frame";
 
   return (
@@ -31,6 +43,7 @@ function ExportNode({
         transform: `rotate(${node.rotation ?? 0}deg)`,
         mixBlendMode: node.blendMode,
         filter: filterCss(node.filters),
+        ...masks.get(node.id),
       }}
     >
       {frame ? (
@@ -54,7 +67,14 @@ function ExportNode({
         }}
       >
         {document.getChildren(node.id).map((id) => (
-          <ExportNode key={id} node={document.getFrame(id)!} document={document} origin={node} />
+          <ExportNode
+            key={id}
+            node={document.getFrame(id)!}
+            document={document}
+            origin={node}
+            masks={masks}
+            maskSources={maskSources}
+          />
         ))}
       </div>
       <CanvasNodeAppearance frame={node} />
@@ -65,12 +85,29 @@ function ExportNode({
 export function CanvasExportScene({
   document,
   ids,
+  masks = new Map(),
 }: {
   document: CanvasDocument;
   ids: readonly string[];
+  masks?: ReadonlyMap<string, CanvasMaskStyle>;
 }) {
-  const detached = new CanvasDocument(detachCanvasSelection(document.getFrames(), ids));
-  const nodes = ids.map((id) => detached.getFrame(id)!).filter(Boolean);
+  const maskSources = canvasMaskSourceIds(document.getFrames());
+
+  const detached = new CanvasDocument(
+    detachCanvasSelection(
+      document
+        .getFrames()
+        .map(
+          ({ component: _c, instance: _i, componentSourceId: _s, maskId: _m, ...node }) =>
+            node as CanvasFrame,
+        ),
+      ids,
+    ),
+  );
+
+  const nodes = ids
+    .map((id) => detached.getFrame(id)!)
+    .filter((node) => node && !maskSources.has(node.id));
 
   const bounds = selectionBounds(
     nodes.map((node) => ({ ...node, ...exportBounds(detached, node), parentId: undefined })),
@@ -92,7 +129,14 @@ export function CanvasExportScene({
       }}
     >
       {nodes.map((node) => (
-        <ExportNode key={node.id} node={node} document={detached} origin={bounds} />
+        <ExportNode
+          key={node.id}
+          node={node}
+          document={detached}
+          origin={bounds}
+          masks={masks}
+          maskSources={maskSources}
+        />
       ))}
     </div>
   );
@@ -104,10 +148,35 @@ export async function exportCanvasPng(
   selectedIds: readonly string[],
 ): Promise<Blob> {
   const snapshot = new CanvasDocument(nodes);
-  const roots = snapshot.getRootIds(selectedIds).filter((id) => !snapshot.isHidden(id));
+
+  const roots = snapshot
+    .getRootIds(selectedIds)
+    .filter((id) => !snapshot.isHidden(id) && !snapshot.isMaskSource(id));
+
   const exportedIds = new Set(snapshot.getDescendantIds(roots));
   await ensureCanvasFonts(
     nodes.filter((node) => node.kind === "text").filter((node) => exportedIds.has(node.id)),
+  );
+
+  const masks = new Map<string, CanvasMaskStyle>();
+  await Promise.all(
+    nodes
+      .filter((node) => node.maskId && exportedIds.has(node.id))
+      .map(async (target) => {
+        const source = snapshot.getFrame(target.maskId!)!;
+        masks.set(
+          target.id,
+          await rasterizeCanvasMask(
+            target,
+            source,
+            1,
+            multiplyMatrix(
+              inverseMatrix(worldTransform(snapshot, target)),
+              worldTransform(snapshot, source),
+            ),
+          ),
+        );
+      }),
   );
 
   const bounds = selectionBounds(
@@ -140,7 +209,9 @@ export async function exportCanvasPng(
   const root = createRoot(host);
 
   try {
-    flushSync(() => root.render(<CanvasExportScene document={snapshot} ids={roots} />));
+    flushSync(() =>
+      root.render(<CanvasExportScene document={snapshot} ids={roots} masks={masks} />),
+    );
     await document.fonts.ready;
     await Promise.all(Array.from(host.querySelectorAll("img"), (image) => image.decode()));
     const { toBlob } = await import("html-to-image");

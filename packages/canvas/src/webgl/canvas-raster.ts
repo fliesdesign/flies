@@ -1,6 +1,8 @@
 import type { CanvasFrame, CanvasShadow, CanvasText } from "../canvas-document";
 import { ensureCanvasFont, fontFamilyCss } from "../canvas-fonts";
 import { gradientLine, type CanvasGradient } from "../canvas-paint";
+import { canvasTextSegments } from "../canvas-rich-text";
+import { layoutCanvasText } from "./text-layout";
 
 export type NodeRaster = {
   body: HTMLCanvasElement;
@@ -341,129 +343,39 @@ function loadImage(source: string): Promise<HTMLImageElement> {
   return pending;
 }
 
-function typography(element: HTMLElement, frame: CanvasText) {
-  Object.assign(element.style, {
-    all: "initial",
-    display: "block",
-    position: "fixed",
-    left: "0",
-    top: "0",
-    width: `${frame.width}px`,
-    margin: "0",
-    padding: "0",
-    border: "0",
-    visibility: "hidden",
-    contain: "layout style",
-    fontFamily: fontFamilyCss(frame.fontFamily),
-    fontSize: `${frame.fontSize}px`,
-    fontWeight: String(frame.fontWeight ?? 400),
-    fontStyle: frame.fontStyle ?? "normal",
-    lineHeight: String(frame.lineHeight ?? 1.25),
-    letterSpacing: `${frame.letterSpacing ?? 0}px`,
-    textAlign: frame.textAlign ?? "left",
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-    tabSize: "4",
-    direction: "ltr",
-  });
-}
-
-type TextRun = { text: string; x: number; top: number; width: number };
-
-/** Ask the same browser line breaker used by the editor; paint glyphs directly, never a DOM screenshot. */
-function textRuns(frame: CanvasText): { runs: TextRun[]; baseline: number } {
-  const measurement = document.createElement("div");
-  typography(measurement, frame);
-  const text = document.createTextNode(frame.text);
-  measurement.append(text);
-  const calibration = document.createElement("div");
-  typography(calibration, frame);
-  calibration.style.width = "100000px";
-  calibration.style.textAlign = "left";
-  const calibrationText = document.createTextNode("M");
-  const marker = document.createElement("span");
-  marker.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
-  calibration.append(calibrationText, marker);
-  document.body.append(measurement, calibration);
-
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(calibrationText);
-    const baseline = marker.getBoundingClientRect().top - range.getBoundingClientRect().top;
-    const origin = measurement.getBoundingClientRect();
-    const runs: TextRun[] = [];
-    let start = 0;
-    let currentTop = Number.NaN;
-    let offset = 0;
-
-    const append = (end: number) => {
-      if (end <= start) return;
-      range.setStart(text, start);
-      range.setEnd(text, end);
-      const rect = range.getBoundingClientRect();
-      runs.push({
-        text: frame.text.slice(start, end),
-        x: rect.left - origin.left,
-        top: rect.top - origin.top,
-        width: rect.width,
-      });
-    };
-
-    for (const character of frame.text) {
-      const next = offset + character.length;
-      range.setStart(text, offset);
-      range.setEnd(text, next);
-      const rect = range.getBoundingClientRect();
-      const top = rect.top - origin.top;
-      if (character === "\n" || character === "\r" || character === "\t") {
-        append(offset);
-        start = next;
-        currentTop = Number.NaN;
-      } else if (Number.isFinite(currentTop) && Math.abs(top - currentTop) > 0.5) {
-        append(offset);
-        start = offset;
-        currentTop = top;
-      } else currentTop = top;
-      offset = next;
-    }
-
-    append(offset);
-
-    return { runs, baseline };
-  } finally {
-    measurement.remove();
-    calibration.remove();
-  }
-}
-
 async function paintText(ctx: CanvasRenderingContext2D, frame: CanvasText) {
-  await ensureCanvasFont(frame);
-  const { runs, baseline } = textRuns(frame);
+  await Promise.all(
+    canvasTextSegments(frame).map((segment) =>
+      ensureCanvasFont({ ...frame, ...segment.style, text: segment.text }),
+    ),
+  );
+  const { runs, segments } = layoutCanvasText(frame);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, frame.width, frame.height);
   ctx.clip();
-  ctx.font = `${frame.fontStyle ?? "normal"} ${frame.fontWeight ?? 400} ${frame.fontSize}px ${fontFamilyCss(frame.fontFamily)}`;
   ctx.fontKerning = "normal";
   ctx.letterSpacing = `${frame.letterSpacing ?? 0}px`;
   ctx.textBaseline = "alphabetic";
   ctx.textAlign = "left";
   ctx.direction = "ltr";
-  ctx.fillStyle = frame.color;
 
   for (const run of runs) {
-    if (run.top > frame.height || run.top + frame.fontSize * 2 < 0) continue;
-    ctx.fillText(run.text, run.x, run.top + baseline);
+    const style = { ...frame, ...segments[run.segment].style };
+    if (run.top > frame.height || run.top + style.fontSize * 2 < 0) continue;
+    ctx.font = `${style.fontStyle ?? "normal"} ${style.fontWeight ?? 400} ${style.fontSize}px ${fontFamilyCss(style.fontFamily)}`;
+    ctx.fillStyle = style.color;
+    ctx.fillText(run.text, run.x, run.top + run.baseline);
 
-    if (frame.textDecoration && frame.textDecoration !== "none") {
-      const thickness = Math.max(1, frame.fontSize / 16);
+    if (style.textDecoration && style.textDecoration !== "none") {
+      const thickness = Math.max(1, style.fontSize / 16);
 
       const y =
         run.top +
-        baseline +
-        (frame.textDecoration === "underline"
-          ? Math.max(1, frame.fontSize / 10)
-          : -frame.fontSize * 0.3);
+        run.baseline +
+        (style.textDecoration === "underline"
+          ? Math.max(1, style.fontSize / 10)
+          : -style.fontSize * 0.3);
 
       ctx.fillRect(run.x, y, run.width, thickness);
     }
@@ -495,7 +407,20 @@ export async function rasterizeNode(
     ctx.clip(shape(frame));
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(image, 0, 0, frame.width, frame.height);
+    const crop = frame.kind === "image" ? frame.crop : undefined;
+    if (crop)
+      ctx.drawImage(
+        image,
+        crop.x * image.naturalWidth,
+        crop.y * image.naturalHeight,
+        crop.width * image.naturalWidth,
+        crop.height * image.naturalHeight,
+        0,
+        0,
+        frame.width,
+        frame.height,
+      );
+    else ctx.drawImage(image, 0, 0, frame.width, frame.height);
     ctx.restore();
   } else if (frame.kind === "pen" && frame.points.length) {
     ctx.save();

@@ -1,3 +1,4 @@
+import { canvasDimensionLimits, clampCanvasDimension } from "./canvas-constraints";
 import type { CanvasFrame, CanvasFrameNode } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
 
@@ -27,6 +28,13 @@ export type CanvasLayout = Readonly<{
   direction: "row" | "column";
   gap: number;
   padding: number;
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  wrap?: boolean;
+  /** Gap between wrapped rows or columns; defaults to gap. */
+  rowGap?: number;
   align: "start" | "center" | "end";
   justify: "start" | "center" | "end" | "space-between";
 }>;
@@ -39,178 +47,297 @@ export const DEFAULT_CANVAS_LAYOUT: CanvasLayout = Object.freeze({
   justify: "start",
 });
 
+export function canvasLayoutPadding(layout: CanvasLayout) {
+  return {
+    top: layout.paddingTop ?? layout.padding,
+    right: layout.paddingRight ?? layout.padding,
+    bottom: layout.paddingBottom ?? layout.padding,
+    left: layout.paddingLeft ?? layout.padding,
+  };
+}
+
+function nonnegative(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 export function isCanvasLayout(value: unknown): value is CanvasLayout {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const layout = value as Record<string, unknown>;
 
   return (
     (layout.direction === "row" || layout.direction === "column") &&
-    typeof layout.gap === "number" &&
-    Number.isFinite(layout.gap) &&
-    layout.gap >= 0 &&
-    typeof layout.padding === "number" &&
-    Number.isFinite(layout.padding) &&
-    layout.padding >= 0 &&
+    nonnegative(layout.gap) &&
+    nonnegative(layout.padding) &&
+    ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "rowGap"].every(
+      (key) => layout[key] === undefined || nonnegative(layout[key]),
+    ) &&
+    (layout.wrap === undefined || typeof layout.wrap === "boolean") &&
     (layout.align === "start" || layout.align === "center" || layout.align === "end") &&
-    (layout.justify === "start" ||
-      layout.justify === "center" ||
-      layout.justify === "end" ||
-      layout.justify === "space-between")
+    ["start", "center", "end", "space-between"].includes(String(layout.justify))
   );
 }
 
-/** Measure before allocation. Fill on a hugged axis contributes its minimum size,
- * avoiding a dependency cycle between a parent's size and its children's fills. */
+function axes(container: CanvasFrameNode) {
+  const layout = container.layout!;
+  const padding = canvasLayoutPadding(layout);
+  const horizontal = layout.direction === "row";
+
+  return {
+    main: horizontal ? ("width" as const) : ("height" as const),
+    cross: horizontal ? ("height" as const) : ("width" as const),
+    mainSizing: horizontal ? ("widthSizing" as const) : ("heightSizing" as const),
+    crossSizing: horizontal ? ("heightSizing" as const) : ("widthSizing" as const),
+    mainStart: horizontal ? padding.left : padding.top,
+    mainEnd: horizontal ? padding.right : padding.bottom,
+    crossStart: horizontal ? padding.top : padding.left,
+    crossEnd: horizontal ? padding.bottom : padding.right,
+    horizontal,
+  };
+}
+
+function intrinsic(node: CanvasFrame, axis: "width" | "height") {
+  const sizing = axis === "width" ? node.widthSizing : node.heightSizing;
+
+  return sizing === "fill"
+    ? canvasDimensionLimits(node, axis).minimum
+    : clampCanvasDimension(node, axis, node[axis]);
+}
+
+function linesFor(
+  container: CanvasFrameNode,
+  children: readonly CanvasFrame[],
+  resolveFill: boolean,
+) {
+  const layout = container.layout!;
+  const { main, mainSizing, mainStart, mainEnd } = axes(container);
+  const available = container[main] - mainStart - mainEnd;
+  const wrap = layout.wrap && container[mainSizing] !== "hug";
+  const lines: CanvasFrame[][] = [];
+  let line: CanvasFrame[] = [];
+  let occupied = 0;
+
+  for (const node of children) {
+    if (node.hidden) continue;
+    const size = resolveFill ? intrinsic(node, main) : node[main];
+    const next = occupied + (line.length ? layout.gap : 0) + size;
+
+    if (wrap && line.length && next > available) {
+      lines.push(line);
+      line = [];
+      occupied = 0;
+    }
+
+    occupied += (line.length ? layout.gap : 0) + size;
+    line.push(node);
+  }
+
+  if (line.length) lines.push(line);
+
+  return lines;
+}
+
+/** Resolved line membership is shared with spacing handles so wrapped gaps remain editable. */
+export function canvasLayoutLines(container: CanvasFrameNode, children: readonly CanvasFrame[]) {
+  return container.layout ? linesFor(container, children, true) : [];
+}
+
+/** Bounded water filling redistributes leftover space after a child reaches its min or max. */
+function allocate(container: CanvasFrameNode, line: readonly CanvasFrame[]) {
+  const { main, mainSizing, mainStart, mainEnd } = axes(container);
+  const sizes = new Map<string, number>();
+  let pending = line.filter((node) => node[mainSizing] === "fill");
+
+  let remaining =
+    container[main] - mainStart - mainEnd - container.layout!.gap * Math.max(0, line.length - 1);
+
+  for (const node of line) {
+    if (node[mainSizing] === "fill") continue;
+    const size = clampCanvasDimension(node, main, node[main]);
+    sizes.set(node.id, size);
+    remaining -= size;
+  }
+
+  while (pending.length) {
+    const share = remaining / pending.length;
+
+    const clampedTotal = pending.reduce(
+      (total, node) => total + clampCanvasDimension(node, main, share),
+      0,
+    );
+
+    // Freeze only the limits pushing the total away from the available space.
+    // Freezing both minimum and maximum violations together can over-allocate
+    // despite a feasible distribution (for example min80/max10/max30 in 100px).
+    const limited = pending.filter((node) => {
+      const size = clampCanvasDimension(node, main, share);
+
+      return clampedTotal > remaining ? size > share : size < share;
+    });
+
+    if (!limited.length) {
+      for (const node of pending) sizes.set(node.id, clampCanvasDimension(node, main, share));
+      break;
+    }
+
+    for (const node of limited) {
+      const size = clampCanvasDimension(node, main, share);
+      sizes.set(node.id, size);
+      remaining -= size;
+    }
+
+    pending = pending.filter((node) => !sizes.has(node.id));
+  }
+
+  return sizes;
+}
+
+/** Fill on a hugged axis contributes its minimum, avoiding cyclic sizing dependencies. */
 export function canvasLayoutHugSize(
   container: CanvasFrameNode,
   children: readonly CanvasFrame[],
 ): Pick<FrameRect, "width" | "height"> {
   const result = { width: container.width, height: container.height };
   if (!container.layout) return result;
-  const { direction, padding, gap } = container.layout;
+
+  const { main, cross, mainSizing, crossSizing, mainStart, mainEnd, crossStart, crossEnd } =
+    axes(container);
+
   const visible = children.filter((node) => !node.hidden);
 
-  for (const axis of ["width", "height"] as const) {
-    const sizing = axis === "width" ? "widthSizing" : "heightSizing";
-    if (container[sizing] !== "hug") continue;
+  if (container[mainSizing] === "hug") {
+    result[main] = clampCanvasDimension(
+      container,
+      main,
+      visible.reduce((sum, node) => sum + intrinsic(node, main), 0) +
+        container.layout.gap * Math.max(0, visible.length - 1) +
+        mainStart +
+        mainEnd,
+    );
+  }
 
-    const sizes = visible.map((child) =>
-      child[sizing] === "fill" ? canvasMinimumSize(child) : child[axis],
+  if (container[crossSizing] === "hug") {
+    const lines = linesFor({ ...container, ...result }, visible, true);
+
+    const content = lines.reduce(
+      (sum, line) => sum + Math.max(0, ...line.map((node) => intrinsic(node, cross))),
+      0,
     );
 
-    const main = (axis === "width") === (direction === "row");
-
-    const content = main
-      ? sizes.reduce((total, size) => total + size, 0) + gap * Math.max(0, sizes.length - 1)
-      : sizes.reduce((largest, size) => Math.max(largest, size), 0);
-
-    result[axis] = Math.max(40, content + padding * 2);
+    result[cross] = clampCanvasDimension(
+      container,
+      cross,
+      content +
+        (container.layout.rowGap ?? container.layout.gap) * Math.max(0, lines.length - 1) +
+        crossStart +
+        crossEnd,
+    );
   }
 
   return result;
 }
 
-/** Allocate fill children equally after fixed sizes, padding and minimum gaps.
- * Minimum sizes are retained during overflow, just like fixed-size children. */
+function resolve(container: CanvasFrameNode, children: readonly CanvasFrame[], resize: boolean) {
+  const result = new Map<string, FrameRect>();
+  const layout = container.layout;
+  if (!layout) return result;
+
+  const {
+    main,
+    cross,
+    mainSizing,
+    crossSizing,
+    mainStart,
+    mainEnd,
+    crossStart,
+    crossEnd,
+    horizontal,
+  } = axes(container);
+
+  const lines = linesFor(container, children, resize);
+  let crossCursor = crossStart;
+
+  for (const line of lines) {
+    const mainSizes = resize
+      ? allocate(container, line)
+      : new Map(line.map((node) => [node.id, node[main]]));
+
+    const lineCross = layout.wrap
+      ? Math.max(0, ...line.map((node) => (resize ? intrinsic(node, cross) : node[cross])))
+      : container[cross] - crossStart - crossEnd;
+
+    const available = container[main] - mainStart - mainEnd;
+
+    const occupied = line.reduce(
+      (sum, node) =>
+        sum +
+        (container[mainSizing] === "hug" && resize
+          ? intrinsic(node, main)
+          : mainSizes.get(node.id)!),
+      0,
+    );
+
+    const remaining = Math.max(0, available - occupied - layout.gap * Math.max(0, line.length - 1));
+
+    const gap =
+      layout.justify === "space-between" && line.length > 1
+        ? layout.gap + remaining / (line.length - 1)
+        : layout.gap;
+
+    let cursor =
+      mainStart +
+      (layout.justify === "center" ? remaining / 2 : layout.justify === "end" ? remaining : 0);
+
+    for (const node of line) {
+      const mainSize =
+        resize && container[mainSizing] === "hug" ? intrinsic(node, main) : mainSizes.get(node.id)!;
+
+      const crossSize =
+        resize && node[crossSizing] === "fill"
+          ? clampCanvasDimension(
+              node,
+              cross,
+              container[crossSizing] === "hug" ? intrinsic(node, cross) : lineCross,
+            )
+          : clampCanvasDimension(node, cross, node[cross]);
+
+      const crossRemaining = Math.max(0, lineCross - crossSize);
+
+      const offset =
+        crossCursor +
+        (layout.align === "center"
+          ? crossRemaining / 2
+          : layout.align === "end"
+            ? crossRemaining
+            : 0);
+
+      result.set(node.id, {
+        x: container.x + (horizontal ? cursor : offset),
+        y: container.y + (horizontal ? offset : cursor),
+        width: horizontal ? mainSize : crossSize,
+        height: horizontal ? crossSize : mainSize,
+      });
+      cursor += mainSize + gap;
+    }
+
+    crossCursor += lineCross + (layout.rowGap ?? layout.gap);
+  }
+
+  return result;
+}
+
 export function canvasLayoutRects(
   container: CanvasFrameNode,
   children: readonly CanvasFrame[],
 ): ReadonlyMap<string, FrameRect> {
-  const layout = container.layout;
-  if (!layout) return new Map();
-  const visible = children.filter((node) => !node.hidden);
-  const main = layout.direction === "row" ? "width" : "height";
-  const cross = main === "width" ? "height" : "width";
-  const mainSizing = main === "width" ? "widthSizing" : "heightSizing";
-  const crossSizing = cross === "width" ? "widthSizing" : "heightSizing";
-  const fills = visible.filter((node) => node[mainSizing] === "fill");
-
-  const available =
-    container[main] - layout.padding * 2 - layout.gap * Math.max(0, visible.length - 1);
-
-  let remaining =
-    available -
-    visible.reduce((total, node) => total + (node[mainSizing] === "fill" ? 0 : node[main]), 0);
-
-  const allocated = new Map<string, number>();
-  let pending = fills;
-
-  while (pending.length) {
-    const share = remaining / pending.length;
-    const constrained = pending.filter((node) => canvasMinimumSize(node) > share);
-
-    if (!constrained.length) {
-      for (const node of pending) allocated.set(node.id, share);
-      break;
-    }
-
-    for (const node of constrained) {
-      const minimum = canvasMinimumSize(node);
-      allocated.set(node.id, minimum);
-      remaining -= minimum;
-    }
-
-    pending = pending.filter((node) => !allocated.has(node.id));
-  }
-
-  // oxlint-disable-next-line oxc/no-map-spread -- Input nodes are immutable document snapshots.
-  const resolved = visible.map((node) => ({
-    ...node,
-    [main]:
-      node[mainSizing] === "fill"
-        ? container[mainSizing] === "hug"
-          ? canvasMinimumSize(node)
-          : allocated.get(node.id)!
-        : node[main],
-    [cross]:
-      node[crossSizing] === "fill"
-        ? container[crossSizing] === "hug"
-          ? canvasMinimumSize(node)
-          : Math.max(canvasMinimumSize(node), container[cross] - layout.padding * 2)
-        : node[cross],
-  }));
-
-  const positions = canvasLayoutPositions(container, resolved);
-
-  return new Map(
-    resolved.map((node) => [
-      node.id,
-      {
-        ...positions.get(node.id)!,
-        width: node.width,
-        height: node.height,
-      },
-    ]),
-  );
+  return resolve(container, children, true);
 }
 
-/** Position children whose dimensions are already resolved. */
+/** Position already resolved dimensions without changing their sizing modes. */
 export function canvasLayoutPositions(
   container: CanvasFrameNode,
   children: readonly CanvasFrame[],
 ): ReadonlyMap<string, Point> {
-  const positions = new Map<string, Point>();
-  const layout = container.layout;
-  if (!layout) return positions;
-  const visible = children.filter((node) => !node.hidden);
-  if (!visible.length) return positions;
-  const horizontal = layout.direction === "row";
-  const mainSize = horizontal ? "width" : "height";
-  const crossSize = horizontal ? "height" : "width";
-  const available = container[mainSize] - layout.padding * 2;
-  const content = visible.reduce((sum, child) => sum + child[mainSize], 0);
-  const minimumGaps = layout.gap * (visible.length - 1);
-  const remaining = Math.max(0, available - content - minimumGaps);
-
-  const gap =
-    layout.justify === "space-between" && visible.length > 1
-      ? layout.gap + remaining / (visible.length - 1)
-      : layout.gap;
-
-  let cursor =
-    layout.padding +
-    (layout.justify === "center" ? remaining / 2 : layout.justify === "end" ? remaining : 0);
-
-  for (const child of visible) {
-    const crossRemaining = Math.max(
-      0,
-      container[crossSize] - layout.padding * 2 - child[crossSize],
-    );
-
-    const cross =
-      layout.padding +
-      (layout.align === "center"
-        ? crossRemaining / 2
-        : layout.align === "end"
-          ? crossRemaining
-          : 0);
-
-    positions.set(child.id, {
-      x: container.x + (horizontal ? cursor : cross),
-      y: container.y + (horizontal ? cross : cursor),
-    });
-    cursor += child[mainSize] + gap;
-  }
-
-  return positions;
+  return new Map(
+    [...resolve(container, children, false)].map(([id, rect]) => [id, { x: rect.x, y: rect.y }]),
+  );
 }

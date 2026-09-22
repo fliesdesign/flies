@@ -106,7 +106,7 @@ describe("Firefly initialization failure", () => {
   });
 });
 
-function recordingDevice() {
+function recordingDevice(options: { surfacePoolBudget?: number } = {}) {
   const calls: { method: string; args: unknown[] }[] = [];
   let nextConstant = 1;
   let nextObject = 1;
@@ -152,8 +152,81 @@ function recordingDevice() {
     throw new Error(`No ${method} call was recorded.`);
   };
 
-  return { device: new Firefly(canvas, () => {}), canvas, gl, calls, lastCall };
+  return { device: new Firefly(canvas, () => {}, options), canvas, gl, calls, lastCall };
 }
+
+describe("ordered artwork batches", () => {
+  const identity = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  const rect = { x: 2, y: 3, width: 20, height: 30 };
+
+  it("preserves clip barriers while batching adjacent artwork and counting primitives independently", () => {
+    const { device, calls } = recordingDevice();
+    device.begin();
+    device.rect(rect, identity, [1, 0, 0, 1]);
+    device.rect(rect, identity, [0, 1, 0, 0.5]);
+    device.clip(rect, identity, 4, true);
+    device.rect(rect, identity, [0, 0, 1, 1]);
+    device.rect(rect, identity, [1, 1, 1, 0.5]);
+    device.clip(rect, identity, 4, false);
+    device.present();
+    const batches = calls.filter((call) => call.method === "drawArraysInstanced");
+    expect(batches.map((call) => call.args[3])).toEqual([2, 1, 2, 1]);
+    expect(device.drawCalls).toBe(4);
+    expect(device.primitiveCount).toBe(4);
+    expect(device.clipCount).toBe(2);
+    device.destroy();
+  });
+
+  it("submits distinct textures together without an atlas or losing texture boundaries", () => {
+    const { device, calls } = recordingDevice();
+
+    const textures = Array.from({ length: 9 }, () =>
+      device.texture({ width: 2, height: 2 } as HTMLCanvasElement),
+    );
+
+    device.begin();
+    for (const texture of textures) device.image(texture, rect, identity);
+    device.present();
+    expect(
+      calls.filter((call) => call.method === "drawArraysInstanced").map((call) => call.args[3]),
+    ).toEqual([8, 1]);
+    expect(device.primitiveCount).toBe(9);
+    expect(device.textureUploads).toBe(9);
+    device.destroy();
+    expect(device.textureBytes).toBe(0);
+  });
+});
+
+describe("bounded effect surfaces", () => {
+  it("allocates pixel-aligned subtree bounds and keeps the origin when recycling", () => {
+    const { device } = recordingDevice();
+    device.resize(1280, 720, 2);
+    const surface = device.acquire({ x: 10.25, y: -20.25, width: 80, height: 40 });
+    expect(surface.bounds).toEqual({ x: 10, y: -20.5, width: 80.5, height: 40.5 });
+    expect([surface.texture.width, surface.texture.height]).toEqual([161, 81]);
+    expect(device.surfaceBytes).toBe(161 * 81 * 5);
+    device.release(surface);
+    expect(device.pooledSurfaceBytes).toBe(device.surfaceBytes);
+    const reused = device.acquire({ x: 100.25, y: 30.25, width: 80, height: 40 });
+    expect(reused).toBe(surface);
+    expect(reused.bounds.x).toBe(100);
+    expect(device.pooledSurfaceBytes).toBe(0);
+    device.release(reused);
+    device.destroy();
+    expect(device.surfaceBytes).toBe(0);
+  });
+
+  it("releases temporary surfaces rather than retaining more than its byte budget", () => {
+    const { device } = recordingDevice({ surfacePoolBudget: 1000 });
+    device.resize(1280, 720, 2);
+    const surface = device.acquire({ x: 0, y: 0, width: 80, height: 40 });
+    device.release(surface);
+    expect(device.surfaceBytes).toBe(0);
+    expect(device.pooledSurfaceBytes).toBe(0);
+    expect(device.textureBytes).toBe(4);
+    device.destroy();
+  });
+});
 
 describe("Firefly effect overscan", () => {
   it("keeps the visible canvas size while presenting the center of a persistent expanded scene", () => {

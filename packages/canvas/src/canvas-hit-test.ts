@@ -69,7 +69,7 @@ export class CanvasHitTester {
       const order = this.order.get(id) ?? -1;
       if (order <= topOrder) return;
       const frame = this.document.getFrame(id);
-      if (!frame || !this.contains(frame, point)) return;
+      if (!frame || this.document.isMaskSource(id) || !this.contains(frame, point)) return;
       result = id;
       topOrder = order;
     };

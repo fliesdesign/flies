@@ -43,7 +43,7 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
       input,
       pngBytes: png.size,
       blankNames: nodes.filter((node: { name: string }) => node.name === "div").length,
-      underline: nodes.find((node: { text: string }) => node.text === "Dansk"),
+      underline: nodes.find((node: { text?: string }) => node.text?.includes("Google offered in:")),
       footerBorder: nodes.find((node: { name: string }) => node.name === "Top border"),
     };
   }, google);
@@ -66,7 +66,13 @@ test("Google-style HTML imports as a compact editable layout with real inline ty
   expect(result.input.y + result.input.height).toBeLessThan(
     result.search.y + result.search.height - 5,
   );
-  expect(result.underline).toMatchObject({ kind: "text", textDecoration: "underline" });
+  expect(result.underline).toMatchObject({ kind: "text", text: "Google offered in: Dansk" });
+  expect(result.underline.textRuns).toContainEqual({
+    start: 19,
+    end: 24,
+    color: "#1a0dabff",
+    textDecoration: "underline",
+  });
   expect(result.footerBorder.height).toBe(1);
   expect(result.pngBytes).toBeGreaterThan(10000);
 });

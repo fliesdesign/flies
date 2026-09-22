@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import { describe, it } from "vite-plus/test";
 
-import type { CanvasFrame } from "./canvas-document";
+import { CanvasDocument, type CanvasFrame } from "./canvas-document";
 import {
   adoptFrameContents,
   decodeCanvasClipboard,
@@ -21,6 +21,7 @@ import {
   selectionRoots,
   ungroupSelection,
 } from "./canvas-operations";
+import { scaleSelectionWorld } from "./canvas-transform";
 
 function frame(id: string, overrides: Partial<CanvasFrame> = {}): CanvasFrame {
   return { id, name: id, x: 0, y: 0, width: 400, height: 300, ...overrides } as CanvasFrame;
@@ -41,6 +42,68 @@ const scene = [
 function clipboardPayload(nodes: unknown, clipboardType = "flies-canvas") {
   return JSON.stringify({ type: clipboardType, version: 1, nodes });
 }
+
+describe("component and mask clipboard references", () => {
+  const source = frame("master", { component: { variants: [] } });
+  const label = rectangle("original", { parentId: source.id });
+
+  const instance = frame("instance", {
+    instance: { componentId: source.id, overrides: [] },
+  });
+
+  const child = rectangle("clone", { parentId: instance.id, componentSourceId: label.id });
+  const nodes = [source, label, instance, child];
+
+  it("keeps same-document instance links and detaches cross-document instances", () => {
+    const payload = decodeCanvasClipboard(encodeCanvasClipboard(nodes, [instance.id])!)!;
+    assert.ok(payload);
+    let sequence = 0;
+
+    const linked = pasteCanvasClipboard(
+      payload,
+      { x: 20, y: 20 },
+      () => `copy-${++sequence}`,
+      nodes,
+    );
+
+    assert.equal(linked.nodes[0].instance?.componentId, source.id);
+    assert.equal(linked.nodes[1].componentSourceId, label.id);
+    assert.doesNotThrow(() => new CanvasDocument([...nodes, ...linked.nodes]));
+
+    const detached = pasteCanvasClipboard(payload, { x: 0, y: 0 }, () => `copy-${++sequence}`);
+    assert.equal(detached.nodes[0].instance, undefined);
+    assert.equal(detached.nodes[1].componentSourceId, undefined);
+    assert.doesNotThrow(() => new CanvasDocument(detached.nodes));
+  });
+
+  it("remaps copied definitions and instances together and detaches isolated children", () => {
+    let sequence = 0;
+    const payload = decodeCanvasClipboard(encodeCanvasClipboard(nodes, [source.id, instance.id])!)!;
+    const copied = pasteCanvasClipboard(payload, { x: 0, y: 0 }, () => `copy-${++sequence}`).nodes;
+    assert.equal(copied[2].instance?.componentId, copied[0].id);
+    assert.equal(copied[3].componentSourceId, copied[1].id);
+    assert.doesNotThrow(() => new CanvasDocument(copied));
+    const isolated = decodeCanvasClipboard(encodeCanvasClipboard(nodes, [child.id])!)!;
+    assert.equal(isolated[0].componentSourceId, undefined);
+  });
+
+  it("remaps an included mask source and removes uncopied external masks", () => {
+    const mask = rectangle("mask");
+    const masked = rectangle("masked", { maskId: mask.id });
+    let sequence = 0;
+
+    const copied = pasteCanvasClipboard(
+      [mask, masked],
+      { x: 0, y: 0 },
+      () => `copy-${++sequence}`,
+    ).nodes;
+
+    assert.equal(copied[1].maskId, copied[0].id);
+    assert.doesNotThrow(() => new CanvasDocument(copied));
+    const isolated = decodeCanvasClipboard(encodeCanvasClipboard([mask, masked], [masked.id])!)!;
+    assert.equal(isolated[0].maskId, undefined);
+  });
+});
 
 describe("canvas selection geometry", () => {
   it("normalizes ancestor selections and includes every descendant exactly once", () => {
@@ -121,14 +184,35 @@ describe("canvas selection geometry", () => {
       kind: "text",
       text: "Hello",
       fontSize: 20,
+      textRuns: [
+        { start: 0, end: 2, fontSize: 30 },
+        { start: 2, end: 5, fontWeight: 700 },
+      ],
       color: "#fff",
     };
 
     const doubled = { x: 0, y: 0, width: 200, height: 200 };
     const changed = resizeSelection([group, text], ["group"], group, doubled);
     assert.equal(changed[1].kind === "text" && changed[1].fontSize, 40);
+    assert.deepEqual(changed[1].kind === "text" && changed[1].textRuns, [
+      { start: 0, end: 2, fontSize: 60 },
+      { start: 2, end: 5, fontWeight: 700 },
+    ]);
     const direct = resizeSelection([group, text], ["text"], text, doubled);
     assert.equal(direct[0].kind === "text" && direct[0].fontSize, 20);
+    assert.deepEqual(direct[0].kind === "text" && direct[0].textRuns, text.textRuns);
+    const rotated = { ...group, rotation: 30 };
+
+    const scaled = scaleSelectionWorld([rotated, text], [group.id], group, doubled).find(
+      (node) => node.id === text.id,
+    )!;
+
+    assert.equal(scaled.kind === "text" && scaled.fontSize, 40);
+    assert.deepEqual(
+      scaled.kind === "text" && scaled.textRuns,
+      changed[1].kind === "text" && changed[1].textRuns,
+    );
+    assert.equal(text.textRuns?.[0].fontSize, 30);
   });
 
   it("rejects invalid resize bounds without producing invalid document geometry", () => {

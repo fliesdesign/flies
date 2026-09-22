@@ -91,3 +91,67 @@
   background: #4285d480;
   color: inherit;
 }
+
+.canvas-text-format-toolbar {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 4px 18px #0004;
+  font:
+    12px/1.25 Arial,
+    sans-serif;
+}
+
+.canvas-text-format-toolbar button,
+.canvas-text-format-toolbar input {
+  height: 28px;
+  min-width: 28px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 7px;
+}
+
+.canvas-text-format-toolbar button:hover,
+.canvas-text-format-toolbar button:focus-visible {
+  background: var(--accent);
+}
+
+.canvas-text-format-toolbar button:disabled {
+  opacity: 0.4;
+}
+
+.canvas-text-format-toolbar input {
+  border-color: var(--border);
+  background: var(--background);
+  color: inherit;
+}
+
+.canvas-text-format-toolbar input[type="color"] {
+  width: 28px;
+  padding: 3px;
+}
+
+.canvas-text-format-toolbar [role="alert"] {
+  width: 100%;
+  padding: 3px;
+}
+
+.canvas-mask-artwork {
+  position: absolute;
+  inset: 0;
+}
+.canvas-cropped-image {
+  display: block;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}

@@ -612,6 +612,17 @@ export function FileWorkspace({
           if (
             [
               "create_artboard",
+              "create_vector",
+              "convert_to_vector",
+              "boolean_vectors",
+              "create_component",
+              "instantiate_component",
+              "detach_instance",
+              "reset_instance",
+              "set_instance_variant",
+              "capture_component_variant",
+              "set_component_variant",
+              "remove_component_variant",
               "create_page",
               "delete_page",
               "write_html",

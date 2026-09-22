@@ -1,6 +1,9 @@
 /* oxlint-disable oxc/no-map-spread -- Document nodes are immutable; geometry operations return new snapshots. */
-import { loadCanvasFrames, type CanvasFrame } from "./canvas-document";
+import { detachOrphanedComponentLinks, remapCanvasComponentReferences } from "./canvas-components";
+import { canvasConstraintDrivenIds, clampCanvasDimension } from "./canvas-constraints";
+import { isCanvasFrame, loadCanvasFrames, type CanvasFrame } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
+import { scaleCanvasTextRuns } from "./canvas-rich-text";
 import {
   localTransform,
   transformVector,
@@ -135,8 +138,8 @@ export function resizeSelection(
     const resized = {
       ...single,
       ...next,
-      width: Math.max(40, next.width),
-      height: Math.max(40, next.height),
+      width: clampCanvasDimension(single, "width", next.width),
+      height: clampCanvasDimension(single, "height", next.height),
       ...(next.width !== start.width && single.widthSizing !== undefined
         ? { widthSizing: "fixed" as const }
         : {}),
@@ -160,10 +163,12 @@ export function resizeSelection(
     const dx = resized.x - single.x - shift.x,
       dy = resized.y - single.y - shift.y;
 
+    const responsive = canvasConstraintDrivenIds(nodes, single, resized);
+
     return [
       resized,
       ...selectionDescendants(nodes, roots)
-        .filter((node) => node.id !== single.id)
+        .filter((node) => node.id !== single.id && !responsive.has(node.id))
         .map((node) => ({ ...node, x: node.x + dx, y: node.y + dy })),
     ];
   }
@@ -191,7 +196,13 @@ export function resizeSelection(
     // A text box resized directly reflows; scaling a group scales its typography as well.
     updates.push(
       scaleContents && resized.kind === "text"
-        ? { ...resized, fontSize: resized.fontSize * Math.min(scaleX, scaleY) }
+        ? {
+            ...resized,
+            fontSize: resized.fontSize * Math.min(scaleX, scaleY),
+            ...(resized.textRuns && {
+              textRuns: scaleCanvasTextRuns(resized.textRuns, Math.min(scaleX, scaleY)),
+            }),
+          }
         : resized,
     );
   }
@@ -457,8 +468,18 @@ export function encodeCanvasClipboard(
   return JSON.stringify({
     type: CANVAS_CLIPBOARD_TYPE,
     version: 1,
-    nodes: selected.map((node) =>
-      withParent(node, node.parentId && included.has(node.parentId) ? node.parentId : undefined),
+    nodes: detachOrphanedComponentLinks(
+      selected.map((node) => {
+        const value = withParent(
+          node,
+          node.parentId && included.has(node.parentId) ? node.parentId : undefined,
+        );
+
+        if (!value.maskId || included.has(value.maskId)) return value;
+        const { maskId: _maskId, ...unmasked } = value;
+
+        return unmasked as CanvasFrame;
+      }),
     ),
   });
 }
@@ -479,10 +500,20 @@ export function decodeCanvasClipboard(text: string): CanvasFrame[] | null {
       !value.nodes.length
     )
       return null;
-    const serialized = JSON.stringify(value.nodes);
+    if (!value.nodes.every((node: unknown) => isCanvasFrame(node))) return null;
+    const original = value.nodes as CanvasFrame[];
+    const included = new Map(original.map((node) => [node.id, node.id]));
+
+    // A clipboard may reference a master in its source document. Validate its
+    // materialized artwork as detached layers, then resolve that link on paste.
+    const detached = detachOrphanedComponentLinks(
+      original.map((node) => remapCanvasComponentReferences(node, included)),
+    );
+
+    const serialized = JSON.stringify(detached);
     const nodes = loadCanvasFrames({ getItem: () => serialized });
 
-    return nodes.length === value.nodes.length ? nodes : null;
+    return nodes.length === original.length ? original : null;
   } catch {
     return null;
   }
@@ -493,6 +524,7 @@ export function pasteCanvasClipboard(
   payload: readonly CanvasFrame[],
   offset: Point,
   idFactory: () => string = () => crypto.randomUUID(),
+  destinationNodes: readonly CanvasFrame[] = [],
 ): { nodes: CanvasFrame[]; selection: string[] } {
   const replacements = new Map<string, string>();
   const generated = new Set<string>();
@@ -508,12 +540,29 @@ export function pasteCanvasClipboard(
     generated.add(id);
   }
 
-  const nodes = payload.map((node) => ({
-    ...withParent(node, node.parentId ? replacements.get(node.parentId) : undefined),
-    id: replacements.get(node.id)!,
-    x: node.x + offset.x,
-    y: node.y + offset.y,
-  }));
+  const availableComponents = new Set(
+    destinationNodes.filter((node) => node.component).map((node) => node.id),
+  );
+
+  const nodes = detachOrphanedComponentLinks(
+    payload.map((node) => {
+      const value = remapCanvasComponentReferences(node, replacements, availableComponents);
+      const { maskId: _maskId, ...unmasked } = value;
+
+      return {
+        ...withParent(
+          unmasked as CanvasFrame,
+          node.parentId ? replacements.get(node.parentId) : undefined,
+        ),
+        ...(node.maskId && replacements.has(node.maskId)
+          ? { maskId: replacements.get(node.maskId) }
+          : {}),
+        id: replacements.get(node.id)!,
+        x: node.x + offset.x,
+        y: node.y + offset.y,
+      } as CanvasFrame;
+    }),
+  );
 
   return { nodes, selection: nodes.filter((node) => !node.parentId).map((node) => node.id) };
 }

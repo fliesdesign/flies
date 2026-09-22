@@ -1,3 +1,5 @@
+import { QuadBatch } from "./batch";
+import { GpuProfiler } from "./profiler";
 import { fragment, vertex } from "./shaders";
 
 export type Matrix = { a: number; b: number; c: number; d: number; e: number; f: number };
@@ -13,6 +15,8 @@ export type Surface = {
   texture: Texture;
   framebuffer: WebGLFramebuffer;
   stencil: WebGLRenderbuffer;
+  /** Pixel-aligned logical coordinates within the drawing scene. */
+  bounds: Rect;
 };
 export type Filter = {
   kind: "blur" | "brightness" | "contrast" | "saturate" | "grayscale" | "sepia" | "invert" | "hue";
@@ -50,8 +54,15 @@ export class Firefly {
   readonly gl: WebGL2RenderingContext;
   readonly maxTextureSize: number;
   drawCalls = 0;
+  primitiveCount = 0;
+  clipCount = 0;
   textureUploads = 0;
   textureBytes = 0;
+  surfaceTextureBytes = 0;
+  surfaceBytes = 0;
+  pooledSurfaceBytes = 0;
+  readonly profiler: GpuProfiler;
+  private readonly batch: QuadBatch;
   private readonly program: WebGLProgram;
   private readonly uniforms = new Map<string, WebGLUniformLocation>();
   private readonly matrix = new Float32Array(9);
@@ -70,10 +81,12 @@ export class Firefly {
   private disposed = false;
   private readonly vao: WebGLVertexArrayObject;
   private readonly empty: Texture;
+  private readonly surfacePoolBudget: number;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
     private readonly onLost: (error: Error) => void,
+    options: { profiling?: boolean; surfacePoolBudget?: number } = {},
   ) {
     const gl = canvas.getContext("webgl2", {
       alpha: true,
@@ -87,6 +100,7 @@ export class Firefly {
 
     if (!gl) throw new Error("WebGL2 is unavailable.");
     this.gl = gl;
+    this.surfacePoolBudget = options.surfacePoolBudget ?? 64 * 1024 * 1024;
     this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
     const shaders: WebGLShader[] = [];
     const program = gl.createProgram();
@@ -129,6 +143,19 @@ export class Firefly {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.empty.handle);
+
+    try {
+      this.batch = new QuadBatch(gl);
+    } catch (error) {
+      gl.deleteTexture(this.empty.handle);
+      this.textures.clear();
+      this.textureBytes = 0;
+      gl.deleteVertexArray(this.vao);
+      gl.deleteProgram(this.program);
+      throw error;
+    }
+
+    this.profiler = new GpuProfiler(gl, options.profiling ?? false);
     canvas.addEventListener("webglcontextlost", this.handleLoss);
   }
 
@@ -156,6 +183,7 @@ export class Firefly {
   }
 
   resize(width: number, height: number, ratio: number, padding = 0) {
+    this.flush();
     const nextWidth = Math.max(1, Math.ceil(width * ratio));
     const nextHeight = Math.max(1, Math.ceil(height * ratio));
     const paddingPixels = Math.max(0, Math.ceil(padding * ratio));
@@ -184,12 +212,17 @@ export class Firefly {
     if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
     for (const surface of this.surfaces) this.deleteSurface(surface);
     this.pool.length = 0;
+    this.pooledSurfaceBytes = 0;
     this.current = null;
     this.scene = null;
   }
 
   begin() {
+    this.flush();
+    this.profiler.begin();
     this.drawCalls = 0;
+    this.primitiveCount = 0;
+    this.clipCount = 0;
     if (this.paddingPixels > 0 && !this.scene) this.scene = this.acquire();
     this.target(this.scene, 0);
     this.clear();
@@ -197,7 +230,14 @@ export class Firefly {
 
   /** Present only the visible center; overscan stays available to filters and blend passes. */
   present() {
-    if (!this.scene) return;
+    this.flush();
+
+    if (!this.scene) {
+      this.profiler.end();
+
+      return;
+    }
+
     const gl = this.gl;
     const destination = this.getTarget();
     const padding = this.paddingPixels;
@@ -216,6 +256,7 @@ export class Firefly {
       gl.NEAREST,
     );
     this.target(destination.surface, destination.depth);
+    this.profiler.end();
   }
 
   getTarget() {
@@ -223,6 +264,8 @@ export class Firefly {
   }
 
   target(surface: Surface | null, depth = 0) {
+    this.flush();
+    this.batch?.invalidateTextures();
     const gl = this.gl;
     this.current = surface;
     this.stencilDepth = depth;
@@ -245,6 +288,7 @@ export class Firefly {
   }
 
   clear() {
+    this.flush();
     const gl = this.gl;
     gl.colorMask(true, true, true, true);
     gl.stencilMask(0xff);
@@ -289,6 +333,7 @@ export class Firefly {
   }
 
   private allocateTexture(width: number, height: number, flipped: boolean): Texture {
+    this.batch?.invalidateTextures();
     const gl = this.gl;
     if (width > this.maxTextureSize || height > this.maxTextureSize)
       throw new Error("Artwork exceeds device texture size.");
@@ -308,16 +353,41 @@ export class Firefly {
   }
 
   deleteTexture(texture: Texture) {
+    this.flush();
+    this.batch?.invalidateTextures();
     if (!this.textures.delete(texture)) return;
     this.gl.deleteTexture(texture.handle);
     this.textureBytes -= texture.byteLength;
   }
 
-  acquire(): Surface {
-    const available = this.pool.pop();
-    if (available) return available;
+  acquire(bounds: Rect = { x: 0, y: 0, width: this.width, height: this.height }): Surface {
+    const x = Math.floor(bounds.x * this.ratio);
+    const y = Math.floor(bounds.y * this.ratio);
+    const width = Math.max(1, Math.ceil((bounds.x + bounds.width) * this.ratio) - x);
+    const height = Math.max(1, Math.ceil((bounds.y + bounds.height) * this.ratio) - y);
+
+    const aligned = {
+      x: x / this.ratio,
+      y: y / this.ratio,
+      width: width / this.ratio,
+      height: height / this.ratio,
+    };
+
+    const index = this.pool.findIndex(
+      (surface) => surface.texture.width === width && surface.texture.height === height,
+    );
+
+    if (index >= 0) {
+      const available = this.pool.splice(index, 1)[0];
+      this.pooledSurfaceBytes -= available.texture.width * available.texture.height * 5;
+      available.bounds = aligned;
+
+      return available;
+    }
+
+    this.flush();
     const gl = this.gl;
-    const texture = this.allocateTexture(this.surfaceWidth, this.surfaceHeight, true);
+    const texture = this.allocateTexture(width, height, true);
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
@@ -336,8 +406,10 @@ export class Firefly {
     gl.bindRenderbuffer(gl.RENDERBUFFER, stencil);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.STENCIL_INDEX8, texture.width, texture.height);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.STENCIL_ATTACHMENT, gl.RENDERBUFFER, stencil);
-    const surface = { texture, framebuffer, stencil };
+    const surface = { texture, framebuffer, stencil, bounds: aligned };
     this.surfaces.add(surface);
+    this.surfaceTextureBytes += texture.byteLength;
+    this.surfaceBytes += width * height * 5;
 
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
       this.deleteSurface(surface);
@@ -351,31 +423,46 @@ export class Firefly {
 
   release(surface: Surface) {
     if (surface === this.scene) return;
-    if (this.pool.length < 8) this.pool.push(surface);
-    else this.deleteSurface(surface);
+    const bytes = surface.texture.width * surface.texture.height * 5;
+
+    if (this.pool.length < 8 && this.pooledSurfaceBytes + bytes <= this.surfacePoolBudget) {
+      this.pool.push(surface);
+      this.pooledSurfaceBytes += bytes;
+    } else this.deleteSurface(surface);
   }
 
   private deleteSurface(surface: Surface) {
-    this.surfaces.delete(surface);
+    if (!this.surfaces.delete(surface)) return;
+    this.surfaceTextureBytes -= surface.texture.byteLength;
+    this.surfaceBytes -= surface.texture.width * surface.texture.height * 5;
     this.deleteTexture(surface.texture);
     this.gl.deleteFramebuffer(surface.framebuffer);
     this.gl.deleteRenderbuffer(surface.stencil);
   }
 
   private prepare(rect: Rect, transform: Matrix, opacity: number) {
+    this.flush();
+    this.batch.invalidateTextures();
     const gl = this.gl;
+    gl.useProgram(this.program);
+    gl.bindVertexArray(this.vao);
     const m = this.matrix;
+    const bounds = this.current?.bounds;
     m[0] = transform.a * rect.width;
     m[1] = transform.b * rect.width;
     m[2] = 0;
     m[3] = transform.c * rect.height;
     m[4] = transform.d * rect.height;
     m[5] = 0;
-    m[6] = transform.a * rect.x + transform.c * rect.y + transform.e;
-    m[7] = transform.b * rect.x + transform.d * rect.y + transform.f;
+    m[6] = transform.a * rect.x + transform.c * rect.y + transform.e - (bounds?.x ?? 0);
+    m[7] = transform.b * rect.x + transform.d * rect.y + transform.f - (bounds?.y ?? 0);
     m[8] = 1;
     gl.uniformMatrix3fv(this.location("uMatrix"), false, m);
-    gl.uniform2f(this.location("uViewport"), this.width, this.height);
+    gl.uniform2f(
+      this.location("uViewport"),
+      bounds?.width ?? this.canvas.width / this.ratio,
+      bounds?.height ?? this.canvas.height / this.ratio,
+    );
     gl.uniform1f(this.location("uOpacity"), opacity);
     gl.uniform2f(this.location("uPadding"), 0, 0);
     gl.activeTexture(gl.TEXTURE1);
@@ -386,36 +473,31 @@ export class Firefly {
   }
 
   rect(rect: Rect, transform: Matrix, color: readonly number[], radius = 0, opacity = 1) {
-    this.prepare(rect, transform, opacity);
-    const gl = this.gl;
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.empty.handle);
-    gl.uniform1i(this.location("uMode"), 0);
-    // Expand the quad by one physical pixel so analytic edge coverage is identical
-    // on the canvas and single-sample offscreen surfaces (including thin lines).
-    gl.uniform2f(
-      this.location("uPadding"),
-      1 / Math.max(1, rect.width * this.ratio * Math.hypot(transform.a, transform.b)),
-      1 / Math.max(1, rect.height * this.ratio * Math.hypot(transform.c, transform.d)),
-    );
-
-    gl.uniform4f(this.location("uColor"), color[0], color[1], color[2], color[3]);
-    gl.uniform2f(this.location("uSize"), rect.width, rect.height);
-    gl.uniform1f(this.location("uRadius"), Math.min(radius, rect.width / 2, rect.height / 2));
-    this.draw();
+    if (!this.batch.accepts()) this.flush();
+    this.batch.add(rect, transform, this.ratio, color, radius, opacity);
+    this.primitiveCount++;
   }
 
   image(texture: Texture, rect: Rect, transform: Matrix, opacity = 1) {
-    this.prepare(rect, transform, opacity);
-    this.bindImage(texture);
-    this.gl.uniform1i(this.location("uTextureEdges"), 1);
-    this.gl.uniform2f(this.location("uSize"), rect.width, rect.height);
-    this.gl.uniform2f(
-      this.location("uPadding"),
-      1 / Math.max(1, rect.width * this.ratio * Math.hypot(transform.a, transform.b)),
-      1 / Math.max(1, rect.height * this.ratio * Math.hypot(transform.c, transform.d)),
-    );
-    this.draw();
+    if (!this.batch.accepts(texture)) this.flush();
+    this.batch.add(rect, transform, this.ratio, [1, 1, 1, 1], 0, opacity, texture);
+    this.primitiveCount++;
+  }
+
+  /** Submit queued artwork before reading pixels or changing external GL state. */
+  flush() {
+    const bounds = this.current?.bounds;
+    if (
+      this.batch?.flush(
+        bounds?.width ?? this.canvas.width / this.ratio,
+        bounds?.height ?? this.canvas.height / this.ratio,
+        bounds?.x ?? 0,
+        bounds?.y ?? 0,
+        this.empty,
+        this.current?.texture.handle,
+      )
+    )
+      this.drawCalls++;
   }
 
   private bindImage(texture: Texture) {
@@ -427,6 +509,7 @@ export class Firefly {
   }
 
   clip(rect: Rect, matrix: Matrix, radius: number, push: boolean) {
+    this.flush();
     const gl = this.gl;
     if (push && this.stencilDepth >= 254)
       throw new Error("Canvas clipping nesting exceeds the device limit.");
@@ -436,36 +519,70 @@ export class Firefly {
     gl.stencilOp(gl.KEEP, gl.KEEP, push ? gl.INCR : gl.DECR);
     gl.colorMask(false, false, false, false);
     this.rect(rect, matrix, [1, 1, 1, 1], radius);
+    this.flush();
+    this.primitiveCount--;
+    this.clipCount++;
     gl.colorMask(true, true, true, true);
     this.stencilDepth += push ? 1 : -1;
     this.applyStencil();
   }
 
   composite(source: Surface, opacity: number, blend = 0) {
+    this.flush();
     const destination = this.getTarget();
     let backdrop: Surface | undefined;
 
     if (blend) {
-      backdrop = this.acquire();
+      backdrop = this.acquire(source.bounds);
       const gl = this.gl;
+      this.target(backdrop);
+      this.clear();
+
+      const destinationBounds = destination.surface?.bounds ?? {
+        x: 0,
+        y: 0,
+        width: this.canvas.width / this.ratio,
+        height: this.canvas.height / this.ratio,
+      };
+
+      const x = Math.max(source.bounds.x, destinationBounds.x);
+      const y = Math.max(source.bounds.y, destinationBounds.y);
+
+      const right = Math.min(
+        source.bounds.x + source.bounds.width,
+        destinationBounds.x + destinationBounds.width,
+      );
+
+      const bottom = Math.min(
+        source.bounds.y + source.bounds.height,
+        destinationBounds.y + destinationBounds.height,
+      );
+
+      const destinationHeight = destination.surface?.texture.height ?? this.canvas.height;
+      const sx = Math.round((x - destinationBounds.x) * this.ratio);
+      const sy = destinationHeight - Math.round((bottom - destinationBounds.y) * this.ratio);
+      const dx = Math.round((x - source.bounds.x) * this.ratio);
+      const dy = backdrop.texture.height - Math.round((bottom - source.bounds.y) * this.ratio);
+      const width = Math.max(0, Math.round((right - x) * this.ratio));
+      const height = Math.max(0, Math.round((bottom - y) * this.ratio));
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, destination.surface?.framebuffer ?? null);
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, backdrop.framebuffer);
       gl.blitFramebuffer(
-        0,
-        0,
-        this.surfaceWidth,
-        this.surfaceHeight,
-        0,
-        0,
-        this.surfaceWidth,
-        this.surfaceHeight,
+        sx,
+        sy,
+        sx + width,
+        sy + height,
+        dx,
+        dy,
+        dx + width,
+        dy + height,
         gl.COLOR_BUFFER_BIT,
         gl.NEAREST,
       );
       this.target(destination.surface, destination.depth);
     }
 
-    this.prepare({ x: 0, y: 0, width: this.width, height: this.height }, identity, opacity);
+    this.prepare(source.bounds, identity, opacity);
     this.bindImage(source.texture);
 
     if (backdrop) {
@@ -487,10 +604,10 @@ export class Firefly {
       if (filter.kind === "blur" && filter.amount <= 0) continue;
 
       for (let pass = 0; pass < passes; pass++) {
-        const next = this.acquire();
+        const next = this.acquire(current.bounds);
         this.target(next);
         this.clear();
-        this.prepare({ x: 0, y: 0, width: this.width, height: this.height }, identity, 1);
+        this.prepare(current.bounds, identity, 1);
         this.bindImage(current.texture);
         const gl = this.gl;
         gl.uniform1i(this.location("uFilter"), filterIds[filter.kind]);
@@ -498,8 +615,8 @@ export class Firefly {
         const step = (filter.amount * scale * this.ratio) / 8;
         gl.uniform2f(
           this.location("uBlurStep"),
-          pass === 0 ? step / this.surfaceWidth : 0,
-          pass === 1 ? step / this.surfaceHeight : 0,
+          pass === 0 ? step / current.texture.width : 0,
+          pass === 1 ? step / current.texture.height : 0,
         );
         this.draw();
         this.release(current);
@@ -510,6 +627,31 @@ export class Firefly {
     return current;
   }
 
+  /** Consume two aligned layers and return content multiplied by the mask's painted alpha. */
+  mask(content: Surface, mask: Surface): Surface {
+    if (
+      content === mask ||
+      content.bounds.x !== mask.bounds.x ||
+      content.bounds.y !== mask.bounds.y ||
+      content.texture.width !== mask.texture.width ||
+      content.texture.height !== mask.texture.height
+    )
+      throw new Error("Alpha-mask layers must be distinct and have matching bounds.");
+    const result = this.acquire(content.bounds);
+    this.target(result);
+    this.clear();
+    this.prepare(content.bounds, identity, 1);
+    this.bindImage(content.texture);
+    this.gl.activeTexture(this.gl.TEXTURE1);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, mask.texture.handle);
+    this.gl.uniform1i(this.location("uFilter"), 9);
+    this.draw();
+    this.release(content);
+    this.release(mask);
+
+    return result;
+  }
+
   private draw() {
     this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
     this.drawCalls++;
@@ -518,10 +660,13 @@ export class Firefly {
   destroy() {
     if (this.disposed) return;
     this.disposed = true;
+    this.profiler.destroy();
+    this.batch.destroy();
     this.canvas.removeEventListener("webglcontextlost", this.handleLoss);
     for (const surface of this.surfaces) this.deleteSurface(surface);
     for (const texture of this.textures) this.deleteTexture(texture);
     this.pool.length = 0;
+    this.pooledSurfaceBytes = 0;
     this.scene = null;
     this.current = null;
     this.gl.deleteVertexArray(this.vao);

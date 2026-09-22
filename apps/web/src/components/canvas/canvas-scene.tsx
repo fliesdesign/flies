@@ -1,5 +1,5 @@
 import { hasRotation, canvasSizingLabel } from "@flies/canvas";
-import { gradientCss, filterCss } from "@flies/canvas";
+import { gradientCss } from "@flies/canvas";
 import { useCanvasFrame } from "@flies/canvas";
 import type { CanvasCamera } from "@flies/canvas";
 import type { CanvasDocument, CanvasFrame } from "@flies/canvas";
@@ -29,7 +29,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { CanvasMaskArtwork } from "./canvas-mask-artwork";
 import { CanvasNodeAppearance, CanvasNodeContent, CanvasTextEditor } from "./canvas-node-content";
+import type { CanvasTextCommit } from "./canvas-rich-text-editor";
 import { CanvasTransformedOutline } from "./canvas-transformed-outline";
 import { CanvasWebglArtwork } from "./canvas-webgl-artwork";
 import { CanvasWebglChrome } from "./canvas-webgl-chrome";
@@ -57,7 +59,7 @@ type SceneProps = {
   selectedId?: string | null;
   selectedIds?: readonly string[];
   editingId?: string | null;
-  onTextCommit?: (id: string, text: string, height: number) => void;
+  onTextCommit?: CanvasTextCommit;
   onTextCancel?: (id: string) => void;
   FrameContent?: FrameContentComponent;
   inspectHtml?: boolean;
@@ -182,62 +184,68 @@ const FrameNode = memo(function FrameNode({
         transform: `translate(${frame.x}px, ${frame.y}px) rotate(${frame.rotation ?? 0}deg)`,
         transformOrigin: `${frame.width / 2}px ${frame.height / 2}px`,
         mixBlendMode: frame.blendMode,
-        filter: filterCss(frame.filters),
         width: frame.width,
         height: frame.height,
         opacity: frame.opacity,
       }}
     >
-      {editingId === id && frame.kind === "text" && !locked ? (
-        <ZoomChrome camera={camera}>
-          <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
-        </ZoomChrome>
-      ) : (
-        <button
-          type="button"
-          className={isFrame ? "canvas-frame" : "canvas-node-body"}
-          aria-label={`${frame.name}, ${Math.round(frame.width)} by ${Math.round(frame.height)}`}
-          aria-pressed={selected}
-          disabled={locked}
-          style={
-            isFrame
-              ? {
-                  background: frame.gradient ? gradientCss(frame.gradient) : frame.fill,
-                  borderRadius: frame.cornerRadius,
-                }
-              : undefined
-          }
-        >
-          {!isFrame && !isGroup && <CanvasNodeContent frame={frame} />}
-        </button>
-      )}
-      {isFrame && FrameContent && (
-        <CustomFrameContent document={document} id={id} FrameContent={FrameContent} />
-      )}
-      {(isFrame || isGroup) && (
-        <div
-          className="canvas-node-children"
-          data-clip-content={isFrame && frame.clipContent !== false ? true : undefined}
-          style={isFrame ? { borderRadius: frame.cornerRadius } : undefined}
-        >
-          {children.map((childId) => (
-            <FrameNode
-              key={childId}
-              document={document}
-              camera={camera}
-              scene={scene}
-              id={childId}
-              selectedIds={selectedIds}
-              editingId={editingId}
-              parentLocked={locked}
-              onTextCommit={onTextCommit}
-              onTextCancel={onTextCancel}
-              FrameContent={FrameContent}
-            />
-          ))}
-        </div>
-      )}
-      <CanvasNodeAppearance frame={frame} />
+      <CanvasMaskArtwork
+        document={document}
+        camera={camera}
+        frame={frame}
+        editing={editingId === id}
+      >
+        {editingId === id && frame.kind === "text" && !locked ? (
+          <ZoomChrome camera={camera}>
+            <CanvasTextEditor frame={frame} onCommit={onTextCommit} onCancel={onTextCancel} />
+          </ZoomChrome>
+        ) : (
+          <button
+            type="button"
+            className={isFrame ? "canvas-frame" : "canvas-node-body"}
+            aria-label={`${frame.name}, ${Math.round(frame.width)} by ${Math.round(frame.height)}`}
+            aria-pressed={selected}
+            disabled={locked}
+            style={
+              isFrame
+                ? {
+                    background: frame.gradient ? gradientCss(frame.gradient) : frame.fill,
+                    borderRadius: frame.cornerRadius,
+                  }
+                : undefined
+            }
+          >
+            {!isFrame && !isGroup && <CanvasNodeContent frame={frame} />}
+          </button>
+        )}
+        {isFrame && FrameContent && (
+          <CustomFrameContent document={document} id={id} FrameContent={FrameContent} />
+        )}
+        {(isFrame || isGroup) && (
+          <div
+            className="canvas-node-children"
+            data-clip-content={isFrame && frame.clipContent !== false ? true : undefined}
+            style={isFrame ? { borderRadius: frame.cornerRadius } : undefined}
+          >
+            {children.map((childId) => (
+              <FrameNode
+                key={childId}
+                document={document}
+                camera={camera}
+                scene={scene}
+                id={childId}
+                selectedIds={selectedIds}
+                editingId={editingId}
+                parentLocked={locked}
+                onTextCommit={onTextCommit}
+                onTextCancel={onTextCancel}
+                FrameContent={FrameContent}
+              />
+            ))}
+          </div>
+        )}
+        <CanvasNodeAppearance frame={frame} />
+      </CanvasMaskArtwork>
       {(isRootContainer || (selected && editingId !== id)) && (
         <ZoomChrome camera={camera}>
           {selected && editingId !== id && <span className="canvas-node-selection-border" />}

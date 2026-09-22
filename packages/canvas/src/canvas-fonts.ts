@@ -32,6 +32,13 @@ export type FontRequest = {
   fontWeight?: number;
   fontStyle?: string;
   text?: string;
+  textRuns?: readonly {
+    start: number;
+    end: number;
+    fontFamily?: string;
+    fontWeight?: number;
+    fontStyle?: string;
+  }[];
 };
 type SystemFont = { family: string; postscriptName: string; weight: number; style: string };
 let systemFonts: Promise<SystemFont[]> | undefined;
@@ -238,10 +245,20 @@ export async function ensureCanvasFont(
   }
 }
 
-export async function ensureCanvasFonts(nodes: readonly FontRequest[], doc: Document = document) {
+export async function ensureCanvasFonts(nodes: readonly FontRequest[], doc?: Document) {
   const requests = new Map<string, FontRequest>();
 
-  for (const node of nodes) {
+  const all = nodes.flatMap((node) => [
+    node,
+    ...(node.textRuns ?? []).map((run) => ({
+      ...node,
+      ...run,
+      text: node.text?.slice(run.start, run.end),
+      textRuns: undefined,
+    })),
+  ]);
+
+  for (const node of all) {
     if (!node.fontFamily) continue;
     const key = `${node.fontFamily}:${node.fontWeight ?? 400}:${node.fontStyle ?? "normal"}`;
     const previous = requests.get(key);

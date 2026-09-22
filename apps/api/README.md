@@ -209,7 +209,7 @@ WorkOS environment.
 
 The editor uses Bun WebSockets for shared cursors, selections, presence, and document
 changes. Bun's native `RedisClient` distributes events between API replicas; no sticky
-sessions are required. Configure `REDIS_URL` with the existing Railway Redis private
+sessions are required. Configure `REDIS_URL` with a `redis://` or `rediss://`
 URL and set `SYNC_ENCRYPTION_KEY` to a randomly generated, base64-encoded 32-byte key.
 Every API replica must use the same key. If both variables are absent, the editor
 retains ordinary autosave. Partial configuration fails startup.
@@ -226,8 +226,8 @@ in-progress pointer drags are represented by live cursors and selections.
 
 Security boundaries:
 
-- Production browser/desktop connections use WSS. Redis connections use TLS or
-  Railway private networking; public plaintext Redis URLs are rejected.
+- Production browser/desktop connections use WSS. Redis URLs accept both `redis://`
+  (without TLS) and `rediss://` (with TLS) on any host.
 - Redis relay messages, connection tickets, and stored presence use AES-256-GCM
   with fresh nonces and room-bound authentication. Room names and credential lookup
   keys are HMAC-derived. The key stays on the API; Redis does not store plaintext

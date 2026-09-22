@@ -11,9 +11,44 @@ fn sizing_mode() -> Value {
 }
 
 fn layout_properties() -> Value {
-    json!({"type":["object","null"],"additionalProperties":false,"description":"Frame only. Partial patches merge with current layout/defaults; null disables auto layout and resets the frame's hug axes to fixed. Canvas spacing handles edit the same gap and uniform padding fields.","properties":{
-        "direction":{"enum":["row","column"]},"gap":{"type":"number","minimum":0},"padding":{"type":"number","minimum":0},"align":{"enum":["start","center","end"]},"justify":{"enum":["start","center","end","space-between"]}
+    json!({"type":["object","null"],"additionalProperties":false,"description":"Frame only. Partial patches merge with current layout/defaults; null disables auto layout and resets hug axes. Per-side padding overrides uniform padding. wrap creates rows or columns; rowGap controls their spacing. Null optional fields restore their fallback.","properties":{
+        "direction":{"enum":["row","column"]},"gap":{"type":"number","minimum":0},"padding":{"type":"number","minimum":0},"align":{"enum":["start","center","end"]},"justify":{"enum":["start","center","end","space-between"]},
+        "wrap":{"type":["boolean","null"]},"rowGap":{"type":["number","null"],"minimum":0},
+        "paddingTop":{"type":["number","null"],"minimum":0},"paddingRight":{"type":["number","null"],"minimum":0},"paddingBottom":{"type":["number","null"],"minimum":0},"paddingLeft":{"type":["number","null"],"minimum":0}
     }})
+}
+
+fn constraints_properties() -> Value {
+    json!({"type":["object","null"],"additionalProperties":false,"description":"Respond to a free-layout parent frame resizing. Partial patches merge; omitted axes use start. null removes constraints and retains legacy frame crop behavior.","properties":{
+        "horizontal":{"enum":["start","end","center","stretch","scale",null]},
+        "vertical":{"enum":["start","end","center","stretch","scale",null]}
+    }})
+}
+
+fn text_runs() -> Value {
+    json!({"type":["array","null"],"maxItems":10000,"description":"Text only. Sorted non-overlapping sparse style runs with UTF-16 [start,end) offsets within text. Omitted styles inherit the node. null clears formatting; plain text edits preserve surviving ranges.","items":{"type":"object","additionalProperties":false,"required":["start","end"],"properties":{
+        "start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":1},
+        "color":{"type":"string","pattern":"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"},
+        "fontSize":{"type":"number","minimum":1,"maximum":1000},"fontFamily":{"type":"string"},"fontWeight":{"type":"integer","minimum":1,"maximum":1000},
+        "fontStyle":{"enum":["normal","italic"]},"textDecoration":{"enum":["none","underline","line-through"]},
+        "href":{"type":"string","maxLength":2048,"description":"http:, https: or mailto: URL without credentials or whitespace."}
+    }}})
+}
+
+fn vector_data() -> Value {
+    let coordinate = json!({"type":"number","minimum":-10000000,"maximum":10000000});
+    let point = json!({"type":"object","additionalProperties":false,"required":["x","y"],"properties":{"x":coordinate,"y":coordinate}});
+    json!({"type":["object","null"],"additionalProperties":false,"required":["viewWidth","viewHeight","contours","fill","stroke","strokeWidth"],"description":"Editable SVG geometry. Anchors and absolute in/out control points use view-box coordinates. Closed contours need at least 3 anchors; open ones need 1. At most 20,000 anchors total. Updating geometry regenerates safe SVG src; null keeps artwork and removes editable metadata.","properties":{
+        "viewWidth":{"type":"number","exclusiveMinimum":0,"maximum":10000000},"viewHeight":{"type":"number","exclusiveMinimum":0,"maximum":10000000},
+        "fill":{"type":"string","description":"Hex color or none."},"stroke":{"type":"string","description":"Hex color or none."},"strokeWidth":{"type":"number","minimum":0,"maximum":10000000},"fillRule":{"enum":["evenodd","nonzero"]},
+        "contours":{"type":"array","maxItems":1000,"items":{"type":"object","additionalProperties":false,"required":["closed","anchors"],"properties":{
+            "closed":{"type":"boolean"},"anchors":{"type":"array","minItems":1,"maxItems":20000,"items":{"type":"object","additionalProperties":false,"required":["x","y"],"properties":{"x":coordinate,"y":coordinate,"in":point,"out":point}}}
+        }}}
+    }})
+}
+
+fn size_limit() -> Value {
+    json!({"type":["number","null"],"minimum":0,"description":"Optional size bound, not available on groups or pages. Minimum must not exceed maximum; maximum must allow the node minimum (40px frames, 1px other). null removes the bound."})
 }
 
 fn node_properties() -> Value {
@@ -38,6 +73,16 @@ fn node_properties() -> Value {
     for name in ["widthSizing", "heightSizing"] {
         properties.insert(name.into(), sizing_mode());
     }
+    for name in ["minWidth", "maxWidth", "minHeight", "maxHeight"] {
+        properties.insert(name.into(), size_limit());
+    }
+    properties.insert("constraints".into(), constraints_properties());
+    properties.insert("textRuns".into(), text_runs());
+    properties.insert("vector".into(), vector_data());
+    properties.insert("maskId".into(), json!({"type":["string","null"],"description":"Alpha mask source: an unmasked leaf sibling, distinct from target; cannot be a page or group. Source artwork becomes the mask. null releases it; deleting the source also releases targets."}));
+    properties.insert("crop".into(), json!({"type":["object","null"],"additionalProperties":false,"required":["x","y","width","height"],"description":"Image only. Visible source rectangle in normalized intrinsic-image coordinates. x+width and y+height must be <=1. null restores the full source.","properties":{
+        "x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1},"width":{"type":"number","exclusiveMinimum":0,"maximum":1},"height":{"type":"number","exclusiveMinimum":0,"maximum":1}
+    }}));
     for name in ["fontSize", "strokeWidth", "pathWidth", "pathHeight"] {
         properties.insert(name.into(), json!({"type":"number", "exclusiveMinimum":0}));
     }
@@ -90,6 +135,68 @@ fn node_properties() -> Value {
     json!({"type":"object","properties":properties,"additionalProperties":false,"minProperties":1,"description":"Only properties applicable to the target kind are accepted. Optional fields accept null to restore defaults."})
 }
 
+fn concrete_schema(value: Value) -> Value {
+    match value {
+        Value::Object(mut fields) => {
+            if let Some(Value::Array(types)) = fields.get("type") {
+                let types: Vec<Value> = types
+                    .iter()
+                    .filter(|item| *item != "null")
+                    .cloned()
+                    .collect();
+                fields.insert(
+                    "type".into(),
+                    if types.len() == 1 {
+                        types[0].clone()
+                    } else {
+                        Value::Array(types)
+                    },
+                );
+            }
+            if let Some(Value::Array(variants)) = fields.get("enum") {
+                let variants: Vec<Value> = variants
+                    .iter()
+                    .filter(|item| !item.is_null())
+                    .cloned()
+                    .collect();
+                fields.insert("enum".into(), Value::Array(variants));
+            }
+            Value::Object(
+                fields
+                    .into_iter()
+                    .map(|(key, value)| (key, concrete_schema(value)))
+                    .collect(),
+            )
+        }
+        Value::Array(values) => Value::Array(values.into_iter().map(concrete_schema).collect()),
+        other => other,
+    }
+}
+
+fn required_vector_data() -> Value {
+    let mut value = concrete_schema(vector_data());
+    value["description"] = json!("Editable SVG geometry in view-box coordinates. Closed contours require 3 anchors, open contours 1; maximum 20,000 anchors total. Safe SVG artwork is generated automatically.");
+    value
+}
+
+fn component_variant() -> Value {
+    let native = node_properties();
+    let mut values = serde_json::Map::new();
+    for key in "width height opacity rotation cornerRadius borderWidth borderColor shadows gradient filters hidden text textRuns fontSize color fontFamily fontWeight lineHeight letterSpacing textAlign fontStyle textDecoration fill clipContent layout src".split_whitespace() {
+        values.insert(key.into(), concrete_schema(native["properties"][key].clone()));
+    }
+    if let Some(layout) = values.get_mut("layout") {
+        layout["required"] = json!(["direction", "gap", "padding", "align", "justify"]);
+    }
+    json!({"type":"object","additionalProperties":false,"required":["id","name","overrides"],"properties":{
+        "id":{"type":"string","minLength":1},"name":{"type":"string","minLength":1},
+        "overrides":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["sourceId","values"],"properties":{
+            "sourceId":{"type":"string","description":"ID of a node within the component source, including its root."},
+            "values":{"type":"object","additionalProperties":false,"properties":values,"description":"Concrete native properties of this source node. Fields replace source values; use full layout objects. Null resets are not supported here."}
+        }}}
+    }})
+}
+
 pub fn catalog() -> Vec<Value> {
     let string = json!({"type":"string"});
     let ids = json!({"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1000});
@@ -112,7 +219,18 @@ pub fn catalog() -> Vec<Value> {
         tool("set_page", "Make an existing page active. get_tree, get_screenshot, create_artboard and every write then target that canvas.", json!({"pageId":string}), &["pageId"], false),
         tool("delete_page", "Delete a page and all of its layers as one undoable operation. A file always keeps at least one page.", json!({"pageId":string}), &["pageId"], false),
         tool("get_tree", "Get the active page's node tree, optionally rooted at nodeId. Depth defaults to 5 (max 20). Use set_page to read another canvas.", json!({"nodeId":string,"depth":{"type":"integer","minimum":0,"maximum":20}}), &[], true),
-        tool("create_artboard", "Create an artboard or section frame on the active page, using world coordinates. Returns its node ID for later write_html calls.", json!({"name":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40},"height":{"type":"number","minimum":40},"fill":string,"widthSizing":sizing_mode(),"heightSizing":sizing_mode(),"layout":layout_properties()}), &["name","width","height"], false),
+        tool("create_artboard", "Create an artboard or section frame on the active page, using world coordinates. Returns its node ID for later write_html calls.", json!({"name":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40},"height":{"type":"number","minimum":40},"fill":string,"widthSizing":sizing_mode(),"heightSizing":sizing_mode(),"layout":layout_properties(),"minWidth":size_limit(),"maxWidth":size_limit(),"minHeight":size_limit(),"maxHeight":size_limit(),"constraints":constraints_properties()}), &["name","width","height"], false),
+        tool("create_vector", "Create an editable vector using validated contours and anchors. Safe SVG artwork is generated automatically. Coordinates are document units; width/height default to viewWidth/viewHeight. New artwork is inserted on the active page or in parentId.", json!({"name":string,"parentId":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":1},"height":{"type":"number","minimum":1},"vector":required_vector_data()}), &["vector"], false),
+        tool("convert_to_vector", "Convert a compatible leaf rectangle, pen or simple SVG to editable vector geometry while retaining ID and appearance. Complex SVGs that cannot be represented fail without editing. Use update_node.vector to edit anchors and Bezier controls afterward.", json!({"nodeId":string}), &["nodeId"], false),
+        tool("boolean_vectors", "Combine closed leaf shapes on the active page with union, subtract, intersect or exclude. Uses document paint order; subtract removes later shapes from the first. Bezier contours are flattened within 0.25 document pixels. Replaces operands as one undo step; an empty result removes them.", json!({"nodeIds":{"type":"array","minItems":2,"maxItems":1000,"uniqueItems":true,"items":string},"operation":{"enum":["union","subtract","intersect","exclude"]}}), &["nodeIds","operation"], false),
+        tool("create_component", "Turn an existing frame into a reusable component source. Its descendants stay editable; source edits synchronize linked instances atomically. Components and instances cannot nest.", json!({"nodeId":string}), &["nodeId"], false),
+        tool("instantiate_component", "Insert a linked instance on the active page, optionally in parentId and with variantId. x/y are document coordinates; omitted position is 40px to the source's right. Returns the new instance ID; inspect its children with get_tree before overriding text or image src using update_node.", json!({"componentId":string,"parentId":string,"variantId":string,"x":{"type":"number"},"y":{"type":"number"}}), &["componentId"], false),
+        tool("detach_instance", "Detach an instance into ordinary editable layers, preserving its current appearance and IDs. One undo step.", json!({"nodeId":string}), &["nodeId"], false),
+        tool("reset_instance", "Clear an instance's text and image overrides, retaining its selected variant and geometry. One undo step.", json!({"nodeId":string}), &["nodeId"], false),
+        tool("set_instance_variant", "Choose a component variant for an instance. null or omitted variantId restores the default source appearance; local text/image overrides remain.", json!({"nodeId":string,"variantId":{"type":["string","null"]}}), &["nodeId"], false),
+        tool("capture_component_variant", "Save an instance's current appearance as a named component variant, select it and clear local overrides in one undo step.", json!({"nodeId":string,"name":string}), &["nodeId","name"], false),
+        tool("set_component_variant", "Create or replace a named variant by stable ID. Overrides refer to original source node IDs and applicable concrete native properties. At most 100 variants per source. Existing instances using this variant synchronize.", json!({"componentId":string,"variant":component_variant()}), &["componentId","variant"], false),
+        tool("remove_component_variant", "Delete a component variant. Instances using it return to the default source while retaining local overrides.", json!({"componentId":string,"variantId":string}), &["componentId","variantId"], false),
         tool("write_html", "Build one small section per call as editable layers. Tailwind CSS v4 class utilities compile automatically, offline; inline CSS also works. Supports native linear/centered radial gradients, 2D rotation/translation, blend modes and ordered filters. Read get_guide first. parentId appends inside a frame/group; replace:true replaces only its children. targetId replaces one node/subtree with one HTML root, preserving its ID, parent and order; cannot combine with parentId or replace. x/y offset the parent or target origin, or use world coordinates without either. Returns root/container IDs, names, bounds and rendering warnings. Inspect warnings and get_screenshot for clipped or overflowing text. validateOnly previews without editing or returning IDs. Use scoped edits, never resend the whole page for a local change.", json!({"html":string,"parentId":string,"targetId":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40,"maximum":8192},"replace":{"type":"boolean"},"height":{"type":"number","minimum":1,"maximum":8192},"validateOnly":{"type":"boolean"}}), &["html"], false),
         tool("write_source", "Import HTML, static React/JSX or TSX as editable layers using the same importer as canvas paste. format defaults to auto; jsx includes TSX. Supports code fences, local function components, literal props, inline style objects, arrays.map and conditionals. Imports never execute; hooks, external components and runtime APIs fail clearly. Event handlers and refs are omitted with sourceWarnings. Tailwind compiles offline; embedded style blocks are validated. Uses the same parentId, targetId, replace, coordinate and validateOnly behavior as write_html. Returns format, sourceWarnings, native rendering warnings and layer IDs. Read get_guide first.", json!({"source":string,"format":{"enum":["auto","html","jsx"]},"parentId":string,"targetId":string,"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number","minimum":40,"maximum":8192},"replace":{"type":"boolean"},"height":{"type":"number","minimum":1,"maximum":8192},"validateOnly":{"type":"boolean"}}), &["source"], false),
         tool("set_styles", "Save shared CSS on a frame/artboard. Future write_html calls inside it or descendants inherit these rules and CSS variables. Survives save/reopen and undo. Existing measured layers are unchanged. Empty css clears defaults. Use :root for typography/tokens and classes for reusable sections.", json!({"nodeId":string,"css":{"type":"string","maxLength":50000}}), &["nodeId","css"], false),
@@ -148,6 +266,17 @@ pub fn catalog() -> Vec<Value> {
                 | "set_page"
                 | "delete_page"
                 | "create_artboard"
+                | "create_vector"
+                | "convert_to_vector"
+                | "boolean_vectors"
+                | "create_component"
+                | "instantiate_component"
+                | "detach_instance"
+                | "reset_instance"
+                | "set_instance_variant"
+                | "capture_component_variant"
+                | "set_component_variant"
+                | "remove_component_variant"
                 | "write_html"
                 | "write_source"
                 | "set_styles"
@@ -204,7 +333,14 @@ Rendering: the optional Use Firefly renderer project-menu setting changes artwor
 Source paste and React: write_source({source:"export default function Card() { return <section className=\"p-6 bg-white\"><h2>Hello</h2></section>; }",format:"jsx",width:800}) uses the same @flies/html importer as canvas Cmd/Ctrl+V and menu Paste. format accepts auto, html or jsx (also TSX); fenced snippets work. Self-contained local components, static props, style objects, literal constants, arrays.map and conditional expressions become native editable layers. Imports are syntax only and never loaded or executed. Hooks, external components and runtime APIs fail without changing the document. Event handlers and refs are omitted and reported in sourceWarnings. Embedded plain <style> blocks are validated, isolated and measured. Both write_source and write_html share parentId/targetId scopes, validateOnly, undo and autosave. Review sourceWarnings as well as native rendering warnings.
 
 Shared style workflow: set_styles({nodeId:BOARD_ID,css:":root { --space:24px; font-family:Inter; color:#172033; } .section { padding:var(--space); }"}) saves defaults on the artboard. Later write_html calls inside descendant frames inherit the CSS without repeating it, including custom classes and var() values. Nested frames can override defaults with set_styles. Changes are undoable and saved with the file; empty css clears that frame's rules. Existing native layers keep their measured appearance; shared styles affect future imports and previews. Native layout remains a measured snapshot: existing siblings do not reflow unless a frame has native layout enabled.
-Node sizing: update_node and create_artboard accept widthSizing/heightSizing: fixed (default), fill or hug; null resets to fixed. width/height always report resolved numeric dimensions. fill uses available space in a native auto-layout parent, is inactive without one, and is invalid on groups. hug continuously fits visible children plus padding and requires a frame with native layout; the canvas labels it Fit. A fill child on an axis its parent hugs uses its minimum size (40px frame, 1px other) to avoid a cycle. Explicit width/height edits set that axis to fixed unless its sizing mode is supplied in the same patch; clipping stays unchanged. Text copy/font/width changes through update_node measure after fonts load and grow height only when needed, preserving larger boxes. Supplying height explicitly or using heightSizing:fill preserves the requested bounds; update_node returns warnings for remaining text overflow or ancestor clipping. Use fit_node({nodeId:BOARD_ID,axis:"height",padding:24,clipContent:true}) to fit existing content once and fix that axis, retaining every child ID. update_node can explicitly set clipContent:false or merge partial layout properties; layout:null removes auto layout and resets its hug axes to fixed. Canvas gap/padding handles edit these same layout.gap and uniform layout.padding fields; they share MCP document state, undo and save. Moving frames/groups translates descendants; fit_node keeps the origin and child IDs; active native auto layout may reposition children.
+Node sizing: update_node and create_artboard accept widthSizing/heightSizing: fixed (default), fill or hug; null resets to fixed. width/height always report resolved numeric dimensions. fill uses available space in a native auto-layout parent, is inactive without one, and is invalid on groups. hug continuously fits visible children plus padding and requires a frame with native layout; the canvas labels it Fit. A fill child on an axis its parent hugs uses its minimum size (40px frame, 1px other) to avoid a cycle. Explicit width/height edits set that axis to fixed unless its sizing mode is supplied in the same patch; clipping stays unchanged. Text copy/font/width changes through update_node measure after fonts load and grow height only when needed, preserving larger boxes. Supplying height explicitly or using heightSizing:fill preserves the requested bounds; update_node returns warnings for remaining text overflow or ancestor clipping. Use fit_node({nodeId:BOARD_ID,axis:"height",padding:24,clipContent:true}) to fit existing content once and fix that axis, retaining every child ID. update_node can explicitly set clipContent:false or merge partial layout properties; layout:null removes auto layout and resets its hug axes to fixed. Canvas gap/padding handles edit layout.gap, rowGap and padding; per-side overrides enable independent side handles; they share MCP document state, undo and save. Moving frames/groups translates descendants; fit_node keeps the origin and child IDs; active native auto layout may reposition children.
+
+Responsive layout: native layout accepts wrap:true, rowGap and paddingTop/paddingRight/paddingBottom/paddingLeft. Side padding falls back to padding; rowGap defaults to gap. Wrap makes new rows for row direction or columns for column direction when the main axis has a fixed or fill size. A hugged main axis stays on one line. Partial layout patches merge; null optional fields restore fallback. minWidth/maxWidth/minHeight/maxHeight constrain fixed, fill and hug dimensions; null removes a limit. Fill redistributes space after children reach their bounds. Groups derive bounds from contents and do not accept min/max limits; pages do not accept them either. Constraints apply when a free-layout parent frame resizes: constraints:{horizontal:"start|end|center|stretch|scale",vertical:"start|end|center|stretch|scale"}. Partial patches merge; missing axes mean start. constraints:null retains the original unconstrained crop behavior. An explicit child geometry patch wins over derived constraints in the same transaction. All responsive edits, previews, undo and persistence use the live canvas document.
+Rich text: text nodes accept textRuns, sorted non-overlapping UTF-16 [start,end) ranges with color, fontSize, fontFamily, fontWeight, fontStyle, textDecoration or href overrides. Omitted styles inherit the node; links allow http:, https: or mailto: without credentials. Plain text edits preserve surviving formatted ranges, while textRuns:null clears them. Run fonts load before measurement. get_node_info returns all ranges; save, undo, DOM, Firefly and export use the same runs.
+Reusable components: create_component({nodeId:FRAME_ID}) makes a source; instantiate_component({componentId:FRAME_ID,x:900,y:0}) inserts a linked instance on the active page, optionally inside parentId or using variantId. Sources can live on another page. Source edits synchronize instance layers; update_node on an instance child's text/textRuns or image src creates a local override. Long text overrides retain their measured height in internal textHeight metadata; source edits preserve that height until reset. reset_instance clears overrides, detach_instance makes ordinary layers, set_instance_variant selects a named variant (null restores default). set_component_variant adds/replaces {id,name,overrides:[{sourceId,values}]} using original source IDs and concrete native properties. capture_component_variant promotes an instance's appearance to a named variant and clears its overrides; remove_component_variant deletes one. Sources support at most 100 variants; components/instances cannot nest. Deleting a source detaches instances while preserving appearance. Every action is atomic, undoable and saved.
+Native media: update_node image crop:{x,y,width,height} selects a source rectangle in normalized intrinsic-image coordinates. Width/height must be positive, x/y nonnegative and right/bottom at most 1. crop:null restores the full source. maskId uses an unmasked leaf sibling as an alpha mask; source and target must differ and share a parent, and the source cannot be a page/group or contain children. Targets may be containers. The source artwork serves the mask instead of appearing separately. maskId:null or deleting the source releases the target. These native fields do not imply support for arbitrary CSS mask syntax in HTML imports.
+Editable vectors: create_vector accepts vector:{viewWidth,viewHeight,contours:[{closed,anchors:[{x,y,in?:{x,y},out?:{x,y}}]}],fill,stroke,strokeWidth,fillRule?}. Coordinates and absolute Bezier control points use the view box; paint is a hex color or none. Closed contours require 3 anchors, open contours 1; at most 1000 contours and 20000 total anchors. convert_to_vector converts compatible leaf shapes or simple SVGs and rejects unsupported SVG features. update_node.vector edits geometry and regenerates safe SVG src; vector:null keeps artwork and clears edit metadata, while a direct src replacement also clears stale metadata. boolean_vectors({nodeIds:[A,B],operation:"union|subtract|intersect|exclude"}) replaces closed operands atomically; subtract uses document paint order and curves flatten within 0.25 document pixels. An empty result removes the operands. Undo restores them.
+
 Interactive prototypes: preview_html({nodeId:BOARD_ID,html:"<button class='bg-blue-600 hover:bg-blue-700 transition p-4 text-white'>Try me</button>"}) opens a live preview using shared CSS and Tailwind. Gradients, hover/focus, animations and inline JavaScript work there; it cannot access the editor or Tauri; form submission, fetch and external assets are blocked except Google Fonts. The preview does not modify native layers and is not saved with the canvas. Use Download HTML to keep it; close_preview returns to editing. get_screenshot captures the static native canvas, not the live preview.
 Unsupported: scripts/events, custom elements, stylesheets, external CSS resources, unsupported gradient geometry or transforms, dashed/dotted borders, non-uniform corner radii, non-square percentage corner radii, cropped images, or clipped containers smaller than 40px. For pill controls use border-radius:999px. Failures occur before editing. Limits: 500 HTML elements, 30 nesting levels, 200KB HTML, 3000 generated layers per insertion. Keep each call section-sized.
 Native node kinds: frame,group,rectangle,text,image,svg,pen. update_node supports native properties including borderWidth,borderColor,shadows (array of offsetX,offsetY,blur,spread,color,inset), text fontStyle and textDecoration. Native rotation, blendMode, filters, and frame/rectangle gradient are supported through update_node; write_html imports their supported CSS equivalents through the same native model. rotation is clockwise degrees relative to the parent around the layer center. gradient has type linear/radial, angle, optional interpolation (srgb/oklab) and background (hex), and 2-16 ordered stops with offset 0-1 and hex color. HTML supports centered elliptical farthest-corner radial gradients, one full-size gradient per layer, stops within 0-100% (or equivalent px), and no interpolation hints. With borders, set background-origin:border-box. Modern CSS colors convert to canvas sRGB. Native filters.order retains CSS filter order; omitted names follow in default editor order. filters accepts blur (0-100px), brightness/contrast/saturate (0-4), grayscale/sepia/invert (0-1), and hue (-180 to 180 degrees). SVG src uses a base64 data:image/svg+xml URL. Changing id/kind is forbidden.

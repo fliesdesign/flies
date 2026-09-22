@@ -1,6 +1,7 @@
 /* oxlint-disable oxc/no-map-spread -- Document nodes are immutable; geometry operations return new snapshots. */
 import type { CanvasFrame } from "./canvas-document";
 import type { FrameRect, Point } from "./canvas-geometry";
+import { scaleCanvasTextRuns } from "./canvas-rich-text";
 
 type FrameSource = { getFrame: (id: string) => CanvasFrame | undefined };
 export type CanvasMatrix = { a: number; b: number; c: number; d: number; e: number; f: number };
@@ -354,7 +355,12 @@ export function scaleSelectionWorld(
         ...(scale !== 1 && node.heightSizing !== undefined
           ? { heightSizing: "fixed" as const }
           : {}),
-        ...(node.kind === "text" ? { fontSize: node.fontSize * scale } : {}),
+        ...(node.kind === "text"
+          ? {
+              fontSize: node.fontSize * scale,
+              ...(node.textRuns && { textRuns: scaleCanvasTextRuns(node.textRuns, scale) }),
+            }
+          : {}),
       });
     }
   }

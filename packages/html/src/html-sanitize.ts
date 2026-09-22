@@ -1,4 +1,4 @@
-import { readCanvasSvg } from "@flies/canvas";
+import { isCanvasTextLink, readCanvasSvg } from "@flies/canvas";
 
 import { resolveFontFamily } from "./html-style";
 import { publicImageUrl, rememberRemoteImage } from "./remote-image";
@@ -17,6 +17,14 @@ const STYLES = new Set(
 
 const RASTER = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z\d+/]+={0,2}$/i;
 const SVG = /^data:image\/svg\+xml;base64,[a-z\d+/]+={0,2}$/i;
+const textLinks = new WeakMap<HTMLElement, string>();
+
+/** Keep link metadata without giving the passive measurement document live anchors. */
+export function sanitizedTextLink(element: HTMLElement): string | undefined {
+  const href = textLinks.get(element) ?? element.getAttribute("href");
+
+  return isCanvasTextLink(href) ? href : undefined;
+}
 
 /** Build fresh, passive elements. Never mount caller markup or copy event/URL attributes. */
 export function sanitizeHtml(source: string, allowVariables = false): DocumentFragment {
@@ -117,6 +125,8 @@ export function sanitizeHtml(source: string, allowVariables = false): DocumentFr
       }
 
       // Names and typography remain useful; links and form actions are never interactive.
+      if (attribute.name === "href" && node.localName === "a" && isCanvasTextLink(attribute.value))
+        textLinks.set(element, attribute.value);
       if (!["style", "href", "type"].includes(attribute.name))
         element.setAttribute(attribute.name, attribute.value);
     }

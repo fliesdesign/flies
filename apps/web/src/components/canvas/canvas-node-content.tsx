@@ -1,15 +1,13 @@
-import { canvasAppearanceStyle, fontFamilyCss, gradientCss } from "@flies/canvas";
-import type { CanvasFrame, CanvasPen, CanvasText } from "@flies/canvas";
 import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+  appendCanvasText,
+  canvasAppearanceStyle,
+  canvasTextRunCss,
+  canvasTextSegments,
+  fontFamilyCss,
+  gradientCss,
+} from "@flies/canvas";
+import type { CanvasFrame, CanvasPen, CanvasText } from "@flies/canvas";
+import { memo, useMemo, type CSSProperties } from "react";
 
 import "./canvas-nodes.css";
 
@@ -44,7 +42,7 @@ export function measureCanvasTextHeight(frame: CanvasText): number {
     letterSpacing: `${frame.letterSpacing ?? 0}px`,
     width: `${frame.width}px`,
   });
-  measurement.textContent = frame.text + "\u200b";
+  appendCanvasText(measurement, frame, true);
   document.body.append(measurement);
 
   const height = Math.max(
@@ -110,11 +108,45 @@ export const CanvasNodeContent = memo(function CanvasNodeContent({
     case "text":
       return (
         <span className="canvas-text-content" style={canvasTextStyle(frame)}>
-          {frame.text}
+          {canvasTextSegments(frame).map((segment) => (
+            <span key={segment.start} style={canvasTextRunCss(segment.style)}>
+              {segment.text}
+            </span>
+          ))}
         </span>
       );
-    case "svg":
     case "image":
+      if (frame.crop)
+        return (
+          <span className="canvas-cropped-image" style={{ borderRadius: frame.cornerRadius ?? 0 }}>
+            <img
+              src={frame.src}
+              alt=""
+              draggable={false}
+              decoding="async"
+              style={{
+                position: "absolute",
+                maxWidth: "none",
+                width: `${100 / frame.crop.width}%`,
+                height: `${100 / frame.crop.height}%`,
+                left: `${(-100 * frame.crop.x) / frame.crop.width}%`,
+                top: `${(-100 * frame.crop.y) / frame.crop.height}%`,
+              }}
+            />
+          </span>
+        );
+
+      return (
+        <img
+          className="canvas-image-content"
+          src={frame.src}
+          alt=""
+          draggable={false}
+          decoding="async"
+          style={{ borderRadius: frame.cornerRadius ?? 0 }}
+        />
+      );
+    case "svg":
       return (
         <img
           className="canvas-image-content"
@@ -143,19 +175,6 @@ export const CanvasNodeAppearance = memo(function CanvasNodeAppearance({
   return style ? <span aria-hidden="true" data-canvas-appearance="" style={style} /> : null;
 });
 
-type TextEditorProps = {
-  frame: CanvasText;
-  onCommit?: (id: string, text: string, height: number) => void;
-  onCancel?: (id: string) => void;
-};
-
-function textHeight(input: HTMLTextAreaElement, frame: CanvasText) {
-  const height = measureCanvasTextHeight({ ...frame, text: input.value });
-  input.style.height = `${height}px`;
-
-  return height;
-}
-
 /** Commit before the document's non-capture persistence listeners read its state. */
 export function subscribeTextDraftLifecycle(
   commit: () => void,
@@ -175,81 +194,4 @@ export function subscribeTextDraftLifecycle(
   };
 }
 
-export function CanvasTextEditor({ frame, onCommit, onCancel }: TextEditorProps) {
-  const [draft, setDraft] = useState(frame.text);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const finishedRef = useRef(false);
-
-  useLayoutEffect(() => {
-    inputRef.current?.focus({ preventScroll: true });
-    inputRef.current?.select();
-  }, []);
-
-  useLayoutEffect(() => {
-    if (inputRef.current) textHeight(inputRef.current, frame);
-  });
-
-  const commit = useCallback(
-    (input: HTMLTextAreaElement) => {
-      if (finishedRef.current) return;
-      finishedRef.current = true;
-      onCommit?.(frame.id, input.value, textHeight(input, frame));
-    },
-    [frame, onCommit],
-  );
-
-  useEffect(
-    () =>
-      subscribeTextDraftLifecycle(
-        () => {
-          if (inputRef.current) commit(inputRef.current);
-        },
-        window,
-        document,
-      ),
-    [commit],
-  );
-
-  return (
-    <textarea
-      ref={inputRef}
-      className="canvas-text-editor"
-      aria-label={`Edit ${frame.name}`}
-      value={draft}
-      rows={1}
-      spellCheck={false}
-      style={canvasTextStyle(frame)}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={(event) => commit(event.currentTarget)}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.nativeEvent.isComposing) return;
-        const cancel = event.key === "Escape";
-        const finish = event.key === "Enter" && (event.metaKey || event.ctrlKey);
-        if (!cancel && !finish) return;
-        event.preventDefault();
-        // Capture the surface before the callback can remove this textarea.
-        const surface = event.currentTarget.closest<HTMLElement>(".design-canvas");
-
-        if (cancel) {
-          finishedRef.current = true;
-          onCancel?.(frame.id);
-        } else {
-          commit(event.currentTarget);
-        }
-
-        // Pointer-driven blur keeps the clicked control's focus; keyboard exits
-        // return to the canvas so editing and tool shortcuts continue working.
-        surface?.focus({ preventScroll: true });
-      }}
-      onKeyUp={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-      onPointerMove={(event) => event.stopPropagation()}
-      onPointerUp={(event) => event.stopPropagation()}
-      onPointerCancel={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-      onDoubleClick={(event) => event.stopPropagation()}
-      onContextMenu={(event) => event.stopPropagation()}
-    />
-  );
-}
+export { CanvasRichTextEditor as CanvasTextEditor } from "./canvas-rich-text-editor";

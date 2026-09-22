@@ -67,7 +67,7 @@ async fn sdk_negotiates_and_lists_tools_without_auth() {
     )
     .await;
     let tools = list["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 32);
+    assert_eq!(tools.len(), 43);
     assert!(tools.iter().any(|tool| tool["name"] == "get_request"));
     assert!(tools.iter().any(|tool| tool["name"] == "write_html"));
     assert!(tools.iter().any(|tool| tool["name"] == "get_screenshot"));
@@ -522,7 +522,7 @@ async fn modern_tool_listing_includes_required_cache_metadata() {
     assert_eq!(result["ttlMs"], 0);
     assert_eq!(result["cacheScope"], "private");
     assert_eq!(result["resultType"], "complete");
-    assert_eq!(result["tools"].as_array().unwrap().len(), 32);
+    assert_eq!(result["tools"].as_array().unwrap().len(), 43);
 }
 
 #[tokio::test]
@@ -791,7 +791,10 @@ fn page_tools_scope_every_edit_to_one_canvas() {
             .find(|tool| tool["name"] == name)
             .unwrap_or_else(|| panic!("{name} is missing from the catalog"));
         // Page tools address a file like every other editor tool.
-        assert_eq!(tool["inputSchema"]["properties"]["fileId"]["type"], "string");
+        assert_eq!(
+            tool["inputSchema"]["properties"]["fileId"]["type"],
+            "string"
+        );
     }
 
     let set = catalog
@@ -811,7 +814,10 @@ fn page_tools_scope_every_edit_to_one_canvas() {
         .unwrap();
     // A name is optional; the editor falls back to the next free "Page N".
     assert_eq!(create["inputSchema"]["required"], json!([]));
-    assert_eq!(create["inputSchema"]["properties"]["name"]["type"], "string");
+    assert_eq!(
+        create["inputSchema"]["properties"]["name"]["type"],
+        "string"
+    );
     assert!(tools::GUIDE.contains("each page is a separate canvas"));
     assert!(tools::GUIDE.contains("An artboard is a frame on a page, not a page."));
     assert!(!tools::GUIDE.contains("PAGE_ID"));
@@ -888,4 +894,71 @@ fn native_paint_schema_and_guide_match_html_import_capabilities() {
     );
     assert!(tools::GUIDE.contains("2D rotation and translation"));
     assert!(!tools::GUIDE.contains("the HTML importer still rejects their CSS equivalents"));
+}
+
+#[test]
+fn responsive_rich_text_and_component_schemas_match_editor_contracts() {
+    let catalog = tools::catalog();
+    let update = catalog
+        .iter()
+        .find(|item| item["name"] == "update_node")
+        .unwrap();
+    let properties = &update["inputSchema"]["properties"]["properties"]["properties"];
+    assert_eq!(
+        properties["layout"]["properties"]["wrap"]["type"],
+        json!(["boolean", "null"])
+    );
+    for key in [
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+        "rowGap",
+    ] {
+        assert_eq!(properties["layout"]["properties"][key]["minimum"], 0);
+    }
+    for key in ["minWidth", "maxWidth", "minHeight", "maxHeight"] {
+        assert_eq!(properties[key]["type"], json!(["number", "null"]));
+    }
+    assert_eq!(
+        properties["constraints"]["properties"]["horizontal"]["enum"],
+        json!(["start", "end", "center", "stretch", "scale", null])
+    );
+    assert_eq!(
+        properties["textRuns"]["items"]["required"],
+        json!(["start", "end"])
+    );
+    assert_eq!(
+        properties["textRuns"]["items"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        properties["crop"]["properties"]["width"]["exclusiveMinimum"],
+        0
+    );
+    assert_eq!(properties["maskId"]["type"], json!(["string", "null"]));
+    assert_eq!(
+        properties["vector"]["properties"]["contours"]["maxItems"],
+        1000
+    );
+    for name in [
+        "create_vector",
+        "convert_to_vector",
+        "boolean_vectors",
+        "create_component",
+        "instantiate_component",
+        "detach_instance",
+        "reset_instance",
+        "set_instance_variant",
+        "capture_component_variant",
+        "set_component_variant",
+        "remove_component_variant",
+    ] {
+        let item = catalog.iter().find(|item| item["name"] == name).unwrap();
+        assert_eq!(
+            item["inputSchema"]["properties"]["fileId"]["type"],
+            "string"
+        );
+        assert_eq!(item["annotations"]["readOnlyHint"], false);
+    }
 }

@@ -198,6 +198,7 @@ test.describe("dense hardware and document interaction", () => {
           document: doc,
           camera,
           onError: (error: unknown) => rendererErrors.push(String(error)),
+          profiling: true,
         });
 
         const gl = canvas.getContext("webgl2")!;
@@ -210,9 +211,9 @@ test.describe("dense hardware and document interaction", () => {
         const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
         const stats = () => {
-          const { rasters, ...counters } = renderer.getStats();
+          const { rasters: _rasters, ...counters } = renderer.getStats({ rasters: false });
 
-          return { ...counters, cachedRasters: rasters.length };
+          return { ...counters, cachedRasters: counters.rasterCount };
         };
 
         const summarize = (values: number[]) => {
@@ -297,6 +298,9 @@ test.describe("dense hardware and document interaction", () => {
               const intervals: number[] = [];
               const renderMs: number[] = [];
               const drawCalls: number[] = [];
+              const primitives: number[] = [];
+              const gpuMs: number[] = [];
+              let gpuSamples = before.gpuSamples;
               let previous = await frame();
 
               for (let index = 0; index < 150; index++) {
@@ -307,6 +311,13 @@ test.describe("dense hardware and document interaction", () => {
                 intervals.push(now - previous);
                 renderMs.push(sample.renderMs);
                 drawCalls.push(sample.drawCalls);
+                primitives.push(sample.primitiveCount);
+
+                if (sample.gpuSamples > gpuSamples && sample.gpuMs !== null) {
+                  gpuMs.push(sample.gpuMs);
+                  gpuSamples = sample.gpuSamples;
+                }
+
                 previous = now;
               }
 
@@ -326,6 +337,9 @@ test.describe("dense hardware and document interaction", () => {
                 frameIntervals: summarize(intervals),
                 cpuRenderMs: summarize(renderMs),
                 minimumDrawCalls: Math.min(...drawCalls),
+                minimumPrimitiveCount: Math.min(...primitives),
+                gpuRenderMs: gpuMs.length ? summarize(gpuMs) : null,
+                gpuSampleCount: gpuMs.length,
                 peakTextureBytes,
                 before,
                 after,
@@ -383,7 +397,7 @@ test.describe("dense hardware and document interaction", () => {
             .toBe(phase.before.textureUploads);
         if (phase.view === "fit-all")
           expect
-            .soft(phase.minimumDrawCalls, `${label}: actual dense scene`)
+            .soft(phase.minimumPrimitiveCount, `${label}: actual dense scene`)
             .toBeGreaterThan(count / 2);
       }
     });
@@ -391,3 +405,124 @@ test.describe("dense hardware and document interaction", () => {
 });
 
 /* eslint-enable no-await-in-loop */
+
+test("hardware clipped batches stream without synchronizing every draw", async ({
+  page,
+}, testInfo) => {
+  test.skip(!hardware, "Native driver buffer streaming requires a physical GPU.");
+  test.setTimeout(90_000);
+  await page.goto("/recents");
+
+  const report = await page.evaluate(async () => {
+    const path = "/packages/canvas/src/index.ts";
+
+    const { CanvasWebglRenderer, CanvasDocument, CanvasCamera, createMixedBenchmarkNodes } =
+      await import(/* @vite-ignore */ path);
+
+    const nodes = createMixedBenchmarkNodes(5000).map(
+      (frame: { parentId?: string; width: number; height: number }) =>
+        frame.parentId
+          ? frame
+          : Object.assign(frame, { cornerRadius: Math.min(frame.width, frame.height) / 2 }),
+    );
+
+    const roots = nodes.filter((frame: { parentId?: string }) => !frame.parentId);
+
+    const width = Math.max(
+      ...roots.map((frame: { x: number; width: number }) => frame.x + frame.width),
+    );
+
+    const height = Math.max(
+      ...roots.map((frame: { y: number; height: number }) => frame.y + frame.height),
+    );
+
+    const zoom = Math.min(1184 / width, 624 / height);
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const doc = new CanvasDocument(nodes);
+    const camera = new CanvasCamera();
+    camera.setSize({ x: 1280, y: 720 });
+    camera.setViewport({ x: 48, y: 48, zoom });
+    camera.flush();
+    const errors: string[] = [];
+
+    const renderer = await CanvasWebglRenderer.create({
+      canvas,
+      document: doc,
+      camera,
+      profiling: true,
+      onError: (error: unknown) => errors.push(String(error)),
+    });
+
+    try {
+      const gl = canvas.getContext("webgl2")!;
+      const info = gl.getExtension("WEBGL_debug_renderer_info");
+      const backend = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null;
+      const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
+      const cpu: number[] = [],
+        intervals: number[] = [],
+        gpu: number[] = [],
+        clips: number[] = [],
+        primitives: number[] = [];
+
+      let previous = await frame(),
+        gpuSamples = 0;
+
+      for (let i = 0; i < 300; i++) {
+        camera.setViewport({ x: 48 + Math.sin(i / 9) * 8, y: 48, zoom });
+        // oxlint-disable-next-line no-await-in-loop
+        const now = await frame();
+        const stats = renderer.getStats({ rasters: false });
+
+        if (i >= 150) {
+          cpu.push(stats.renderMs);
+          intervals.push(now - previous);
+          clips.push(stats.clipCount);
+          primitives.push(stats.primitiveCount);
+
+          if (stats.gpuSamples > gpuSamples && stats.gpuMs !== null) {
+            gpu.push(stats.gpuMs);
+            gpuSamples = stats.gpuSamples;
+          }
+        }
+
+        previous = now;
+      }
+
+      const p95 = (values: number[]) =>
+        values.length
+          ? values.toSorted((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
+          : null;
+
+      return {
+        backend,
+        errors,
+        warmupFrames: 150,
+        sampleFrames: cpu.length,
+        cpuP95: p95(cpu)!,
+        frameP95: p95(intervals)!,
+        gpuP95: p95(gpu),
+        minimumClips: Math.min(...clips),
+        minimumPrimitives: Math.min(...primitives),
+        stats: renderer.getStats({ rasters: false }),
+      };
+    } finally {
+      renderer.destroy();
+      canvas.remove();
+    }
+  });
+
+  await testInfo.attach("webgl2-clipped-streaming.json", {
+    body: JSON.stringify(report, null, 2),
+    contentType: "application/json",
+  });
+  expect(report.backend).toBeTruthy();
+  expect(report.backend).not.toMatch(/SwiftShader|llvmpipe|software/i);
+  expect(report.errors).toEqual([]);
+  expect(report.sampleFrames).toBe(150);
+  expect(report.minimumClips).toBeGreaterThanOrEqual(1000);
+  expect(report.minimumPrimitives).toBeGreaterThan(2500);
+  expect(report.cpuP95).toBeLessThan(1000 / targetFps);
+  expect(report.frameP95).toBeLessThan(1000 / targetFps + 2);
+});

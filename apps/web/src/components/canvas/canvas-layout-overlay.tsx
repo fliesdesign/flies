@@ -1,4 +1,6 @@
 import {
+  canvasLayoutLines,
+  canvasLayoutPadding,
   clippingRadius,
   getClippingAncestors,
   localTransform,
@@ -29,7 +31,14 @@ import { useLayoutOverlayStore } from "./canvas-layout-overlay-store";
 export type LayoutHandle = {
   key: string;
   label: string;
-  property: "layoutPadding" | "layoutGap";
+  property:
+    | "layoutPadding"
+    | "layoutPaddingTop"
+    | "layoutPaddingRight"
+    | "layoutPaddingBottom"
+    | "layoutPaddingLeft"
+    | "layoutGap"
+    | "layoutRowGap";
   axis: "x" | "y";
   sign: number;
   value: number;
@@ -60,13 +69,22 @@ export function layoutHandles(
   const layout = frame.layout;
   if (!layout) return [];
   const { width, height } = frame;
-  const px = Math.min(layout.padding, width / 2);
-  const py = Math.min(layout.padding, height / 2);
-  const insetX = Math.min(width / 2, Math.max(px / 2, 14 / zoom));
-  const insetY = Math.min(height / 2, Math.max(py / 2, 14 / zoom));
+  const sides = canvasLayoutPadding(layout);
+  const top = Math.min(sides.top, height / 2);
+  const bottom = Math.min(sides.bottom, height / 2);
+  const left = Math.min(sides.left, width / 2);
+  const right = Math.min(sides.right, width / 2);
+  const inset = (value: number, size: number) => Math.min(size / 2, Math.max(value / 2, 14 / zoom));
+
+  const separate = [
+    layout.paddingTop,
+    layout.paddingRight,
+    layout.paddingBottom,
+    layout.paddingLeft,
+  ].some((value) => value !== undefined);
 
   const padding = (
-    key: string,
+    key: "top" | "right" | "bottom" | "left",
     axis: "x" | "y",
     sign: number,
     rect: FrameRect,
@@ -74,63 +92,112 @@ export function layoutHandles(
   ): LayoutHandle => ({
     key: `padding-${key}`,
     label: `${key[0].toUpperCase()}${key.slice(1)} padding`,
-    property: "layoutPadding",
+    property: separate
+      ? (
+          {
+            top: "layoutPaddingTop",
+            right: "layoutPaddingRight",
+            bottom: "layoutPaddingBottom",
+            left: "layoutPaddingLeft",
+          } as const
+        )[key]
+      : "layoutPadding",
     axis,
     sign,
-    value: layout.padding,
+    value: sides[key],
     rect,
     anchor,
   });
 
   const handles: LayoutHandle[] = [
-    padding("top", "y", 1, { x: 0, y: 0, width, height: py }, { x: width / 2, y: insetY }),
+    padding(
+      "top",
+      "y",
+      1,
+      { x: 0, y: 0, width, height: top },
+      { x: width / 2, y: inset(top, height) },
+    ),
     padding(
       "bottom",
       "y",
       -1,
-      { x: 0, y: height - py, width, height: py },
-      { x: width / 2, y: height - insetY },
+      { x: 0, y: height - bottom, width, height: bottom },
+      { x: width / 2, y: height - inset(bottom, height) },
     ),
     padding(
       "left",
       "x",
       1,
-      { x: 0, y: py, width: px, height: height - py * 2 },
-      { x: insetX, y: height / 2 },
+      { x: 0, y: top, width: left, height: height - top - bottom },
+      { x: inset(left, width), y: height / 2 },
     ),
     padding(
       "right",
       "x",
       -1,
-      { x: width - px, y: py, width: px, height: height - py * 2 },
-      { x: width - insetX, y: height / 2 },
+      { x: width - right, y: top, width: right, height: height - top - bottom },
+      { x: width - inset(right, width), y: height / 2 },
     ),
   ];
 
-  const visible = children.filter((child) => !child.hidden);
   const row = layout.direction === "row";
+  const lines = canvasLayoutLines(frame, children);
 
-  for (let i = 1; i < visible.length; i++) {
-    const before = visible[i - 1];
-    const after = visible[i];
-    const start = row ? before.x + before.width - frame.x : before.y + before.height - frame.y;
-    const end = row ? after.x - frame.x : after.y - frame.y;
+  const extents = lines.map((line) => ({
+    start: Math.min(...line.map((child) => (row ? child.y - frame.y : child.x - frame.x))),
+    end: Math.max(
+      ...line.map((child) =>
+        row ? child.y + child.height - frame.y : child.x + child.width - frame.x,
+      ),
+    ),
+  }));
+
+  for (const [lineIndex, line] of lines.entries()) {
+    const crossStart = layout.wrap ? extents[lineIndex].start : row ? top : left;
+    const crossEnd = layout.wrap ? extents[lineIndex].end : row ? height - bottom : width - right;
+
+    for (let i = 1; i < line.length; i++) {
+      const before = line[i - 1];
+      const after = line[i];
+      const start = row ? before.x + before.width - frame.x : before.y + before.height - frame.y;
+      const end = row ? after.x - frame.x : after.y - frame.y;
+      if (end < start) continue;
+
+      const rect = row
+        ? { x: start, y: crossStart, width: end - start, height: crossEnd - crossStart }
+        : { x: crossStart, y: start, width: crossEnd - crossStart, height: end - start };
+
+      handles.push({
+        key: `gap-${before.id}-${after.id}`,
+        label: `Gap between ${before.name} and ${after.name}`,
+        property: "layoutGap",
+        axis: row ? "x" : "y",
+        sign: 1,
+        value: layout.gap,
+        rect,
+        anchor: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
+        distributed: layout.justify === "space-between",
+      });
+    }
+
+    if (lineIndex === 0) continue;
+    const start = extents[lineIndex - 1].end;
+    const end = extents[lineIndex].start;
     if (end < start) continue;
 
     const rect = row
-      ? { x: start, y: py, width: end - start, height: height - py * 2 }
-      : { x: px, y: start, width: width - px * 2, height: end - start };
+      ? { x: left, y: start, width: width - left - right, height: end - start }
+      : { x: start, y: top, width: end - start, height: height - top - bottom };
 
     handles.push({
-      key: `gap-${before.id}-${after.id}`,
-      label: `Gap between ${before.name} and ${after.name}`,
-      property: "layoutGap",
-      axis: row ? "x" : "y",
+      key: `line-gap-${lineIndex}`,
+      label: `Gap between ${row ? "rows" : "columns"} ${lineIndex} and ${lineIndex + 1}`,
+      property: "layoutRowGap",
+      axis: row ? "y" : "x",
       sign: 1,
-      value: layout.gap,
+      value: layout.rowGap ?? layout.gap,
       rect,
       anchor: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 },
-      distributed: layout.justify === "space-between",
     });
   }
 
@@ -150,7 +217,7 @@ export const CanvasLayoutOverlay = memo(function CanvasLayoutOverlay({
   id: string | null;
   activeHandle: string | null;
   onStart: (event: PointerEvent<HTMLButtonElement>, handle: LayoutHandle) => void;
-  onChange: (property: "layoutPadding" | "layoutGap", value: number) => void;
+  onChange: (property: LayoutHandle["property"], value: number) => void;
 }) {
   const snapshot = useCanvasSnapshot(document);
   const selected = id ? document.getFrame(id) : undefined;

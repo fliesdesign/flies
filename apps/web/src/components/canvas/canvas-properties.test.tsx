@@ -54,6 +54,9 @@ function render(nodes: readonly CanvasFrame[], selectedIds: readonly string[]) {
       onArrange={() => {}}
       onFitText={() => {}}
       onCollapse={() => {}}
+      onPlan={() => {}}
+      onSelect={() => {}}
+      onEditVector={() => {}}
     />,
   );
 }

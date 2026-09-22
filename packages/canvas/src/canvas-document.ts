@@ -1,3 +1,17 @@
+import {
+  expandCanvasComponentTransaction,
+  isCanvasComponent,
+  isCanvasComponentInstance,
+  validateCanvasComponents,
+  type CanvasComponentDefinition,
+  type CanvasComponentInstance,
+} from "./canvas-components";
+import {
+  canvasConstrainedRect,
+  clampCanvasDimension,
+  isCanvasConstraints,
+  type CanvasConstraints,
+} from "./canvas-constraints";
 import { isFontFamily } from "./canvas-fonts";
 import type { FrameRect, Point } from "./canvas-geometry";
 import {
@@ -8,6 +22,7 @@ import {
   type CanvasLayout,
   type CanvasSizing,
 } from "./canvas-layout";
+import { isCanvasImageCrop, validateCanvasMasks, type CanvasImageCrop } from "./canvas-media";
 import {
   CANVAS_BLEND_MODES,
   isCanvasGradient,
@@ -16,6 +31,12 @@ import {
   type CanvasBlendMode,
   type CanvasFilters,
 } from "./canvas-paint";
+import {
+  isCanvasTextRuns,
+  normalizeCanvasTextRuns,
+  scaleCanvasTextRuns,
+  type CanvasTextRun,
+} from "./canvas-rich-text";
 import { CanvasSpatialIndex } from "./canvas-spatial-index";
 /* oxlint-disable unicorn/no-array-sort, unicorn/no-array-reverse -- Sort/reverse only owned arrays; the app targets ES2020. */
 import { SVG_DATA_URL } from "./canvas-svg";
@@ -29,6 +50,7 @@ import {
   type TokenBindings,
 } from "./canvas-theme";
 import { reparentTransformed, localTransform, transformPoint } from "./canvas-transform";
+import { isCanvasVector, canvasVectorSource, type CanvasVectorData } from "./canvas-vector";
 
 export type CanvasShadow = Readonly<{
   offsetX: number;
@@ -50,6 +72,15 @@ type CanvasNodeBase = Readonly<
     rotation?: number;
     widthSizing?: CanvasSizing;
     heightSizing?: CanvasSizing;
+    minWidth?: number;
+    maxWidth?: number;
+    minHeight?: number;
+    maxHeight?: number;
+    constraints?: CanvasConstraints;
+    component?: CanvasComponentDefinition;
+    instance?: CanvasComponentInstance;
+    componentSourceId?: string;
+    maskId?: string;
     gradient?: CanvasGradient;
     blendMode?: CanvasBlendMode;
     filters?: CanvasFilters;
@@ -80,6 +111,7 @@ export type CanvasRectangle = CanvasNodeBase & {
 export type CanvasText = CanvasNodeBase & {
   readonly kind: "text";
   readonly text: string;
+  readonly textRuns?: readonly CanvasTextRun[];
   readonly fontSize: number;
   readonly color: string;
   readonly fontFamily?: string;
@@ -93,8 +125,13 @@ export type CanvasText = CanvasNodeBase & {
 export type CanvasImage = CanvasNodeBase & {
   readonly kind: "image";
   readonly src: string;
+  readonly crop?: CanvasImageCrop;
 };
-export type CanvasSvg = CanvasNodeBase & { readonly kind: "svg"; readonly src: string };
+export type CanvasSvg = CanvasNodeBase & {
+  readonly kind: "svg";
+  readonly src: string;
+  readonly vector?: CanvasVectorData;
+};
 export type CanvasPen = CanvasNodeBase & {
   readonly kind: "pen";
   readonly points: readonly Readonly<Point>[];
@@ -194,6 +231,15 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
     first.rotation !== second.rotation ||
     first.widthSizing !== second.widthSizing ||
     first.heightSizing !== second.heightSizing ||
+    JSON.stringify(first.component) !== JSON.stringify(second.component) ||
+    JSON.stringify(first.instance) !== JSON.stringify(second.instance) ||
+    first.componentSourceId !== second.componentSourceId ||
+    first.maskId !== second.maskId ||
+    first.minWidth !== second.minWidth ||
+    first.maxWidth !== second.maxWidth ||
+    first.minHeight !== second.minHeight ||
+    first.maxHeight !== second.maxHeight ||
+    JSON.stringify(first.constraints) !== JSON.stringify(second.constraints) ||
     first.blendMode !== second.blendMode ||
     JSON.stringify(first.gradient) !== JSON.stringify(second.gradient) ||
     JSON.stringify(first.filters) !== JSON.stringify(second.filters) ||
@@ -217,6 +263,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
       return (
         second.kind === "text" &&
         first.text === second.text &&
+        JSON.stringify(first.textRuns) === JSON.stringify(second.textRuns) &&
         first.fontSize === second.fontSize &&
         first.color === second.color &&
         first.fontFamily === second.fontFamily &&
@@ -228,8 +275,17 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         first.textDecoration === second.textDecoration
       );
     case "svg":
+      return (
+        second.kind === first.kind &&
+        first.src === second.src &&
+        JSON.stringify(first.vector) === JSON.stringify(second.vector)
+      );
     case "image":
-      return second.kind === first.kind && first.src === second.src;
+      return (
+        second.kind === "image" &&
+        first.src === second.src &&
+        JSON.stringify(first.crop) === JSON.stringify(second.crop)
+      );
     case "pen":
       return (
         second.kind === "pen" &&
@@ -248,11 +304,7 @@ function framesEqual(first: CanvasFrame, second: CanvasFrame) {
         first.clipContent === second.clipContent &&
         first.fill === second.fill &&
         first.htmlStyles === second.htmlStyles &&
-        first.layout?.direction === second.layout?.direction &&
-        first.layout?.gap === second.layout?.gap &&
-        first.layout?.padding === second.layout?.padding &&
-        first.layout?.align === second.layout?.align &&
-        first.layout?.justify === second.layout?.justify
+        JSON.stringify(first.layout) === JSON.stringify(second.layout)
       );
   }
 }
@@ -312,6 +364,39 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
   if (typeof value !== "object" || value === null) return false;
   const frame = value as Record<string, unknown>;
 
+  if (
+    (frame.component !== undefined && !isCanvasComponent(frame.component)) ||
+    (frame.instance !== undefined && !isCanvasComponentInstance(frame.instance)) ||
+    ((frame.component !== undefined || frame.instance !== undefined) &&
+      frame.kind !== undefined &&
+      frame.kind !== "frame") ||
+    (frame.component !== undefined && frame.instance !== undefined) ||
+    (frame.componentSourceId !== undefined &&
+      (typeof frame.componentSourceId !== "string" || !frame.componentSourceId)) ||
+    (frame.textRuns !== undefined && frame.kind !== "text") ||
+    (frame.maskId !== undefined &&
+      (typeof frame.maskId !== "string" ||
+        !frame.maskId ||
+        frame.maskId === frame.id ||
+        frame.kind === "page")) ||
+    (frame.crop !== undefined && (frame.kind !== "image" || !isCanvasImageCrop(frame.crop))) ||
+    (frame.vector !== undefined &&
+      (frame.kind !== "svg" ||
+        (!(
+          previous?.kind === "svg" &&
+          previous.vector === frame.vector &&
+          previous.src === frame.src
+        ) &&
+          (!isCanvasVector(frame.vector) || canvasVectorSource(frame.vector) !== frame.src))))
+  )
+    return false;
+
+  if (
+    (frame.kind === "group" || frame.kind === "page") &&
+    ["minWidth", "maxWidth", "minHeight", "maxHeight"].some((key) => frame[key] !== undefined)
+  )
+    return false;
+
   const minimumSize =
     frame.kind === "page" ? 0 : frame.kind === undefined || frame.kind === "frame" ? 40 : 1;
 
@@ -322,6 +407,16 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     (frame.locked !== undefined && typeof frame.locked !== "boolean") ||
     (frame.hidden !== undefined && typeof frame.hidden !== "boolean") ||
     (frame.rotation !== undefined && !isFiniteNumber(frame.rotation)) ||
+    (frame.constraints !== undefined && !isCanvasConstraints(frame.constraints)) ||
+    ["minWidth", "minHeight", "maxWidth", "maxHeight"].some(
+      (key) => frame[key] !== undefined && (!isFiniteNumber(frame[key]) || frame[key] < 0),
+    ) ||
+    (frame.maxWidth !== undefined &&
+      (frame.maxWidth as number) <
+        Math.max(minimumSize, (frame.minWidth as number | undefined) ?? 0)) ||
+    (frame.maxHeight !== undefined &&
+      (frame.maxHeight as number) <
+        Math.max(minimumSize, (frame.minHeight as number | undefined) ?? 0)) ||
     [frame.widthSizing, frame.heightSizing].some(
       (sizing) =>
         sizing !== undefined &&
@@ -380,6 +475,7 @@ function isFrame(value: unknown, previous?: CanvasFrame): value is CanvasFrame {
     case "text":
       return (
         typeof frame.text === "string" &&
+        (frame.textRuns === undefined || isCanvasTextRuns(frame.textRuns, frame.text)) &&
         isPositiveNumber(frame.fontSize) &&
         isColor(frame.color) &&
         (frame.fontFamily === undefined || isFontFamily(frame.fontFamily)) &&
@@ -482,6 +578,25 @@ function immutableFilterValues(value: CanvasFilters): CanvasFilters {
   return frozen;
 }
 
+// Metadata is small, immutable JSON. Copy nested objects so caller mutations cannot change history.
+const immutableMetadataValues = new WeakSet<object>();
+
+function immutableMetadata<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  if (immutableMetadataValues.has(value)) return value;
+
+  const copy = Array.isArray(value)
+    ? value.map(immutableMetadata)
+    : Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, immutableMetadata(item)]),
+      );
+
+  Object.freeze(copy);
+  immutableMetadataValues.add(copy);
+
+  return copy as T;
+}
+
 function immutableFrame(frame: CanvasFrame): CanvasFrame {
   const base = {
     id: frame.id,
@@ -493,6 +608,17 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     ...(frame.rotation !== undefined && { rotation: frame.rotation }),
     ...(frame.widthSizing !== undefined && { widthSizing: frame.widthSizing }),
     ...(frame.heightSizing !== undefined && { heightSizing: frame.heightSizing }),
+    ...(frame.component !== undefined && { component: immutableMetadata(frame.component) }),
+    ...(frame.instance !== undefined && { instance: immutableMetadata(frame.instance) }),
+    ...(frame.componentSourceId !== undefined && { componentSourceId: frame.componentSourceId }),
+    ...(frame.maskId !== undefined && { maskId: frame.maskId }),
+    ...(frame.minWidth !== undefined && { minWidth: frame.minWidth }),
+    ...(frame.maxWidth !== undefined && { maxWidth: frame.maxWidth }),
+    ...(frame.minHeight !== undefined && { minHeight: frame.minHeight }),
+    ...(frame.maxHeight !== undefined && { maxHeight: frame.maxHeight }),
+    ...(frame.constraints !== undefined && {
+      constraints: Object.freeze({ ...frame.constraints }),
+    }),
     ...(frame.blendMode !== undefined && { blendMode: frame.blendMode }),
     ...(frame.gradient !== undefined && { gradient: immutableGradient(frame.gradient) }),
     ...(frame.filters !== undefined && { filters: immutableFilterValues(frame.filters) }),
@@ -505,8 +631,8 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
     }),
     x: frame.x,
     y: frame.y,
-    width: frame.width,
-    height: frame.height,
+    width: clampCanvasDimension(frame, "width", frame.width),
+    height: clampCanvasDimension(frame, "height", frame.height),
   };
 
   switch (frame.kind) {
@@ -517,6 +643,9 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...base,
         kind: frame.kind,
         text: frame.text,
+        ...(frame.textRuns !== undefined && {
+          textRuns: normalizeCanvasTextRuns(frame.text, frame.textRuns),
+        }),
         fontSize: frame.fontSize,
         color: frame.color,
         ...(frame.fontFamily !== undefined && { fontFamily: frame.fontFamily }),
@@ -528,8 +657,19 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
         ...(frame.textDecoration !== undefined && { textDecoration: frame.textDecoration }),
       });
     case "svg":
+      return Object.freeze({
+        ...base,
+        kind: frame.kind,
+        src: frame.src,
+        ...(frame.vector && { vector: immutableMetadata(frame.vector) }),
+      });
     case "image":
-      return Object.freeze({ ...base, kind: frame.kind, src: frame.src });
+      return Object.freeze({
+        ...base,
+        kind: frame.kind,
+        src: frame.src,
+        ...(frame.crop && { crop: Object.freeze({ ...frame.crop }) }),
+      });
     case "pen":
       return Object.freeze({
         ...base,
@@ -568,6 +708,18 @@ function immutableFrame(frame: CanvasFrame): CanvasFrame {
             padding: frame.layout.padding,
             align: frame.layout.align,
             justify: frame.layout.justify,
+            ...(frame.layout.wrap !== undefined && { wrap: frame.layout.wrap }),
+            ...(frame.layout.rowGap !== undefined && { rowGap: frame.layout.rowGap }),
+            ...(frame.layout.paddingTop !== undefined && { paddingTop: frame.layout.paddingTop }),
+            ...(frame.layout.paddingRight !== undefined && {
+              paddingRight: frame.layout.paddingRight,
+            }),
+            ...(frame.layout.paddingBottom !== undefined && {
+              paddingBottom: frame.layout.paddingBottom,
+            }),
+            ...(frame.layout.paddingLeft !== undefined && {
+              paddingLeft: frame.layout.paddingLeft,
+            }),
           }),
         }),
       });
@@ -650,6 +802,9 @@ export class CanvasDocument {
   private sceneIds: readonly string[] = EMPTY_IDS;
   private sceneSource: readonly string[] | undefined;
   private scenePage: string | undefined;
+  private componentNodes = new Set<string>();
+  private maskedNodes = new Set<string>();
+  private maskSources = new Set<string>();
 
   constructor(initial: readonly CanvasFrame[] = [], theme: CanvasTheme = EMPTY_THEME) {
     this.theme = normalizeTheme(theme);
@@ -662,7 +817,19 @@ export class CanvasDocument {
       }
 
       this.frames.set(frame.id, immutableFrame(frame));
+      if (frame.component || frame.instance || frame.componentSourceId)
+        this.componentNodes.add(frame.id);
+
+      if (frame.maskId) {
+        this.maskedNodes.add(frame.id);
+        this.maskSources.add(frame.maskId);
+      }
     }
+
+    if (this.maskedNodes.size && !validateCanvasMasks([...this.frames.values()]))
+      throw new Error("Invalid mask source: choose a distinct, unmasked leaf sibling.");
+    if (this.componentNodes.size && !validateCanvasComponents([...this.frames.values()], isFrame))
+      throw new Error("Invalid component definitions or instance references.");
 
     const hierarchy = hierarchyFor(this.frames, [...this.frames.keys()]);
     if (!hierarchy) throw new Error("Canvas parents must form a valid frame/group hierarchy.");
@@ -676,9 +843,9 @@ export class CanvasDocument {
       (node) => (!node.kind || node.kind === "frame") && node.layout,
     );
 
-    if (layouts.length) {
+    if (layouts.length || this.componentNodes.size) {
       const operation = this.prepare(
-        layouts.map((node) => ({
+        (this.componentNodes.size ? [...this.frames.values()] : layouts).map((node) => ({
           id: node.id,
           before: this.frames.get(node.id),
           after: this.frames.get(node.id),
@@ -731,6 +898,7 @@ export class CanvasDocument {
   };
 
   getFrame = (id: string) => this.frames.get(id);
+  isMaskSource = (id: string) => this.maskSources.has(id);
   isHidden = (id: string): boolean => {
     let node = this.frames.get(id);
 
@@ -1136,7 +1304,12 @@ export class CanvasDocument {
         let node = initial;
 
         while (node) {
-          if ((!node.kind || node.kind === "frame") && node.layout) return true;
+          if (
+            (!node.kind || node.kind === "frame") &&
+            (node.layout ||
+              this.getChildren(node.id).some((id) => this.frames.get(id)?.constraints))
+          )
+            return true;
           node = node.parentId ? this.frames.get(node.parentId) : undefined;
         }
       }
@@ -1144,7 +1317,14 @@ export class CanvasDocument {
       return false;
     });
 
-    const operation = hasLayout ? this.prepare(patches) : { patches };
+    const operation =
+      hasLayout ||
+      this.componentNodes.size ||
+      this.maskedNodes.size ||
+      patches.some((p) => p.after?.maskId)
+        ? this.prepare(patches)
+        : { patches };
+
     if (!operation) return false;
 
     for (const patch of operation.patches) {
@@ -1417,12 +1597,52 @@ export class CanvasDocument {
     input: readonly FramePatch[],
     requestedOrder?: readonly string[],
     dirtyIds: Iterable<string> = [],
+    componentPass = 0,
   ): DocumentOperation | undefined {
     const patches = new Map(input.map((patch) => [patch.id, patch]));
 
+    const hasComponents =
+      this.componentNodes.size > 0 ||
+      input.some(({ after }) => after?.component || after?.instance || after?.componentSourceId);
+
+    if (hasComponents) {
+      try {
+        const expanded = expandCanvasComponentTransaction(
+          [...this.frames.values()],
+          {
+            add: input.flatMap((patch) =>
+              patch.after && !this.frames.has(patch.id) ? [patch.after] : [],
+            ),
+            update: input.flatMap((patch) =>
+              patch.after && this.frames.has(patch.id) ? [patch.after] : [],
+            ),
+            remove: input.filter((patch) => !patch.after).map((patch) => patch.id),
+          },
+          { captureOverrides: componentPass === 0 },
+        );
+
+        for (const after of [...(expanded.add ?? []), ...(expanded.update ?? [])]) {
+          if (!isFrame(after, this.frames.get(after.id))) return undefined;
+
+          const before = patches.has(after.id)
+            ? patches.get(after.id)!.before
+            : this.frames.get(after.id);
+
+          patches.set(after.id, { id: after.id, before, after: immutableFrame(after) });
+        }
+
+        for (const id of expanded.remove ?? []) {
+          const before = patches.has(id) ? patches.get(id)!.before : this.frames.get(id);
+          patches.set(id, { id, before, after: undefined });
+        }
+      } catch {
+        return undefined;
+      }
+    }
+
     let structural =
       requestedOrder !== undefined ||
-      input.some(
+      [...patches.values()].some(
         (patch) =>
           !patch.before ||
           !patch.after ||
@@ -1493,6 +1713,77 @@ export class CanvasDocument {
     if (structural && !hierarchy) return undefined;
     const children = hierarchy?.children ?? this.children;
 
+    // Explicit child geometry in a transaction takes precedence over inferred pins.
+    const explicit = new Set(input.map((patch) => patch.id));
+
+    const resizeChildren = (before: CanvasFrame, after: CanvasFrame) => {
+      if (
+        (after.kind && after.kind !== "frame") ||
+        after.layout ||
+        (before.width === after.width && before.height === after.height)
+      )
+        return;
+      const baseline = this.gesture?.get(before.id) ?? before;
+
+      for (const childId of children.get(after.id) ?? []) {
+        const child = read(childId);
+        if (!child?.constraints || explicit.has(childId)) continue;
+        const original = this.gesture?.get(childId) ?? this.frames.get(childId) ?? child;
+        const rect = canvasConstrainedRect(baseline, after, original);
+
+        const dx = rect.x - child.x,
+          dy = rect.y - child.y;
+
+        const next = immutableFrame({ ...child, ...rect });
+        patches.set(childId, {
+          id: childId,
+          before: patches.get(childId)?.before ?? this.frames.get(childId),
+          after: next,
+        });
+
+        const scaling =
+          child.kind === "group" && (next.width !== child.width || next.height !== child.height);
+
+        const scaleX = scaling ? next.width / child.width : 1;
+        const scaleY = scaling ? next.height / child.height : 1;
+        const stack = dx || dy || scaling ? [...(children.get(childId) ?? [])] : [];
+
+        while (stack.length) {
+          const id = stack.pop()!;
+          const member = read(id);
+          if (!member) continue;
+          patches.set(id, {
+            id,
+            before: patches.get(id)?.before ?? this.frames.get(id),
+            after: immutableFrame({
+              ...member,
+              x: next.x + (member.x - child.x) * scaleX,
+              y: next.y + (member.y - child.y) * scaleY,
+              ...(scaling
+                ? {
+                    width: member.width * scaleX,
+                    height: member.height * scaleY,
+                    ...(member.kind === "text"
+                      ? {
+                          fontSize: member.fontSize * Math.min(scaleX, scaleY),
+                          textRuns: scaleCanvasTextRuns(member.textRuns, Math.min(scaleX, scaleY)),
+                        }
+                      : {}),
+                  }
+                : {}),
+            }),
+          });
+          stack.push(...(children.get(id) ?? []));
+        }
+
+        resizeChildren(original, next);
+      }
+    };
+
+    for (const patch of input) {
+      if (patch.before && patch.after) resizeChildren(patch.before, patch.after);
+    }
+
     // Derive containers bottom-up: groups measure their contents before a parent layout
     // positions them. Moving a layout child translates its whole subtree exactly once.
     const containers = new Set<string>();
@@ -1508,7 +1799,7 @@ export class CanvasDocument {
       }
     };
 
-    for (const patch of input) {
+    for (const patch of patches.values()) {
       collectContainers(patch.before, (id) => this.frames.get(id));
       collectContainers(patch.after, read);
     }
@@ -1517,7 +1808,7 @@ export class CanvasDocument {
 
     // A resized parent can change fill sizes throughout its subtree, even when only
     // the parent appeared in the input patch. Keep unrelated roots untouched.
-    const descendants = [...containers];
+    const descendants = [...new Set([...containers, ...patches.keys()])];
     const visitedDescendants = new Set<string>();
 
     while (descendants.length) {
@@ -1578,6 +1869,8 @@ export class CanvasDocument {
           if (dx !== 0 || dy !== 0)
             for (const descendant of children.get(memberId) ?? []) stack.push(descendant);
         }
+
+        resizeChildren(child, read(childId)!);
       }
     };
 
@@ -1704,6 +1997,45 @@ export class CanvasDocument {
       if (patch.after && !isFrame(patch.after, patch.before)) return undefined;
     }
 
+    // Synchronize resolved source layout, then lay out the corresponding instances once.
+    if (hasComponents && componentPass === 0)
+      return this.prepare([...patches.values()], requestedOrder, dirtyIds, 1);
+
+    if (hasComponents) {
+      const candidate = new Map(this.frames);
+
+      for (const patch of patches.values()) {
+        if (patch.after) candidate.set(patch.id, patch.after);
+        else candidate.delete(patch.id);
+      }
+
+      if (!validateCanvasComponents([...candidate.values()], isFrame)) return undefined;
+    }
+
+    if (this.maskedNodes.size || [...patches.values()].some((p) => p.after?.maskId)) {
+      const candidate = new Map(this.frames);
+
+      for (const patch of patches.values()) {
+        if (patch.after) candidate.set(patch.id, patch.after);
+        else candidate.delete(patch.id);
+      }
+
+      for (const node of candidate.values()) {
+        if (node.maskId && !candidate.has(node.maskId) && this.frames.has(node.maskId)) {
+          const { maskId: _maskId, ...released } = node;
+          const after = immutableFrame(released as CanvasFrame);
+          candidate.set(node.id, after);
+          patches.set(node.id, {
+            id: node.id,
+            before: patches.has(node.id) ? patches.get(node.id)!.before : this.frames.get(node.id),
+            after,
+          });
+        }
+      }
+
+      if (!validateCanvasMasks([...candidate.values()])) return undefined;
+    }
+
     const effective = [...patches.values()].filter((patch) =>
       patch.before && patch.after
         ? !framesEqual(patch.before, patch.after)
@@ -1727,6 +2059,19 @@ export class CanvasDocument {
       const next = reverse ? patch.before : patch.after;
       if (next) this.frames.set(patch.id, next);
       else this.frames.delete(patch.id);
+      if (next?.component || next?.instance || next?.componentSourceId)
+        this.componentNodes.add(patch.id);
+      else this.componentNodes.delete(patch.id);
+      if (next?.maskId) this.maskedNodes.add(patch.id);
+      else this.maskedNodes.delete(patch.id);
+    }
+
+    if (operation.patches.some((p) => p.before?.maskId !== p.after?.maskId)) {
+      const previousSources = this.maskSources;
+      this.maskSources = new Set(
+        [...this.maskedNodes].flatMap((id) => this.frames.get(id)?.maskId ?? []),
+      );
+      for (const id of new Set([...previousSources, ...this.maskSources])) this.notifyFrame(id);
     }
 
     const ids = reverse ? operation.beforeIds : operation.afterIds;
@@ -1885,3 +2230,5 @@ export function loadCanvasTheme(storage?: Pick<Storage, "getItem">): CanvasTheme
     return EMPTY_THEME;
   }
 }
+
+export { isFrame as isCanvasFrame };

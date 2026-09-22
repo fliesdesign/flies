@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { CanvasTextEditor } from "./canvas-node-content";
+import type { CanvasTextCommit } from "./canvas-rich-text-editor";
 import "./canvas-webgl-chrome.css";
 
 export type CanvasWebglChromeProps = {
@@ -26,7 +27,7 @@ export type CanvasWebglChromeProps = {
   selectedId?: string | null;
   selectedIds?: readonly string[];
   editingId?: string | null;
-  onTextCommit?: (id: string, text: string, height: number) => void;
+  onTextCommit?: CanvasTextCommit;
   onTextCancel?: (id: string) => void;
 };
 

@@ -1,5 +1,25 @@
 import {
   normalizeTheme,
+  isCanvasFrame,
+  canvasConstraintDrivenIds,
+  createCanvasVectorNode,
+  convertCanvasNodeToVector,
+  booleanCanvasVectors,
+  updateCanvasVector,
+  type CanvasVectorData,
+  type CanvasVectorBoolean,
+  createCanvasComponent,
+  instantiateCanvasComponent,
+  detachCanvasInstance,
+  resetCanvasInstanceOverrides,
+  setCanvasInstanceVariant,
+  captureCanvasInstanceVariant,
+  setCanvasComponentVariant,
+  removeCanvasComponentVariant,
+  type CanvasComponentVariant,
+  type CanvasOperationPlan,
+  editCanvasTextRuns,
+  type CanvasConstraints,
   worldTransform,
   worldBounds,
   inverseMatrix,
@@ -13,7 +33,7 @@ import {
   type CanvasLayout,
   type ThemeProperty,
 } from "@flies/canvas";
-import { ensureCanvasFont, ensureCanvasFonts } from "@flies/canvas";
+import { ensureCanvasFonts } from "@flies/canvas";
 import { CanvasDocument, type CanvasFrame, agentActivity } from "@flies/canvas";
 import { importSource, type SourceFormat } from "@flies/html";
 
@@ -59,9 +79,34 @@ function layoutPatch(value: unknown, current?: CanvasLayout): CanvasLayout | und
     throw new Error("layout must be an object or null.");
 
   for (const key of Object.keys(value)) {
-    if (!["direction", "gap", "padding", "align", "justify"].includes(key))
+    if (
+      ![
+        "direction",
+        "gap",
+        "padding",
+        "align",
+        "justify",
+        "wrap",
+        "rowGap",
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+      ].includes(key)
+    )
       throw new Error(`Unsupported layout property: ${key}`);
   }
+
+  const patch = { ...value } as Record<string, unknown>;
+  for (const key of [
+    "wrap",
+    "rowGap",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+  ])
+    if (patch[key] === null) patch[key] = undefined;
 
   return {
     direction: "row",
@@ -70,8 +115,24 @@ function layoutPatch(value: unknown, current?: CanvasLayout): CanvasLayout | und
     align: "start",
     justify: "start",
     ...current,
-    ...value,
+    ...patch,
   };
+}
+
+function constraintsPatch(
+  value: unknown,
+  current?: CanvasConstraints,
+): CanvasConstraints | undefined {
+  if (value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("constraints must be an object or null.");
+  for (const key of Object.keys(value))
+    if (key !== "horizontal" && key !== "vertical")
+      throw new Error(`Unsupported constraint axis: ${key}`);
+  const patch = { ...current, ...value } as Record<string, unknown>;
+  for (const key of ["horizontal", "vertical"]) if (patch[key] === null) delete patch[key];
+
+  return patch as CanvasConstraints;
 }
 
 export async function editorTool(
@@ -90,17 +151,33 @@ export async function editorTool(
   };
 
   const validate = (add: CanvasFrame[], update: CanvasFrame[], remove: string[]) => {
-    const removed = new Set(remove);
-    const updates = new Map(update.map((node) => [node.id, node]));
+    for (const node of [...add, ...update])
+      if (!isCanvasFrame(node, doc.getFrame(node.id)))
+        throw new Error("Canvas nodes must have valid properties and bounds.");
+    // Exercise the same transaction path as the live document, including component
+    // expansion, layout and resize constraints, before committing anything.
+    const validated = new CanvasDocument(doc.getFrames(), doc.getTheme());
+    validated.setActivePage(doc.getActivePageId());
 
-    // Validate the whole transaction before changing anything; the document rejects invalid edits silently.
-    const validated = new CanvasDocument([
-      ...doc
-        .getFrames()
-        .filter((node) => !removed.has(node.id))
-        .map((node) => updates.get(node.id) ?? node),
-      ...add,
-    ]);
+    if (!validated.transact({ add, update, remove })) {
+      // A valid request may normalize back to the same bounds, such as a group
+      // whose children have not moved yet or a size clamped by its limits.
+      const removed = new Set(remove);
+      const updates = new Map(update.map((node) => [node.id, node]));
+
+      const structural = new CanvasDocument(
+        [
+          ...doc
+            .getFrames()
+            .filter((node) => !removed.has(node.id))
+            .map((node) => updates.get(node.id) ?? node),
+          ...add,
+        ],
+        doc.getTheme(),
+      );
+
+      void structural;
+    }
 
     if (validated.getIds().length > 100_000)
       throw new Error("Document is limited to 100,000 nodes.");
@@ -114,7 +191,193 @@ export async function editorTool(
     return agentActivity(doc).capture(doc, () => doc.transact({ add, update, remove }));
   };
 
+  const componentPlan = async (plan: CanvasOperationPlan) => {
+    const add = plan.upsert.filter((node) => !doc.getFrame(node.id));
+    const update = plan.upsert.filter((node) => doc.getFrame(node.id));
+    const staged = validate(add, update, plan.remove);
+    const revision = doc.getSnapshot().revision;
+    await ensureCanvasFonts(staged.getFrames().filter((node) => node.kind === "text"));
+    if (doc.getSnapshot().revision !== revision)
+      throw new Error(
+        "Document changed while loading component fonts. Read it again before retrying.",
+      );
+    commit(add, update, plan.remove);
+    const nodeId = plan.selection[0];
+    if (nodeId && doc.getSceneIds().includes(nodeId)) controls.select(nodeId);
+
+    return textResult({
+      nodeId,
+      node: nodeId ? doc.getFrame(nodeId) : undefined,
+      revision: doc.getSnapshot().revision,
+    });
+  };
+
   switch (name) {
+    case "create_vector": {
+      const vector = args.vector as CanvasVectorData;
+
+      const parentId =
+        args.parentId === undefined ? doc.getActivePageId() : stringArg(args, "parentId");
+
+      if (parentId && parentId !== doc.getActivePageId() && !doc.getSceneIds().includes(parentId))
+        throw new Error("Vector parent must be on the active page.");
+
+      const node = createCanvasVectorNode(
+        crypto.randomUUID(),
+        args.name === undefined ? "Vector" : stringArg(args, "name"),
+        vector,
+        {
+          x: numberArg(args, "x", 0),
+          y: numberArg(args, "y", 0),
+          width: numberArg(args, "width", vector?.viewWidth),
+          height: numberArg(args, "height", vector?.viewHeight),
+        },
+        parentId,
+      );
+
+      commit([node]);
+      controls.select(node.id);
+
+      return textResult({ nodeId: node.id, node: doc.getFrame(node.id) });
+    }
+
+    case "convert_to_vector": {
+      const before = getNode(stringArg(args, "nodeId"));
+      if (doc.getChildren(before.id).length)
+        throw new Error("Only leaf shapes can become vectors.");
+      const node = convertCanvasNodeToVector(before);
+      commit([], [node]);
+
+      return textResult({ node: doc.getFrame(node.id) });
+    }
+
+    case "boolean_vectors": {
+      const ids = args.nodeIds;
+      if (
+        !Array.isArray(ids) ||
+        ids.length < 2 ||
+        ids.length > 1000 ||
+        !ids.every((id) => typeof id === "string") ||
+        new Set(ids).size !== ids.length
+      )
+        throw new Error("nodeIds must contain 2–1000 distinct shape IDs.");
+      if (!["union", "subtract", "intersect", "exclude"].includes(String(args.operation)))
+        throw new Error("Unsupported vector boolean operation.");
+
+      for (const id of ids) {
+        getNode(id);
+        if (!doc.getSceneIds().includes(id) || doc.getChildren(id).length)
+          throw new Error("Boolean operands must be leaf shapes on the active page.");
+      }
+
+      const plan = booleanCanvasVectors(
+        doc.getFrames(),
+        ids,
+        args.operation as CanvasVectorBoolean,
+      );
+
+      commit(
+        plan.upsert.filter((node) => !doc.getFrame(node.id)),
+        plan.upsert.filter((node) => doc.getFrame(node.id)),
+        plan.remove,
+      );
+      controls.select(plan.selection[0] ?? null);
+
+      return textResult({ nodeId: plan.selection[0] ?? null, removed: plan.remove });
+    }
+
+    case "create_component":
+      return componentPlan(createCanvasComponent(doc.getFrames(), stringArg(args, "nodeId")));
+
+    case "instantiate_component": {
+      const source = getNode(stringArg(args, "componentId"));
+
+      const plan = instantiateCanvasComponent(
+        doc.getFrames(),
+        source.id,
+        {
+          x: numberArg(args, "x", source.x + source.width + 40),
+          y: numberArg(args, "y", source.y),
+        },
+        args.variantId === undefined ? undefined : stringArg(args, "variantId"),
+      );
+
+      const parentId =
+        args.parentId === undefined ? doc.getActivePageId() : stringArg(args, "parentId");
+
+      if (parentId) {
+        const parent = getNode(parentId);
+        if (
+          parent.kind &&
+          parent.kind !== "frame" &&
+          parent.kind !== "group" &&
+          parent.kind !== "page"
+        )
+          throw new Error("Instance parent must be a frame, group or page.");
+        if (
+          parent.kind === "page"
+            ? parent.id !== doc.getActivePageId()
+            : !doc.getSceneIds().includes(parent.id)
+        )
+          throw new Error("Instance parent must be on the active page.");
+      }
+
+      return componentPlan({
+        ...plan,
+        // oxlint-disable-next-line oxc/no-map-spread -- Operation plans retain immutable snapshots.
+        upsert: plan.upsert.map((node) =>
+          node.id === plan.selection[0] ? { ...node, parentId } : node,
+        ),
+      });
+    }
+
+    case "detach_instance":
+      return componentPlan(detachCanvasInstance(doc.getFrames(), stringArg(args, "nodeId")));
+    case "reset_instance":
+      return componentPlan(
+        resetCanvasInstanceOverrides(doc.getFrames(), stringArg(args, "nodeId")),
+      );
+    case "set_instance_variant":
+      return componentPlan(
+        setCanvasInstanceVariant(
+          doc.getFrames(),
+          stringArg(args, "nodeId"),
+          args.variantId === null || args.variantId === undefined
+            ? undefined
+            : stringArg(args, "variantId"),
+        ),
+      );
+    case "capture_component_variant":
+      return componentPlan(
+        captureCanvasInstanceVariant(
+          doc.getFrames(),
+          stringArg(args, "nodeId"),
+          stringArg(args, "name"),
+        ),
+      );
+
+    case "set_component_variant": {
+      if (!args.variant || typeof args.variant !== "object" || Array.isArray(args.variant))
+        throw new Error("variant must be an object.");
+
+      return componentPlan(
+        setCanvasComponentVariant(
+          doc.getFrames(),
+          stringArg(args, "componentId"),
+          args.variant as CanvasComponentVariant,
+        ),
+      );
+    }
+
+    case "remove_component_variant":
+      return componentPlan(
+        removeCanvasComponentVariant(
+          doc.getFrames(),
+          stringArg(args, "componentId"),
+          stringArg(args, "variantId"),
+        ),
+      );
+
     case "get_theme":
       return textResult({
         ...doc.getTheme(),
@@ -300,6 +563,12 @@ export async function editorTool(
             heightSizing: args.heightSizing,
           }),
         ...(args.layout !== undefined && { layout: layoutPatch(args.layout) }),
+        ...Object.fromEntries(
+          ["minWidth", "maxWidth", "minHeight", "maxHeight"].flatMap((key) =>
+            args[key] === undefined || args[key] === null ? [] : [[key, args[key]]],
+          ),
+        ),
+        ...(args.constraints !== undefined && { constraints: constraintsPatch(args.constraints) }),
       } as CanvasFrame;
 
       commit([node]);
@@ -570,6 +839,12 @@ export async function editorTool(
         "height",
         "widthSizing",
         "heightSizing",
+        "minWidth",
+        "maxWidth",
+        "minHeight",
+        "maxHeight",
+        "constraints",
+        "maskId",
         "parentId",
         "hidden",
         "locked",
@@ -591,6 +866,7 @@ export async function editorTool(
         rectangle: ["fill"],
         text: [
           "text",
+          "textRuns",
           "fontSize",
           "color",
           "fontFamily",
@@ -601,8 +877,8 @@ export async function editorTool(
           "fontStyle",
           "textDecoration",
         ],
-        image: ["src"],
-        svg: ["src"],
+        image: ["src", "crop"],
+        svg: ["src", "vector"],
         pen: ["points", "stroke", "strokeWidth", "pathWidth", "pathHeight"],
       };
 
@@ -625,6 +901,11 @@ export async function editorTool(
         patch.layout = layoutPatch(patch.layout, before.layout);
       }
 
+      if (patch.constraints !== undefined)
+        patch.constraints = constraintsPatch(patch.constraints, before.constraints);
+      if (before.kind === "text" && typeof patch.text === "string" && patch.textRuns === undefined)
+        patch.textRuns = editCanvasTextRuns(before, patch.text);
+
       for (const axis of ["width", "height"] as const) {
         const sizing = `${axis}Sizing` as const;
         if (patch[axis] !== undefined && patch[sizing] === undefined) patch[sizing] = "fixed";
@@ -644,6 +925,15 @@ export async function editorTool(
 
       const optional = new Set([
         "parentId",
+        "minWidth",
+        "maxWidth",
+        "minHeight",
+        "maxHeight",
+        "constraints",
+        "maskId",
+        "crop",
+        "vector",
+        "textRuns",
         "widthSizing",
         "heightSizing",
         "hidden",
@@ -673,10 +963,20 @@ export async function editorTool(
         if (value === null && optional.has(key)) Reflect.deleteProperty(updated, key);
       }
 
+      if (updated.kind === "svg") {
+        if (patch.vector !== undefined && patch.vector !== null) {
+          if (patch.src !== undefined) throw new Error("Supply vector or src, not both.");
+          updated = updateCanvasVector(updated, patch.vector as CanvasVectorData);
+        } else if (patch.src !== undefined) {
+          const { vector: _vector, ...plainSvg } = updated;
+          updated = plainSvg;
+        }
+      }
+
       const staged = validate([], [updated], []);
 
       if (updated.kind === "text") {
-        await ensureCanvasFont(updated);
+        await ensureCanvasFonts([updated]);
         if (doc.getFrame(before.id) !== before)
           throw new Error(
             "Target changed while loading its font. Read the node again before retrying.",
@@ -696,7 +996,8 @@ export async function editorTool(
             updated.fontWeight !== before.fontWeight ||
             updated.fontStyle !== before.fontStyle ||
             updated.lineHeight !== before.lineHeight ||
-            updated.letterSpacing !== before.letterSpacing)
+            updated.letterSpacing !== before.letterSpacing ||
+            JSON.stringify(updated.textRuns) !== JSON.stringify(before.textRuns))
         ) {
           updated = {
             ...updated,
@@ -722,6 +1023,7 @@ export async function editorTool(
           : [];
 
       const resizedById = new Map(resized.map((child) => [child.id, child]));
+      const responsive = canvasConstraintDrivenIds(doc.getFrames(), before, updated);
       const dx = updated.x - before.x;
       const dy = updated.y - before.y;
 
@@ -731,6 +1033,7 @@ export async function editorTool(
       ) {
         // Match UI frame cropping, then translate the contents with the container.
         for (const id of doc.getDescendantIds(doc.getChildren(before.id))) {
+          if (responsive.has(id)) continue;
           const child = resizedById.get(id) ?? getNode(id);
           updates.push({ ...child, x: child.x + dx, y: child.y + dy });
         }

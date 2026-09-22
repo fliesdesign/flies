@@ -42,7 +42,7 @@ export function CanvasWebglArtwork({
       if (canvas.dataset.renderer === "webgl2") {
         element
           .closest(".design-canvas")
-          ?.querySelector<HTMLTextAreaElement>(".canvas-text-editor")
+          ?.querySelector<HTMLElement>(".canvas-text-editor")
           ?.blur();
       }
 

@@ -1,5 +1,10 @@
-import { SVG_DATA_URL, svgDataUrl, ensureCanvasFonts } from "@flies/canvas";
-import type { CanvasFrame } from "@flies/canvas";
+import {
+  SVG_DATA_URL,
+  svgDataUrl,
+  ensureCanvasFonts,
+  normalizeCanvasTextRuns,
+} from "@flies/canvas";
+import type { CanvasFrame, CanvasTextRun, CanvasTextRunStyle } from "@flies/canvas";
 
 import {
   captureTransform,
@@ -8,7 +13,7 @@ import {
   nativeBlend,
   nativeGradient,
 } from "./html-paint";
-import { sanitizeHtml } from "./html-sanitize";
+import { sanitizeHtml, sanitizedTextLink } from "./html-sanitize";
 import {
   createTextMeasurer,
   effectsStyle,
@@ -317,12 +322,15 @@ export async function importHtmlFragment(
         const text = transformedText(value.slice(start, end), style);
         const { typography: type, rangeTop } = measureText(style, text);
         const lineHeight = type.fontSize * type.lineHeight!;
+        const link = textNode.parentElement!.closest("a");
+        const href = link && sanitizedTextLink(link);
         add({
           ...baseFor(rect, parentId, text.slice(0, 80)),
           ...type,
           opacity,
           kind: "text",
           text,
+          ...(href ? { textRuns: [{ start: 0, end: text.length, href }] } : {}),
           textAlign: "left",
           y: options.y + rect.y - origin.y - rangeTop,
           width: rect.width + 0.5,
@@ -354,6 +362,153 @@ export async function importHtmlFragment(
         emit(start, low);
         start = low;
       }
+    };
+
+    // Only merge a single inline formatting context. Positioned children, inline
+    // backgrounds and independent line metrics still need the measured fallback.
+    const richInlineText = (element: HTMLElement, baseStyle: CSSStyleDeclaration) => {
+      if (!["block", "inline-block", "list-item"].includes(baseStyle.display)) return;
+      if (!["normal", "pre", "pre-wrap", "break-spaces"].includes(baseStyle.whiteSpace)) return;
+      const baseType = measureText(baseStyle, "Hg").typography;
+      const collapse = baseStyle.whiteSpace === "normal";
+      const pieces: { value: string; style: CanvasTextRunStyle; capitalize?: boolean }[] = [];
+      let valid = true;
+
+      const visitInline = (
+        node: Node,
+        owner: HTMLElement,
+        decoration = baseType.textDecoration,
+        href = sanitizedTextLink(element),
+      ) => {
+        if (!valid) return;
+
+        if (node instanceof Text) {
+          const computed = getComputedStyle(owner);
+          const type = measureText(computed, "Hg").typography;
+          const style: Record<string, unknown> = {};
+          for (const key of ["color", "fontSize", "fontFamily", "fontWeight", "fontStyle"] as const)
+            if (type[key] !== baseType[key]) style[key] = type[key];
+          if (decoration !== baseType.textDecoration) style.textDecoration = decoration;
+          if (href) style.href = href;
+          pieces.push({
+            value:
+              computed.textTransform === "capitalize"
+                ? node.data
+                : transformedText(node.data, computed),
+            style,
+            capitalize: computed.textTransform === "capitalize",
+          });
+
+          return;
+        }
+
+        if (!(node instanceof HTMLElement)) return;
+
+        if (node.localName === "br") {
+          pieces.push({ value: "\n", style: {} });
+
+          return;
+        }
+
+        if (!["span", "strong", "b", "em", "i", "a", "small", "code"].includes(node.localName)) {
+          valid = false;
+
+          return;
+        }
+
+        const style = getComputedStyle(node);
+        const type = measureText(style, "Hg").typography;
+        const transform = transforms.get(node)!;
+        const sides = ["Top", "Right", "Bottom", "Left"] as const;
+
+        if (
+          style.display !== "inline" ||
+          style.position !== "static" ||
+          style.visibility !== "visible" ||
+          Number(style.opacity) !== 1 ||
+          style.verticalAlign !== "baseline" ||
+          style.whiteSpace !== baseStyle.whiteSpace ||
+          style.letterSpacing !== baseStyle.letterSpacing ||
+          style.textShadow !== "none" ||
+          style.filter !== "none" ||
+          style.mixBlendMode !== "normal" ||
+          style.backgroundImage !== "none" ||
+          !htmlColor(style.backgroundColor).endsWith("00") ||
+          style.boxShadow !== "none" ||
+          sides.some(
+            (side) =>
+              parseFloat(style[`padding${side}`]) ||
+              parseFloat(style[`margin${side}`]) ||
+              parseFloat(style[`border${side}Width`]),
+          ) ||
+          [transform.transform, transform.translate, transform.rotate, transform.scale].some(
+            (value) => value !== "none",
+          ) ||
+          Math.abs((type.lineHeight ?? 1.25) - (baseType.lineHeight ?? 1.25)) > 0.005
+        ) {
+          valid = false;
+
+          return;
+        }
+
+        const ownDecoration = type.textDecoration;
+
+        if (decoration !== "none" && ownDecoration !== "none" && ownDecoration !== decoration) {
+          valid = false;
+
+          return;
+        }
+
+        const nextDecoration = ownDecoration === "none" ? decoration : ownDecoration;
+        const nextHref = sanitizedTextLink(node) ?? href;
+        for (const child of node.childNodes) visitInline(child, node, nextDecoration, nextHref);
+      };
+
+      for (const child of element.childNodes) visitInline(child, element);
+      if (!valid) return;
+      let text = "";
+      const runs: CanvasTextRun[] = [];
+      let pendingSpace: CanvasTextRunStyle | undefined;
+      let previousStyle: CanvasTextRunStyle | undefined;
+
+      const append = (value: string, style: CanvasTextRunStyle) => {
+        const start = text.length;
+        text += value;
+        if (style === previousStyle)
+          runs[runs.length - 1] = { ...runs[runs.length - 1], end: text.length };
+        else runs.push({ start, end: text.length, ...style });
+        previousStyle = style;
+      };
+
+      for (const piece of pieces) {
+        // A standalone newline is an explicit BR; text-node whitespace was
+        // collapsed above according to its computed white-space property.
+        if (collapse && piece.value === "\n") {
+          pendingSpace = undefined;
+          append("\n", piece.style);
+          continue;
+        }
+
+        for (const character of piece.value) {
+          if (collapse && /[\t\r\n ]/.test(character)) {
+            if (text && !text.endsWith("\n")) pendingSpace ??= piece.style;
+            continue;
+          }
+
+          if (pendingSpace) append(" ", pendingSpace);
+          pendingSpace = undefined;
+          append(
+            piece.capitalize && /\p{L}/u.test(character) && !/[\p{L}\p{N}_]$/u.test(text)
+              ? character.toUpperCase()
+              : character,
+            piece.style,
+          );
+        }
+      }
+
+      if (!text.trim()) return;
+
+      return { text, textRuns: normalizeCanvasTextRuns(text, runs) };
     };
 
     const visit = (element: HTMLElement, parentId?: string, isRoot = false) => {
@@ -447,12 +602,18 @@ export async function importHtmlFragment(
 
       const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
 
-      const plainText = input
-        ? element.value || element.getAttribute("placeholder") || ""
-        : element.innerText;
+      const richText =
+        hasChildren && !input && !paintHidden ? richInlineText(element, style) : undefined;
+
+      const plainText =
+        richText?.text ??
+        (input ? element.value || element.getAttribute("placeholder") || "" : element.innerText);
 
       const leafText =
-        !paintHidden && !hasChildren && plainText.trim() && !(element instanceof HTMLImageElement);
+        !paintHidden &&
+        (!hasChildren || richText) &&
+        plainText.trim() &&
+        !(element instanceof HTMLImageElement);
 
       const buttonText = element.localName === "button";
 
@@ -520,7 +681,7 @@ export async function importHtmlFragment(
           ...baseFor(contentRect, parentId, element.dataset.name ?? plainText.trim().slice(0, 80)),
           ...measureText(style, plainText).typography,
           kind: "text",
-          text: transformedText(plainText, style, true),
+          ...(richText ?? { text: transformedText(plainText, style, true) }),
           opacity: base.opacity,
         });
 
@@ -632,7 +793,7 @@ export async function importHtmlFragment(
           ...baseFor(contentRect, base.id, plainText.trim().slice(0, 80)),
           ...measureText(style, plainText).typography,
           kind: "text",
-          text: transformedText(plainText, style, true),
+          ...(richText ?? { text: transformedText(plainText, style, true) }),
         });
       } else {
         // DOM text ranges preserve inline color runs, wrapping, and flex/grid centering.

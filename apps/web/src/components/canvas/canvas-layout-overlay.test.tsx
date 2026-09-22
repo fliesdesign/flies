@@ -121,3 +121,54 @@ describe("layout overlay boundaries", () => {
     assert.equal(handles[4].value, 0);
   });
 });
+
+describe("responsive spacing handles", () => {
+  it("targets individual sides after padding overrides and only spans one wrapped row", () => {
+    const container: CanvasFrame = {
+      ...frame,
+      width: 240,
+      layout: {
+        ...frame.layout!,
+        padding: 10,
+        paddingLeft: 20,
+        paddingRight: 30,
+        wrap: true,
+        rowGap: 24,
+        gap: 10,
+      },
+    };
+
+    const children: CanvasFrame[] = [0, 1, 2].map((index) => ({
+      id: `child-${index}`,
+      name: `Child ${index}`,
+      kind: "rectangle",
+      fill: "#fff",
+      parentId: container.id,
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 40,
+    }));
+
+    const document = new CanvasDocument([container, ...children]);
+    const resolved = document.getFrame(container.id)!;
+    assert.ok(!resolved.kind || resolved.kind === "frame");
+
+    const handles = layoutHandles(
+      resolved,
+      children.map((child) => document.getFrame(child.id)!),
+      1,
+    );
+
+    const left = handles.find((handle) => handle.key === "padding-left")!;
+    assert.equal(left.property, "layoutPaddingLeft");
+    assert.equal(left.value, 20);
+    assert.equal(left.rect.width, 20);
+    const gap = handles.find((handle) => handle.property === "layoutGap")!;
+    assert.deepEqual(gap.rect, { x: 100, y: 10, width: 10, height: 40 });
+    const line = handles.find((handle) => handle.property === "layoutRowGap")!;
+    assert.deepEqual(line.rect, { x: 20, y: 50, width: 190, height: 24 });
+    assert.equal(line.value, 24);
+    assert.equal(handles.filter((handle) => handle.property === "layoutGap").length, 1);
+  });
+});

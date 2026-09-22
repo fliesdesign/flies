@@ -606,7 +606,7 @@ test("MCP creates native auto layout artboards and validates sizing modes atomic
   const { document, controls } = fixture();
   const original = document.getFrames();
   await Promise.all(
-    [{ widthSizing: "auto" }, { heightSizing: "hug" }, { layout: { wrap: true } }].map((args) =>
+    [{ widthSizing: "auto" }, { heightSizing: "hug" }, { layout: { wrap: "yes" } }].map((args) =>
       assert.rejects(
         editorTool(controls, "create_artboard", {
           name: "Invalid",

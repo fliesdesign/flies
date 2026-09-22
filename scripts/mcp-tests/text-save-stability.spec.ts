@@ -139,7 +139,7 @@ for (const renderer of ["dom", "webgl2"]) {
       for (let index = 0; index < 4; index++) {
         await page.getByRole("button", { name: "Text (T)", exact: true }).click();
         await surface.click({ position: { x: 250, y: 150 + index * 70 } });
-        const editor = page.locator("textarea.canvas-text-editor");
+        const editor = page.locator("[contenteditable].canvas-text-editor");
         await editor.fill(`Retained text ${index}`);
         // The creation save can finish while the text is still an uncommitted draft.
         await page.waitForTimeout([200, 0, 700, 200][index]);
@@ -150,7 +150,7 @@ for (const renderer of ["dom", "webgl2"]) {
           await page.waitForTimeout(700);
         }
 
-        await expect(editor).toHaveValue(`Retained text ${index}`);
+        await expect(editor).toHaveText(`Retained text ${index}`);
 
         if (cancel) {
           await editor.press("Escape");

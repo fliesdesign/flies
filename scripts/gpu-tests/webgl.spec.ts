@@ -174,7 +174,7 @@ test("WebGL2 updates document edits and undo, moves its camera, and supports nat
     )
     .toEqual([180, 175]);
   await page.mouse.dblclick(240, 294);
-  const textarea = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
+  const textarea = page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor");
   await expect(textarea).toBeVisible();
   await textarea.fill("Edited through WebGL2");
   await textarea.press("Control+Enter");
@@ -205,7 +205,9 @@ test("unsupported browsers retain the editable DOM canvas", async ({ page }) => 
     page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]"),
   ).toHaveCount(0);
   await page.mouse.dblclick(230, 274);
-  await expect(page.locator("[data-gpu-fixture] textarea.canvas-text-editor")).toBeVisible();
+  await expect(
+    page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor"),
+  ).toBeVisible();
 });
 
 test("context initialization failures retain editable artwork", async ({ page }) => {
@@ -223,7 +225,9 @@ test("context initialization failures retain editable artwork", async ({ page })
   ).toBeVisible();
   await expect(page.locator("[data-gpu-fixture] .canvas-webgl-surface")).toHaveCount(0);
   await page.mouse.dblclick(230, 274);
-  await expect(page.locator("[data-gpu-fixture] textarea.canvas-text-editor")).toBeVisible();
+  await expect(
+    page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor"),
+  ).toBeVisible();
 });
 
 test("context loss falls back without losing document edits", async ({ page }) => {
@@ -232,7 +236,7 @@ test("context loss falls back without losing document edits", async ({ page }) =
     page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]"),
   ).toBeVisible();
   await page.mouse.dblclick(230, 274);
-  const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
+  const draft = page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor");
   await expect(draft).toBeVisible();
   await draft.fill("Kept after context loss");
   await page.evaluate(() => {
@@ -291,13 +295,13 @@ test("GPU initialization waits for an active DOM text draft before switching art
     .poll(() => page.evaluate(() => typeof Reflect.get(window, "releaseWebglInitialization")))
     .toBe("function");
   await page.mouse.dblclick(230, 274);
-  const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
+  const draft = page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor");
   await draft.fill("Draft during initialization");
   await page.evaluate(() => Reflect.get(window, "releaseWebglInitialization")());
   await expect(
     page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]"),
   ).toHaveCount(1);
-  await expect(draft).toHaveValue("Draft during initialization");
+  await expect(draft).toHaveText("Draft during initialization");
   await expect(
     page.locator('[data-gpu-fixture] .canvas-frame-position[data-frame-id="red"]'),
   ).toBeVisible();
@@ -320,7 +324,7 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
     page.locator("[data-gpu-fixture] .canvas-webgl-surface[data-renderer=webgl2]"),
   ).toBeVisible();
   await page.mouse.dblclick(230, 274);
-  const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
+  const draft = page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor");
   await draft.fill("Keep this uncommitted draft");
   await draft.evaluate((element) => Reflect.set(window, "initialDraftElement", element));
 
@@ -330,7 +334,7 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
       document.transact({ update: [{ ...document.getFrame("board"), clipContent: clip }] });
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }, clipContent);
-    await expect(draft).toHaveValue("Keep this uncommitted draft");
+    await expect(draft).toHaveText("Keep this uncommitted draft");
     expect(
       await draft.evaluate(
         (element) =>
@@ -349,7 +353,7 @@ test("an active GPU text draft survives ancestor clipping changes and same-depth
     });
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   });
-  await expect(draft).toHaveValue("Keep this uncommitted draft");
+  await expect(draft).toHaveText("Keep this uncommitted draft");
   expect(
     await draft.evaluate(
       (element) =>

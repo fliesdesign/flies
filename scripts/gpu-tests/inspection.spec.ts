@@ -75,7 +75,7 @@ test("switching to HTML inspection commits an active GPU text draft", async ({ p
   await mount(page);
   await expect(page.locator(gpuArtwork)).toBeVisible();
   await page.mouse.dblclick(230, 274);
-  const draft = page.locator("[data-gpu-fixture] textarea.canvas-text-editor");
+  const draft = page.locator("[data-gpu-fixture] [contenteditable].canvas-text-editor");
   await expect(draft).toBeVisible();
   await draft.fill("Draft retained for HTML inspection");
   await setInspection(page, true);

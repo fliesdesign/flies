@@ -102,7 +102,8 @@ void main() {
         total+=weight;
       }
       color/=total;
-    } else if(uFilter>0 && color.a>0.0) color.rgb=clamp(colorFilter(color.rgb/color.a),0.0,1.0)*color.a;
+    } else if(uFilter==9) color*=texture(uBackdrop,vec2(vUv.x,1.0-vUv.y)).a;
+    else if(uFilter>0 && color.a>0.0) color.rgb=clamp(colorFilter(color.rgb/color.a),0.0,1.0)*color.a;
   }
   if(uMode==1 && uTextureEdges) {
     vec2 p=abs((vUv-.5)*uSize)-uSize*.5;
@@ -111,7 +112,7 @@ void main() {
   }
   color*=uOpacity;
   if(uBlend>0) {
-    vec4 backdrop=texture(uBackdrop,gl_FragCoord.xy/vec2(textureSize(uBackdrop,0)));
+    vec4 backdrop=texture(uBackdrop,vec2(vUv.x,1.0-vUv.y));
     vec3 b=backdrop.a>0.0 ? backdrop.rgb/backdrop.a : vec3(0);
     vec3 s=color.a>0.0 ? color.rgb/color.a : vec3(0);
     color.rgb=color.rgb*(1.0-backdrop.a)+blend(b,s)*color.a*backdrop.a;

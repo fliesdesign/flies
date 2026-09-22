@@ -1,4 +1,19 @@
-import { gradientCss, filterCss, detachCanvasSelection, exportBounds } from "@flies/canvas";
+import {
+  rasterizeCanvasMask,
+  worldTransform,
+  inverseMatrix,
+  multiplyMatrix,
+  canvasMaskSourceIds,
+  type CanvasMaskStyle,
+} from "@flies/canvas";
+import {
+  gradientCss,
+  filterCss,
+  detachCanvasSelection,
+  exportBounds,
+  canvasTextSegments,
+  canvasTextRunCss,
+} from "@flies/canvas";
 import { CanvasDocument, selectionBounds, fontFamilyCss, type CanvasFrame } from "@flies/canvas";
 
 export const CANVAS_CODE_FORMATS = ["Tailwind", "CSS", "React Tailwind", "React CSS"] as const;
@@ -9,6 +24,7 @@ type Element = {
   styles?: Styles;
   attrs?: Record<string, string>;
   children?: (Element | string)[];
+  inlineChildren?: boolean;
 };
 const px = (value: number) => `${Number(value.toFixed(4))}px`;
 
@@ -19,6 +35,8 @@ function nodeElement(
   node: CanvasFrame,
   doc: CanvasDocument,
   origin: { x: number; y: number },
+  masks: ReadonlyMap<string, CanvasMaskStyle>,
+  maskSources: ReadonlySet<string>,
 ): Element {
   const frame = !node.kind || node.kind === "frame";
 
@@ -35,6 +53,17 @@ function nodeElement(
     border: "0px",
   };
 
+  const mask = masks.get(node.id);
+  if (mask)
+    Object.assign(
+      styles,
+      Object.fromEntries(
+        Object.entries(mask).map(([key, value]) => [
+          key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+          value,
+        ]),
+      ),
+    );
   if (node.rotation) styles.transform = `rotate(${node.rotation}deg)`;
   if (node.blendMode) styles["mix-blend-mode"] = node.blendMode;
   const filter = filterCss(node.filters);
@@ -55,6 +84,7 @@ function nodeElement(
   } else if (node.kind === "text") {
     children.push({
       tag: "span",
+      inlineChildren: true,
       styles: {
         ...fillStyles,
         "box-sizing": "border-box",
@@ -75,14 +105,52 @@ function nodeElement(
         "tab-size": "4",
         overflow: "hidden",
       },
-      children: [node.text],
+      children: node.textRuns?.length
+        ? canvasTextSegments(node).map((segment) => ({
+            tag: segment.style.href ? "a" : "span",
+            styles: {
+              ...(segment.style.href && { color: "inherit", "text-decoration": "inherit" }),
+              ...Object.fromEntries(
+                Object.entries(canvasTextRunCss(segment.style)).map(([key, value]) => [
+                  key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+                  value,
+                ]),
+              ),
+            },
+            ...(segment.style.href && { attrs: { href: segment.style.href } }),
+            children: [segment.text],
+          }))
+        : [node.text],
     });
   } else if (node.kind === "image" || node.kind === "svg") {
-    children.push({
+    const crop = node.kind === "image" ? node.crop : undefined;
+
+    const image: Element = {
       tag: "img",
-      styles: { ...fillStyles, "max-width": "none", "object-fit": "fill" },
+      styles: {
+        ...fillStyles,
+        "max-width": "none",
+        "object-fit": "fill",
+        ...(crop && {
+          position: "absolute",
+          width: `${100 / crop.width}%`,
+          height: `${100 / crop.height}%`,
+          left: `${(-100 * crop.x) / crop.width}%`,
+          top: `${(-100 * crop.y) / crop.height}%`,
+        }),
+      },
       attrs: { src: node.src, alt: "" },
-    });
+    };
+
+    children.push(
+      crop
+        ? {
+            tag: "div",
+            styles: { ...fillStyles, position: "relative", overflow: "hidden" },
+            children: [image],
+          }
+        : image,
+    );
   } else if (node.kind === "pen") {
     const first = node.points[0];
     children.push({
@@ -123,7 +191,7 @@ function nodeElement(
   const descendants = doc
     .getChildren(node.id)
     .map((id) => doc.getFrame(id)!)
-    .filter((child) => !child.hidden);
+    .filter((child) => !child.hidden && !maskSources.has(child.id));
 
   if (descendants.length) {
     const clip = frame && node.clipContent !== false;
@@ -135,7 +203,7 @@ function nodeElement(
         overflow: clip ? "hidden" : "visible",
         "border-radius": clip ? px(node.cornerRadius ?? 0) : "0px",
       },
-      children: descendants.map((child) => nodeElement(child, doc, node)),
+      children: descendants.map((child) => nodeElement(child, doc, node, masks, maskSources)),
     });
   }
 
@@ -243,6 +311,20 @@ function render(element: Element, react: boolean, tailwind: boolean, depth: numb
   if (element.tag === "img") return open + (react ? " />" : ">");
   if (!element.children?.length) return `${open}></${element.tag}>`;
 
+  if (element.inlineChildren) {
+    const content = element.children
+      .map((child) =>
+        typeof child === "string"
+          ? react
+            ? `{${JSON.stringify(child)}}`
+            : escapeHtml(child)
+          : render(child, react, tailwind, 0),
+      )
+      .join("");
+
+    return `${open}>${content}</${element.tag}>`;
+  }
+
   if (element.children.length === 1 && typeof element.children[0] === "string") {
     const text = element.children[0];
 
@@ -257,10 +339,29 @@ export function exportCanvasCode(
   nodes: readonly CanvasFrame[],
   selectedIds: readonly string[],
   format: CanvasCodeFormat,
+  masks: ReadonlyMap<string, CanvasMaskStyle> = new Map(),
 ): string {
   const original = new CanvasDocument(nodes);
-  const roots = original.getRootIds(selectedIds).filter((id) => !original.isHidden(id));
-  const doc = new CanvasDocument(detachCanvasSelection(nodes, roots));
+  const maskSources = canvasMaskSourceIds(nodes);
+
+  const roots = original
+    .getRootIds(selectedIds)
+    .filter((id) => !original.isHidden(id) && !maskSources.has(id));
+
+  const exported = new Set(original.getDescendantIds(roots));
+  if (nodes.some((node) => node.maskId && exported.has(node.id) && !masks.has(node.id)))
+    throw new Error("Use exportCanvasCodeWithAssets to include layer masks.");
+
+  // Export materialized appearance; links and editor metadata stay in the project file.
+  const detached = detachCanvasSelection(
+    nodes.map(
+      ({ component: _c, instance: _i, componentSourceId: _s, maskId: _m, ...node }) =>
+        node as CanvasFrame,
+    ),
+    roots,
+  );
+
+  const doc = new CanvasDocument(detached);
 
   const bounds = selectionBounds(
     roots.map((id) => ({
@@ -281,7 +382,7 @@ export function exportCanvasCode(
       height: px(bounds.height),
       isolation: "isolate",
     },
-    children: roots.map((id) => nodeElement(doc.getFrame(id)!, doc, bounds)),
+    children: roots.map((id) => nodeElement(doc.getFrame(id)!, doc, bounds, masks, maskSources)),
   };
 
   const react = format.startsWith("React");
@@ -290,4 +391,31 @@ export function exportCanvasCode(
   return react
     ? `export default function CanvasSelection() {\n  return (\n${markup}\n  );\n}\n`
     : markup;
+}
+
+/** Resolve mask images before copying; generated code remains self-contained. */
+export async function exportCanvasCodeWithAssets(
+  nodes: readonly CanvasFrame[],
+  selectedIds: readonly string[],
+  format: CanvasCodeFormat,
+) {
+  const doc = new CanvasDocument(nodes);
+  const exported = new Set(doc.getDescendantIds(doc.getRootIds(selectedIds)));
+  const masks = new Map<string, CanvasMaskStyle>();
+  await Promise.all(
+    nodes
+      .filter((node) => node.maskId && exported.has(node.id))
+      .map(async (target) => {
+        const source = doc.getFrame(target.maskId!)!;
+
+        const transform = multiplyMatrix(
+          inverseMatrix(worldTransform(doc, target)),
+          worldTransform(doc, source),
+        );
+
+        masks.set(target.id, await rasterizeCanvasMask(target, source, 2, transform));
+      }),
+  );
+
+  return exportCanvasCode(nodes, selectedIds, format, masks);
 }

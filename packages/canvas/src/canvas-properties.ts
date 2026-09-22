@@ -1,3 +1,4 @@
+import { CANVAS_CONSTRAINT_MODES } from "./canvas-constraints";
 import type { CanvasFrame, CanvasText } from "./canvas-document";
 import { isFontFamily } from "./canvas-fonts";
 import { DEFAULT_CANVAS_LAYOUT, isCanvasSizing } from "./canvas-layout";
@@ -41,6 +42,13 @@ export type CanvasProperty =
   | "height"
   | "widthSizing"
   | "heightSizing"
+  | "minWidth"
+  | "maxWidth"
+  | "minHeight"
+  | "maxHeight"
+  | "constraintsEnabled"
+  | "constraintHorizontal"
+  | "constraintVertical"
   | "opacity"
   | "cornerRadius"
   | "fill"
@@ -67,6 +75,12 @@ export type CanvasProperty =
   | "layoutMode"
   | "layoutGap"
   | "layoutPadding"
+  | "layoutPaddingTop"
+  | "layoutPaddingRight"
+  | "layoutPaddingBottom"
+  | "layoutPaddingLeft"
+  | "layoutWrap"
+  | "layoutRowGap"
   | "layoutAlign"
   | "layoutJustify"
   | "layoutPosition"
@@ -328,6 +342,70 @@ function styleChange(
         : node;
     }
 
+    case "minWidth":
+    case "maxWidth":
+    case "minHeight":
+
+    case "maxHeight": {
+      if (value === "") {
+        const next = { ...node };
+        delete next[property];
+
+        return next;
+      }
+
+      return numeric && value >= 0 ? { ...node, [property]: value } : node;
+    }
+
+    case "constraintsEnabled":
+      return typeof value === "boolean"
+        ? { ...node, constraints: value ? { horizontal: "start", vertical: "start" } : undefined }
+        : node;
+    case "constraintHorizontal":
+
+    case "constraintVertical": {
+      const axis = property === "constraintHorizontal" ? "horizontal" : "vertical";
+
+      if (value === "none") {
+        const constraints = { ...node.constraints };
+        delete constraints[axis];
+        const { constraints: _previous, ...rest } = node;
+
+        return Object.keys(constraints).length ? { ...rest, constraints } : rest;
+      }
+
+      return typeof value === "string" &&
+        CANVAS_CONSTRAINT_MODES.includes(value as (typeof CANVAS_CONSTRAINT_MODES)[number])
+        ? ({ ...node, constraints: { ...node.constraints, [axis]: value } } as CanvasFrame)
+        : node;
+    }
+
+    case "layoutWrap":
+      return frame && node.layout && typeof value === "boolean"
+        ? { ...node, layout: { ...node.layout, wrap: value } }
+        : node;
+
+    case "layoutPaddingTop":
+    case "layoutPaddingRight":
+    case "layoutPaddingBottom":
+    case "layoutPaddingLeft":
+
+    case "layoutRowGap": {
+      if (!frame || !node.layout) return node;
+
+      const key =
+        property === "layoutRowGap" ? "rowGap" : `padding${property.slice("layoutPadding".length)}`;
+
+      if (value === "") {
+        const layout = { ...node.layout };
+        Reflect.deleteProperty(layout, key);
+
+        return { ...node, layout };
+      }
+
+      return numeric && value >= 0 ? { ...node, layout: { ...node.layout, [key]: value } } : node;
+    }
+
     case "layoutGap":
     case "layoutPadding":
     case "layoutAlign":
@@ -337,7 +415,17 @@ function styleChange(
       if ((property === "layoutGap" || property === "layoutPadding") && numeric && value >= 0)
         return {
           ...node,
-          layout: { ...node.layout, [property === "layoutGap" ? "gap" : "padding"]: value },
+          layout:
+            property === "layoutGap"
+              ? { ...node.layout, gap: value }
+              : {
+                  ...node.layout,
+                  padding: value,
+                  paddingTop: undefined,
+                  paddingRight: undefined,
+                  paddingBottom: undefined,
+                  paddingLeft: undefined,
+                },
         };
       if (
         property === "layoutAlign" &&

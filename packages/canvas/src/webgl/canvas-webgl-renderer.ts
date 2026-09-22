@@ -1,4 +1,4 @@
-import { Firefly, parseColor, type Texture, type Filter } from "@flies/firefly";
+import { Firefly, parseColor, type Texture, type Filter, type Rect } from "@flies/firefly";
 
 import { agentActivity } from "../activity";
 import { AnimationFrameBatch, type CanvasCamera } from "../canvas-camera";
@@ -7,12 +7,15 @@ import { isCanvasRoot } from "../canvas-pages";
 import { CANVAS_BLEND_MODES, CANVAS_FILTERS, canvasFilterOrder } from "../canvas-paint";
 import { IDENTITY, localTransform, multiplyMatrix, type CanvasMatrix } from "../canvas-transform";
 import { nodeRasterBounds, rasterizeNode } from "./canvas-raster";
+import { textLayoutStats } from "./text-layout";
 
 type Options = {
   canvas: HTMLCanvasElement;
   document: CanvasDocument;
   camera: CanvasCamera;
   onError: (error: unknown) => void;
+  profiling?: boolean;
+  rasterBudgetBytes?: number;
 };
 type Raster = Awaited<ReturnType<typeof rasterizeNode>>;
 type Entry = {
@@ -26,8 +29,53 @@ type Entry = {
   pending?: Promise<void>;
   unsubscribe: () => void;
   lastUsed: number;
+  desiredScale: number;
+  localBounds?: Rect;
+  childrenBounds?: Rect | null;
 };
 const textureBudget = 128 * 1024 * 1024;
+
+function transformedBounds(bounds: Rect, m: CanvasMatrix): Rect {
+  const x = m.a * bounds.x + m.c * bounds.y + m.e;
+  const y = m.b * bounds.x + m.d * bounds.y + m.f;
+  const dx = m.a * bounds.width;
+  const dy = m.b * bounds.width;
+  const ex = m.c * bounds.height;
+  const ey = m.d * bounds.height;
+  const left = Math.min(x, x + dx, x + ex, x + dx + ex);
+  const top = Math.min(y, y + dy, y + ey, y + dy + ey);
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(x, x + dx, x + ex, x + dx + ex) - left,
+    height: Math.max(y, y + dy, y + ey, y + dy + ey) - top,
+  };
+}
+
+function intersection(a: Rect, b: Rect): Rect {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x),
+    height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y),
+  };
+}
+
+function union(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+
+  return {
+    x,
+    y,
+    width: Math.max(a.x + a.width, b.x + b.width) - x,
+    height: Math.max(a.y + a.height, b.y + b.height) - y,
+  };
+}
 
 const transformFields = new Set([
   "x",
@@ -46,6 +94,15 @@ const transformFields = new Set([
   "heightSizing",
   "tokenBindings",
   "htmlStyles",
+  "maskId",
+  "component",
+  "instance",
+  "componentSourceId",
+  "constraints",
+  "minWidth",
+  "maxWidth",
+  "minHeight",
+  "maxHeight",
 ]);
 
 function sameRasterPaint(first: CanvasFrame, second: CanvasFrame) {
@@ -68,6 +125,8 @@ function sameRasterPaint(first: CanvasFrame, second: CanvasFrame) {
 export class CanvasWebglRenderer {
   private readonly device: Firefly;
   private readonly entries = new Map<string, Entry>();
+  private readonly pendingEntries = new Set<Entry>();
+  private rasterCount = 0;
   private readonly unsubscribers: (() => void)[] = [];
   private readonly batch = new AnimationFrameBatch(() => this.safeRender());
   private editingId: string | null = null;
@@ -82,7 +141,9 @@ export class CanvasWebglRenderer {
   private readonly colors = new Map<string, ReturnType<typeof parseColor>>();
 
   private constructor(private readonly options: Options) {
-    this.device = new Firefly(options.canvas, (error) => this.fail(error));
+    this.device = new Firefly(options.canvas, (error) => this.fail(error), {
+      profiling: options.profiling,
+    });
     this.syncEntries();
     this.unsubscribers.push(
       options.document.subscribe(() => {
@@ -123,7 +184,7 @@ export class CanvasWebglRenderer {
   async whenReady() {
     // Resources can change while fonts and images load. Resolve only a complete current frame.
     while (!this.disposed) {
-      const pending = [...this.entries.values()].flatMap((entry) =>
+      const pending = [...this.pendingEntries].flatMap((entry) =>
         entry.pending ? [entry.pending] : [],
       );
 
@@ -135,27 +196,44 @@ export class CanvasWebglRenderer {
     }
   }
 
-  getStats() {
+  getStats(options: { rasters?: boolean } = {}) {
     return {
       renderCount: this.renderCount,
       renderMs: this.renderMs,
       drawCalls: this.device.drawCalls,
+      primitiveCount: this.device.primitiveCount,
+      clipCount: this.device.clipCount,
+      gpuMs: this.device.profiler.milliseconds,
+      gpuSamples: this.device.profiler.samples,
+      gpuTimingSupported: this.device.profiler.supported,
       textureUploads: this.device.textureUploads,
       textureBytes: this.device.textureBytes,
-      pendingResources: [...this.entries.values()].filter((entry) => entry.pending).length,
-      rasters: [...this.entries].flatMap(([id, entry]) =>
-        entry.body
-          ? [
-              {
-                id,
-                resolution: entry.body.width / (entry.bounds?.width || entry.body.width),
-                width: entry.body.width,
-                height: entry.body.height,
-                version: entry.version,
-              },
-            ]
-          : [],
-      ),
+      rasterBytes: this.device.textureBytes - this.device.surfaceTextureBytes - 4,
+      rasterBudgetBytes: this.options.rasterBudgetBytes ?? textureBudget,
+      cachePressure:
+        this.device.textureBytes - this.device.surfaceTextureBytes - 4 >
+        (this.options.rasterBudgetBytes ?? textureBudget),
+      surfaceBytes: this.device.surfaceBytes,
+      pooledSurfaceBytes: this.device.pooledSurfaceBytes,
+      textLayoutCache: textLayoutStats(),
+      rasterCount: this.rasterCount,
+      pendingResources: this.pendingEntries.size,
+      rasters:
+        options.rasters === false
+          ? []
+          : [...this.entries].flatMap(([id, entry]) =>
+              entry.body
+                ? [
+                    {
+                      id,
+                      resolution: entry.body.width / (entry.bounds?.width || entry.body.width),
+                      width: entry.body.width,
+                      height: entry.body.height,
+                      version: entry.version,
+                    },
+                  ]
+                : [],
+            ),
     };
   }
 
@@ -195,11 +273,14 @@ export class CanvasWebglRenderer {
   private syncEntries() {
     this.extentDirty = true;
     const ids = new Set(this.options.document.getSceneIds());
+    let topologyChanged = ids.size !== this.entries.size;
 
     for (const [id, entry] of this.entries) {
       if (!ids.has(id)) {
+        topologyChanged = true;
         entry.unsubscribe();
         this.releaseRaster(entry);
+        this.pendingEntries.delete(entry);
         this.entries.delete(id);
       }
     }
@@ -207,22 +288,51 @@ export class CanvasWebglRenderer {
     for (const id of ids) {
       if (this.entries.has(id)) continue;
       const frame = this.options.document.getFrame(id)!;
+      let previous = frame;
+      topologyChanged = true;
       this.entries.set(id, {
         frame,
         version: 0,
         scale: 0,
         lastUsed: 0,
+        desiredScale: 0,
         unsubscribe: this.options.document.subscribeFrame(id, () => {
           const current = this.options.document.getFrame(id);
-          const entry = this.entries.get(id);
           if (
-            entry &&
-            (current?.filters !== entry.frame.filters || current?.parentId !== entry.frame.parentId)
+            current?.filters !== previous.filters ||
+            current?.parentId !== previous.parentId ||
+            current?.hidden !== previous.hidden
           )
             this.extentDirty = true;
+          this.invalidateBounds(id);
+          if (previous.parentId !== current?.parentId && previous.parentId)
+            this.invalidateBounds(previous.parentId);
+          if (current) previous = current;
           this.requestDocumentRender();
         }),
       });
+    }
+
+    if (topologyChanged) {
+      for (const entry of this.entries.values()) {
+        entry.localBounds = undefined;
+        entry.childrenBounds = undefined;
+      }
+    }
+  }
+
+  private invalidateBounds(id: string) {
+    let current: string | undefined = id;
+
+    while (current) {
+      const entry = this.entries.get(current);
+
+      if (entry) {
+        entry.localBounds = undefined;
+        entry.childrenBounds = undefined;
+      }
+
+      current = this.options.document.getFrame(current)?.parentId;
     }
   }
 
@@ -260,16 +370,21 @@ export class CanvasWebglRenderer {
     this.trimCache();
     this.renderMs = performance.now() - started;
     this.options.canvas.dataset.renderCount = String(this.renderCount);
-    this.options.canvas.dataset.pendingResources = String(
-      [...this.entries.values()].filter((entry) => entry.pending).length,
-    );
+    this.options.canvas.dataset.pendingResources = String(this.pendingEntries.size);
   }
 
-  private paintNode(id: string, parentMatrix: CanvasMatrix, camera: CanvasMatrix, scale: number) {
+  private paintNode(
+    id: string,
+    parentMatrix: CanvasMatrix,
+    camera: CanvasMatrix,
+    scale: number,
+    asMask = false,
+  ) {
     const document = this.options.document;
     const frame = document.getFrame(id);
     const entry = this.entries.get(id);
     if (!frame || !entry || frame.hidden || frame.kind === "page") return;
+    if (!asMask && document.isMaskSource(id)) return;
     const parent = frame.parentId ? document.getFrame(frame.parentId) : undefined;
 
     const matrix = multiplyMatrix(
@@ -280,7 +395,7 @@ export class CanvasWebglRenderer {
     const screen = multiplyMatrix(camera, matrix);
     const children = document.getChildren(id);
     const clips = (!frame.kind || frame.kind === "frame") && frame.clipContent !== false;
-    const root = isCanvasRoot(document, frame);
+    const root = !asMask && isCanvasRoot(document, frame);
     const rect = { x: 0, y: 0, width: frame.width, height: frame.height };
     const visible = this.visible(frame, screen, root);
     if (!visible && (clips || !children.length)) return;
@@ -312,7 +427,13 @@ export class CanvasWebglRenderer {
     const isolatesBlend = children.some((childId) => {
       const child = document.getFrame(childId);
 
-      return child?.blendMode && child.blendMode !== "normal";
+      return (
+        child &&
+        !child.hidden &&
+        !document.isMaskSource(childId) &&
+        child.blendMode &&
+        child.blendMode !== "normal"
+      );
     });
 
     const simple =
@@ -329,10 +450,27 @@ export class CanvasWebglRenderer {
       !children.length && !frame.borderWidth && !frame.shadows?.some((shadow) => shadow.inset);
 
     const composite =
-      (opacity < 1 && !leafOpacity) || blend > 0 || filters.length > 0 || isolatesBlend;
+      Boolean(frame.maskId) ||
+      (opacity < 1 && !leafOpacity) ||
+      blend > 0 ||
+      filters.length > 0 ||
+      isolatesBlend;
 
     const destination = this.device.getTarget();
-    let layer = composite ? this.device.acquire() : undefined;
+    const { size } = this.options.camera.getCurrent();
+    const padding = this.device.effectPadding * 2;
+
+    const layerBounds = composite
+      ? intersection(this.paintBounds(frame, screen), {
+          x: 0,
+          y: 0,
+          width: size.x + padding,
+          height: size.y + padding,
+        })
+      : undefined;
+
+    if (layerBounds && (!layerBounds.width || !layerBounds.height)) return;
+    let layer = layerBounds ? this.device.acquire(layerBounds) : undefined;
 
     if (layer) {
       this.device.target(layer);
@@ -358,18 +496,104 @@ export class CanvasWebglRenderer {
       }
     }
 
-    if (clips && children.length) this.device.clip(rect, screen, frame.cornerRadius ?? 0, true);
+    const needsClip = clips && children.length > 0 && this.requiresClip(frame, scale);
+    if (needsClip) this.device.clip(rect, screen, frame.cornerRadius ?? 0, true);
     for (const childId of children) this.paintNode(childId, matrix, camera, scale);
-    if (clips && children.length) this.device.clip(rect, screen, frame.cornerRadius ?? 0, false);
+    if (needsClip) this.device.clip(rect, screen, frame.cornerRadius ?? 0, false);
     if (!simple && !empty && visible && entry.decoration && entry.bounds)
       this.device.image(entry.decoration, entry.bounds, screen);
 
     if (layer) {
       if (filters.length) layer = this.device.filter(layer, filters, camera.a);
+
+      if (frame.maskId) {
+        const mask = this.device.acquire(layer.bounds);
+        this.device.target(mask);
+        this.device.clear();
+        this.paintNode(frame.maskId, parentMatrix, camera, scale, true);
+        this.device.flush();
+        layer = this.device.mask(layer, mask);
+      }
+
       this.device.target(destination.surface, destination.depth);
       this.device.composite(layer, opacity, Math.max(0, blend));
       this.device.release(layer);
     }
+  }
+
+  /** Bounds are retained in local document coordinates, independently of the camera. */
+  private localBounds(frame: CanvasFrame): Rect {
+    const document = this.options.document;
+    const entry = this.entries.get(frame.id);
+    if (entry?.localBounds) return entry.localBounds;
+    let bounds = nodeRasterBounds(frame, isCanvasRoot(document, frame));
+    const clips = (!frame.kind || frame.kind === "frame") && frame.clipContent !== false;
+    const clip = { x: 0, y: 0, width: frame.width, height: frame.height };
+    let childrenBounds: Rect | null = null;
+
+    for (const id of document.getChildren(frame.id)) {
+      const child = document.getFrame(id);
+      if (!child || child.hidden || document.isMaskSource(id)) continue;
+      let childBounds = transformedBounds(this.localBounds(child), localTransform(child, frame));
+      childrenBounds = childrenBounds ? union(childrenBounds, childBounds) : childBounds;
+      if (clips) childBounds = intersection(childBounds, clip);
+      if (childBounds.width && childBounds.height) bounds = union(bounds, childBounds);
+    }
+
+    const blur = (frame.filters?.blur ?? 0) * 3;
+
+    const result = {
+      x: bounds.x - blur,
+      y: bounds.y - blur,
+      width: bounds.width + blur * 2,
+      height: bounds.height + blur * 2,
+    };
+
+    if (entry) {
+      entry.localBounds = result;
+      entry.childrenBounds = childrenBounds;
+    }
+
+    return result;
+  }
+
+  private requiresClip(frame: CanvasFrame, scale: number) {
+    this.localBounds(frame);
+    const children = this.entries.get(frame.id)?.childrenBounds;
+    if (!children) return false;
+    // A rounded rectangle is convex: containment of the expanded bounds' four
+    // corners proves containment of the whole subtree, without requiring it to
+    // fit inside the much smaller central rectangle at overview zoom.
+    const margin = 1 / Math.max(0.0001, scale);
+    const radius = Math.min(frame.cornerRadius ?? 0, frame.width / 2, frame.height / 2);
+
+    const inside = (x: number, y: number) => {
+      const dx = Math.abs(x - frame.width / 2) - frame.width / 2 + radius;
+      const dy = Math.abs(y - frame.height / 2) - frame.height / 2 + radius;
+
+      return Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0) <= radius;
+    };
+
+    const left = children.x - margin;
+    const top = children.y - margin;
+    const right = children.x + children.width + margin;
+    const bottom = children.y + children.height + margin;
+
+    return (
+      !inside(left, top) || !inside(right, top) || !inside(left, bottom) || !inside(right, bottom)
+    );
+  }
+
+  private paintBounds(frame: CanvasFrame, matrix: CanvasMatrix): Rect {
+    const bounds = transformedBounds(this.localBounds(frame), matrix);
+    const edge = 1 / (window.devicePixelRatio || 1);
+
+    return {
+      x: bounds.x - edge,
+      y: bounds.y - edge,
+      width: bounds.width + edge * 2,
+      height: bounds.height + edge * 2,
+    };
   }
 
   /** Include all nested filter tails in the offscreen working area before cropping to the viewport. */
@@ -377,6 +601,17 @@ export class CanvasWebglRenderer {
     if (!this.extentDirty) return this.cachedExtent;
     const document = this.options.document;
     const extents = new Map<string, number>();
+    const visible = new Map<string, boolean>();
+
+    const isVisible = (frame: CanvasFrame): boolean => {
+      const cached = visible.get(frame.id);
+      if (cached !== undefined) return cached;
+      const parent = frame.parentId ? document.getFrame(frame.parentId) : undefined;
+      const value = !frame.hidden && (!parent || isVisible(parent));
+      visible.set(frame.id, value);
+
+      return value;
+    };
 
     const extent = (frame: CanvasFrame): number => {
       const cached = extents.get(frame.id);
@@ -392,7 +627,7 @@ export class CanvasWebglRenderer {
 
     for (const id of this.entries.keys()) {
       const frame = document.getFrame(id);
-      if (frame) maximum = Math.max(maximum, extent(frame));
+      if (frame && isVisible(frame)) maximum = Math.max(maximum, extent(frame));
     }
 
     this.extentDirty = false;
@@ -431,6 +666,8 @@ export class CanvasWebglRenderer {
       2 ** (Math.ceil(Math.log2(Math.max(frame.kind === "text" ? 0.5 : 0.125, scale)) * 2) / 2),
     );
 
+    entry.desiredScale = desired;
+
     // Position-only gestures reuse immutable paint values without copying embedded image data.
     if (
       entry.body &&
@@ -444,11 +681,13 @@ export class CanvasWebglRenderer {
     }
 
     if (entry.pending) return;
+    this.pendingEntries.add(entry);
     entry.pending = rasterizeNode(frame, desired, root)
       .then((raster) => {
         if (this.disposed || this.entries.get(frame.id) !== entry) return;
         this.releaseRaster(entry);
         entry.body = this.device.texture(raster.body);
+        this.rasterCount++;
         if (raster.decoration) entry.decoration = this.device.texture(raster.decoration);
         entry.bounds = { x: raster.x, y: raster.y, width: raster.width, height: raster.height };
         entry.frame = frame;
@@ -456,18 +695,25 @@ export class CanvasWebglRenderer {
         entry.scale = desired;
         entry.version++;
         entry.pending = undefined;
+        this.pendingEntries.delete(entry);
         this.requestRender();
 
         return undefined;
       })
       .catch((error) => {
         entry.pending = undefined;
+        this.pendingEntries.delete(entry);
         this.fail(error);
-      });
+      })
+      .finally(() => this.pendingEntries.delete(entry));
   }
 
   private releaseRaster(entry: Entry) {
-    if (entry.body) this.device.deleteTexture(entry.body);
+    if (entry.body) {
+      this.device.deleteTexture(entry.body);
+      this.rasterCount--;
+    }
+
     if (entry.decoration) this.device.deleteTexture(entry.decoration);
     entry.body = undefined;
     entry.decoration = undefined;
@@ -475,7 +721,8 @@ export class CanvasWebglRenderer {
   }
 
   private trimCache() {
-    if (this.device.textureBytes <= textureBudget) return;
+    const budget = this.options.rasterBudgetBytes ?? textureBudget;
+    if (this.device.textureBytes - this.device.surfaceTextureBytes - 4 <= budget) return;
 
     // Sorting a new owned array supports the editor's ES2020 webviews.
     const cold = [...this.entries.values()]
@@ -485,7 +732,24 @@ export class CanvasWebglRenderer {
 
     for (const entry of cold) {
       this.releaseRaster(entry);
-      if (this.device.textureBytes <= textureBudget) break;
+      if (this.device.textureBytes - this.device.surfaceTextureBytes - 4 <= budget) return;
+    }
+
+    // Keep visible artwork while replacing excessive retained zoom density. Limit
+    // concurrent replacements so CPU canvases and uploads do not create a new spike.
+    let pending = this.pendingEntries.size;
+
+    for (const entry of this.entries.values()) {
+      if (pending >= 2) break;
+      if (!entry.body || entry.pending || entry.scale <= entry.desiredScale * 2) continue;
+      entry.scale = 0;
+      this.prepareRaster(
+        entry,
+        this.options.document.getFrame(entry.frame.id) ?? entry.frame,
+        entry.desiredScale,
+        entry.root ?? false,
+      );
+      pending++;
     }
   }
 
@@ -502,6 +766,8 @@ export class CanvasWebglRenderer {
     this.unsubscribers.forEach((unsubscribe) => unsubscribe());
     for (const entry of this.entries.values()) entry.unsubscribe();
     this.entries.clear();
+    this.pendingEntries.clear();
+    this.rasterCount = 0;
     this.device.destroy();
   }
 }

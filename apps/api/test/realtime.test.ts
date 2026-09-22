@@ -55,23 +55,35 @@ describe("sync security boundaries", () => {
       v.safeParse(commitSchema, { mutationId: "bad", delta: { nodes: [], tokens: [] } }).success,
     ).toBe(false);
   });
-  test("configuration allows private Railway Redis and rejects public plaintext", () => {
+  test("configuration allows Redis with or without TLS on any host", () => {
     const key = randomBytes(32).toString("base64");
     expect(realtimeConfig({ API_URL: "https://api.example.com" })).toBeNull();
+
+    for (const url of [
+      "redis://redis.example.com",
+      "redis://redis.railway.internal:6379",
+      "redis://localhost:6379",
+      "redis://192.168.1.10:6379",
+      "redis://[::1]:6379",
+      "redis://user:password@redis.example.com:6379/1",
+      "rediss://redis.example.com",
+    ]) {
+      expect(
+        realtimeConfig({
+          API_URL: "https://api.example.com",
+          REDIS_URL: url,
+          SYNC_ENCRYPTION_KEY: key,
+        }),
+      ).toEqual({ url, key });
+    }
+
     expect(() =>
       realtimeConfig({
         API_URL: "https://api.example.com",
-        REDIS_URL: "redis://redis.example.com",
+        REDIS_URL: "https://redis.example.com",
         SYNC_ENCRYPTION_KEY: key,
       }),
-    ).toThrow();
-    expect(
-      realtimeConfig({
-        API_URL: "https://api.example.com",
-        REDIS_URL: "redis://redis.railway.internal:6379",
-        SYNC_ENCRYPTION_KEY: key,
-      }),
-    ).not.toBeNull();
+    ).toThrow("Redis URL must use redis:// or rediss://.");
     expect(() =>
       realtimeConfig({
         API_URL: "http://api.example.com",
