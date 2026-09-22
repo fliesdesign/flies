@@ -35,7 +35,7 @@ export type Appearance = {
   colors: Partial<Record<UiColorId, string>>;
 };
 
-/** Defaults match `:root` in styles.css. */
+/** Base palette before brightness and contrast; styles.css contains the resolved defaults. */
 export const DEFAULT_UI_COLORS: Record<UiColorId, string> = {
   background: "#0c0c0c",
   shell: "#080808",
@@ -64,8 +64,8 @@ export const DEFAULT_UI_COLORS: Record<UiColorId, string> = {
 };
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  brightness: 0,
-  contrast: 0,
+  brightness: 16,
+  contrast: 12,
   colors: {},
 };
 
@@ -134,16 +134,20 @@ export function normalizeAppearance(value: unknown): Appearance {
   }
 
   return {
-    brightness: clampRange(typeof source.brightness === "number" ? source.brightness : 0),
-    contrast: clampRange(typeof source.contrast === "number" ? source.contrast : 0),
+    brightness: clampRange(
+      typeof source.brightness === "number" ? source.brightness : DEFAULT_APPEARANCE.brightness,
+    ),
+    contrast: clampRange(
+      typeof source.contrast === "number" ? source.contrast : DEFAULT_APPEARANCE.contrast,
+    ),
     colors,
   };
 }
 
 export function isDefaultAppearance(appearance: Appearance) {
   return (
-    appearance.brightness === 0 &&
-    appearance.contrast === 0 &&
+    appearance.brightness === DEFAULT_APPEARANCE.brightness &&
+    appearance.contrast === DEFAULT_APPEARANCE.contrast &&
     Object.keys(appearance.colors).length === 0
   );
 }

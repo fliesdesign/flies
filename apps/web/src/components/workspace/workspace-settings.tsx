@@ -96,7 +96,7 @@ export function WorkspaceSettings({
         <div className="mb-6 space-y-1">
           <h2 className="text-base font-medium">Make it yours</h2>
           <p className="text-sm text-muted-foreground">
-            Adjust the interface colors and contrast on this device.
+            Adjust the interface brightness and contrast on this device.
           </p>
         </div>
         <AppearanceSettings />

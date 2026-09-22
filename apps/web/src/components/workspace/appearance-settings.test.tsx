@@ -8,15 +8,14 @@ import { describe, it } from "vite-plus/test";
 import { AppearanceSettings } from "./appearance-settings";
 
 describe("appearance settings", () => {
-  it("exposes brightness, contrast, and a picker for each UI color", () => {
+  it("exposes only brightness and contrast without individual color controls", () => {
     const markup = renderToStaticMarkup(<AppearanceSettings />);
     assert.match(markup, /Brightness/);
     assert.match(markup, /Contrast/);
     assert.match(markup, /Reset appearance/);
-    assert.match(markup, /aria-label="Background"/);
-    assert.match(markup, /aria-label="Foreground"/);
-    assert.match(markup, /aria-label="Primary"/);
-    assert.match(markup, /type="color"/);
-    assert.match(markup, /#0c0c0c/);
+    assert.equal((markup.match(/type="range"/g) ?? []).length, 2);
+    assert.match(markup, /value="16"/);
+    assert.match(markup, /value="12"/);
+    assert.doesNotMatch(markup, /type="color"|hex|Surfaces|Actions|Lines/);
   });
 });

@@ -76,30 +76,30 @@
   --animate-accordion-up: oui-accordion-up 150ms ease;
 }
 
-/* Near-black editor chrome: canvas sits below panels, fields recede, menus lift. */
+/* Dark editor chrome with brighter surfaces and stronger contrast: canvas sits below panels, fields recede, menus lift. */
 :root {
   color-scheme: dark;
-  --background: #0c0c0c;
-  --foreground: #ececec;
-  --shell: #080808;
-  --card: #121212;
+  --background: #242424;
+  --foreground: #fdfdfd;
+  --shell: #202020;
+  --card: #2a2a2a;
   --card-foreground: var(--foreground);
-  --card-border: #242424;
-  --popover: #161616;
+  --card-border: #3c3c3c;
+  --popover: #2e2e2e;
   --popover-foreground: var(--foreground);
-  --primary: #c8c8c8;
-  --primary-hover: #f2f2f2;
-  --primary-foreground: #111111;
-  --secondary: #1c1c1c;
-  --secondary-foreground: #e6e6e6;
-  --muted: #141414;
-  --muted-foreground: #8e8e8e;
-  --accent: #242424;
-  --accent-foreground: #f0f0f0;
-  --destructive: #e05252;
-  --border: #222222;
-  --input: #1a1a1a;
-  --ring: #c8c8c8;
+  --primary: #dadada;
+  --primary-hover: #ffffff;
+  --primary-foreground: #292929;
+  --secondary: #343434;
+  --secondary-foreground: #f8f8f8;
+  --muted: #2c2c2c;
+  --muted-foreground: #a2a2a2;
+  --accent: #3c3c3c;
+  --accent-foreground: #ffffff;
+  --destructive: #f26868;
+  --border: #3a3a3a;
+  --input: #323232;
+  --ring: #dadada;
   --chart-1: #c8c8c8;
   --chart-2: #a8a8a8;
   --chart-3: #888888;
@@ -114,11 +114,11 @@
   --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
-  --editor-field: #0f0f0f;
-  --editor-field-hover: #161616;
-  --editor-selection: #2a2a2a;
-  --editor-selection-text: #f2f2f2;
-  --editor-guide: #c8c8c8;
+  --editor-field: #272727;
+  --editor-field-hover: #2e2e2e;
+  --editor-selection: #414141;
+  --editor-selection-text: #ffffff;
+  --editor-guide: #dadada;
   --editor-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --default-transition-duration: 140ms;
   --default-transition-timing-function: ease-out;

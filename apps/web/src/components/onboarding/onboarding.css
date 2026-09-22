@@ -11,6 +11,11 @@
   box-shadow:
     0 0 0 9999px #00000038,
     0 0 0 5px #924ff71a;
+  transition:
+    left 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    top 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .onboarding-card {
   position: fixed;
@@ -25,6 +30,7 @@
   box-shadow: 0 16px 50px #0008;
   padding: 18px 18px 0;
   font-family: var(--font-sans);
+  animation: onboarding-enter 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .onboarding-meta {
   display: flex;
@@ -36,10 +42,24 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #cba9f4;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+.onboarding-mark {
+  flex: none;
+  color: var(--foreground);
+}
+.onboarding-mark-frame {
+  stroke-dasharray: 1;
+  animation: onboarding-draw 800ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.onboarding-mark-cursor {
+  transform-origin: center;
+  animation: onboarding-cursor 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.onboarding-content {
+  animation: onboarding-enter 200ms ease-out both;
 }
 .onboarding-meta button {
   padding: 4px;
@@ -98,6 +118,7 @@
   display: block;
   height: 100%;
   background: #b483fa;
+  transition: width 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .onboarding-achievement {
   display: flex;
@@ -136,7 +157,48 @@
     opacity: 0;
   }
 }
+@keyframes onboarding-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes onboarding-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes onboarding-cursor {
+  0%,
+  35% {
+    opacity: 0;
+    transform: translate(3px, 4px);
+  }
+  70%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  .onboarding-card,
+  .onboarding-content,
+  .onboarding-mark-frame,
+  .onboarding-mark-cursor {
+    animation: none;
+  }
+  .onboarding-card,
+  .onboarding-spot,
+  .onboarding-progress span {
+    transition: none;
+  }
   .onboarding-confetti {
     display: none;
   }

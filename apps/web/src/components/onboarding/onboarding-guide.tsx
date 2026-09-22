@@ -1,4 +1,4 @@
-import { ArrowRightIcon, CheckIcon, SparklesIcon, XIcon } from "lucide-react";
+import { ArrowRightIcon, CheckIcon, XIcon } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
@@ -235,7 +235,33 @@ export function OnboardingGuide({
       >
         <div className="onboarding-meta">
           <span>
-            <SparklesIcon size={13} /> YOUR FIRST DESIGN
+            <svg
+              key={step}
+              className="onboarding-mark"
+              width="18"
+              height="18"
+              viewBox="0 0 20 20"
+              fill="none"
+              aria-hidden="true"
+            >
+              <rect
+                className="onboarding-mark-frame"
+                x="3.5"
+                y="3.5"
+                width="13"
+                height="13"
+                rx="2"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                pathLength="1"
+              />
+              <path
+                className="onboarding-mark-cursor"
+                d="m11 10 5 2-2 1-1 2-2-5Z"
+                fill="currentColor"
+              />
+            </svg>
+            Quick tour
           </span>
           <button
             type="button"
@@ -246,14 +272,16 @@ export function OnboardingGuide({
           </button>
         </div>
         <div aria-live="polite" aria-atomic="true">
-          <h2>{away ? "Pick up where you left off" : info.title}</h2>
-          <p>
-            {away
-              ? inEditor
-                ? "Return to your practice file to finish your first design. You can also skip the guide at any time."
-                : "Head back to your files to continue the tour."
-              : info.body}
-          </p>
+          <div key={`${step}-${away}`} className="onboarding-content">
+            <h2>{away ? "Pick up where you left off" : info.title}</h2>
+            <p>
+              {away
+                ? inEditor
+                  ? "Return to your practice file to finish your first design. You can also skip the guide at any time."
+                  : "Head back to your files to continue the tour."
+                : info.body}
+            </p>
+          </div>
         </div>
         {step === "complete" && !away && (
           <div className="onboarding-achievement">

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { describe, it } from "vite-plus/test";
 
@@ -14,6 +15,18 @@ import {
 } from "./appearance";
 
 describe("appearance", () => {
+  it("uses brighter defaults consistently for missing settings, reset, and first paint", () => {
+    assert.deepEqual(normalizeAppearance(null), DEFAULT_APPEARANCE);
+    assert.equal(isDefaultAppearance(normalizeAppearance({ brightness: 0, contrast: 0 })), false);
+    const colors = resolvedUiColors(DEFAULT_APPEARANCE);
+    assert.ok(colors.background > DEFAULT_UI_COLORS.background);
+    assert.ok(colors["muted-foreground"] > DEFAULT_UI_COLORS["muted-foreground"]);
+    const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    for (const [id, color] of Object.entries(colors)) {
+      assert.ok(css.includes(`--${id}: ${color};`), `First-paint color must match ${id}`);
+    }
+  });
   it("parses hex colors and leaves 0/0 adjustments unchanged", () => {
     assert.equal(parseUiHex("#abc"), "#aabbcc");
     assert.equal(parseUiHex("0C0C0C"), "#0c0c0c");
@@ -58,6 +71,7 @@ describe("appearance", () => {
   it("resolves and applies transformed CSS variables", () => {
     const appearance = normalizeAppearance({
       brightness: 10,
+      contrast: 0,
       colors: { background: "#101010" },
     });
 
