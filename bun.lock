@@ -34,7 +34,7 @@
     },
     "apps/desktop": {
       "name": "@flies/desktop",
-      "version": "0.2.12",
+      "version": "0.2.16",
       "devDependencies": {
         "@tauri-apps/cli": "^2",
       },
