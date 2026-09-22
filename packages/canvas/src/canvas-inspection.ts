@@ -1,17 +1,17 @@
-// A separate preference keeps the new renderer opt-in for existing installations.
+// Firefly is the default; an explicit DOM preference remains available.
 const STORAGE_KEY = "flies.canvas.renderer";
 const listeners = new Set<() => void>();
 let inspection: boolean | undefined;
 let listeningWindow: Window | undefined;
 
 function readStoredPreference(): boolean {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
 
   try {
-    return window.localStorage.getItem(STORAGE_KEY) !== "webgl2";
+    return window.localStorage.getItem(STORAGE_KEY) === "dom";
   } catch {
     // Private or restricted storage still permits an in-memory preference.
-    return inspection ?? true;
+    return inspection ?? false;
   }
 }
 
@@ -30,7 +30,7 @@ function handleStorage(event: StorageEvent) {
     return;
   }
 
-  publish(event.key !== STORAGE_KEY || event.newValue !== "webgl2");
+  publish(event.key === STORAGE_KEY && event.newValue === "dom");
 }
 
 /** Stable DOM renderer for SSR and hydration, before reading the saved preference. */
@@ -38,7 +38,7 @@ export function getCanvasInspectionServerSnapshot(): boolean {
   return true;
 }
 
-/** True uses HTML artwork; false opts into the custom WebGL renderer. */
+/** True uses HTML artwork; false uses the default Firefly renderer. */
 export function getCanvasInspection(): boolean {
   inspection ??= readStoredPreference();
 

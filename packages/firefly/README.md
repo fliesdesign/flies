@@ -5,7 +5,8 @@ Firefly (`@flies/firefly`) is Flies' custom TypeScript drawing library for a Web
 animation ticker. The editor integration lives in `packages/canvas/src/webgl`;
 Firefly itself does not depend on the editor's document model, React, or Tauri.
 
-In Flies, open the project menu and enable **Use Firefly renderer**. The choice
+Flies uses Firefly by default. Toggle **Use Firefly renderer** in the project menu
+to switch renderers. The choice
 persists across sessions; switching renderers keeps the current document and history.
 
 ## Draw a frame
@@ -152,7 +153,7 @@ FLIES_GPU_HARDWARE=1 FLIES_GPU_HEADED=1 FLIES_GPU_TARGET_FPS=120 FLIES_GPU_DPR=2
 Set `FLIES_GPU_TARGET_FPS=60` for a 60 Hz target. Hardware tests reject software
 GPU backends and preserve per-phase JSON reports. They exercise shared document
 and renderer paths, excluding surrounding React editor panels. The DOM renderer
-remains the default and the fallback after initialization failure or context loss.
+remains available as an explicit choice and the fallback after initialization failure or context loss.
 
 The regular `bun run test:gpu` suite uses software rendering for reproducible
 visual, interaction, MCP, and fallback checks; its timings are not hardware FPS

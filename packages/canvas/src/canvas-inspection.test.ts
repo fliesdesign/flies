@@ -54,15 +54,16 @@ describe("canvas renderer preference", () => {
     setCanvasInspection(true);
   });
 
-  it("defaults to HTML and ignores the previous GPU renderer preference", () => {
+  it("defaults to Firefly and ignores the previous GPU renderer preference", () => {
     localStorage.setItem("flies.canvas.inspect-html", "false");
     mount();
-    assert.equal(getCanvasInspection(), true);
+    assert.equal(getCanvasInspection(), false);
     assert.equal(getCanvasInspectionServerSnapshot(), true);
     assert.equal(localStorage.getItem(STORAGE_KEY), null);
   });
 
-  it("persists explicit opt-in and keeps hydration on HTML", () => {
+  it("persists explicit renderer choices and keeps hydration on HTML", () => {
+    localStorage.setItem(STORAGE_KEY, "dom");
     mount();
     let updates = 0;
     subscriptions.push(subscribeCanvasInspection(() => updates++));
@@ -94,7 +95,8 @@ describe("canvas renderer preference", () => {
     assert.equal(getCanvasInspection(), true);
   });
 
-  it("synchronizes renderer changes across windows and resets after storage is cleared", () => {
+  it("synchronizes renderer changes across windows and resets to Firefly after storage is cleared", () => {
+    localStorage.setItem(STORAGE_KEY, "dom");
     mount();
     storageEvent("unrelated", "webgl2");
     assert.equal(getCanvasInspection(), true);
@@ -102,10 +104,15 @@ describe("canvas renderer preference", () => {
     assert.equal(getCanvasInspection(), true);
     storageEvent(STORAGE_KEY, "webgl2");
     assert.equal(getCanvasInspection(), false);
+    storageEvent(STORAGE_KEY, "dom");
+    assert.equal(getCanvasInspection(), true);
     storageEvent(null, null);
-    assert.equal(getCanvasInspection(), true);
+    assert.equal(getCanvasInspection(), false);
     storageEvent(STORAGE_KEY, "unknown");
-    assert.equal(getCanvasInspection(), true);
+    assert.equal(getCanvasInspection(), false);
+    storageEvent(STORAGE_KEY, "dom");
+    storageEvent(STORAGE_KEY, null);
+    assert.equal(getCanvasInspection(), false);
   });
 
   it("supports an in-memory renderer choice when browser storage is unavailable", () => {
