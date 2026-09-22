@@ -31,6 +31,12 @@ bun run tauri:dev    # or: desktop app (starts apps/web on :1420)
 Run `bun run check` and `bun run test` before submitting. See
 [API setup](apps/api/README.md) for environment variables, migrations, and deployment.
 
+The static web app is hosted on Vercel. Keep the SPA fallback in both `vercel.json`
+and `apps/web/vercel.json` so deployments rooted at either directory serve
+`index.html` for client routes such as `/files/:id`. Existing static assets are
+served before this fallback. Set `VITE_API_URL=https://board.flies.design` at build
+time so API requests go to Unkey.
+
 ## Tools
 
 | Tool      | Key | Behavior                                                                                |
