@@ -1,15 +1,26 @@
 import { CanvasDocument, type CanvasFrame } from "@flies/canvas/document";
 import { applyDocumentDelta, type DocumentDelta } from "@flies/canvas/sync";
 import { EMPTY_THEME, type CanvasTheme } from "@flies/canvas/theme";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { ulid } from "ulid";
 import * as v from "valibot";
 
 import { assertImageLimits, BILLING_DISABLED, type Entitlements } from "./billing";
 import type { Database } from "./db/client";
-import { files, revisions, users, workspaces } from "./db/schema";
+import {
+  files,
+  revisions,
+  revisionObjects,
+  revisionObjectRefs,
+  revisionUploads,
+  users,
+  workspaces,
+} from "./db/schema";
 import type { OrganizationProvider } from "./organizations";
+import { lockRevisionFile } from "./revision-objects";
+import { assertFreshMutation, revisionRetention } from "./revision-policy";
+import { prepareRevision, readRevision } from "./revision-snapshot";
 import type { RevisionStorage } from "./storage";
 
 const snapshotSchema = v.object({
@@ -169,7 +180,7 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
 
       if (!row) notFound();
 
-      return storage.get(row.objectKey);
+      return readRevision(storage, row.objectKey);
     },
     async write(
       workspaceId: string,
@@ -180,89 +191,181 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
     ) {
       const id = existing?.id ?? ulid();
       const revisionId = existing?.mutationId ?? ulid();
+      const uploadId = ulid();
+      const directory = `${prefix}/${workspaceId}/${id}/`;
+      let uploadStarted = false;
 
-      return db.transaction(async (tx) => {
-        if (!existing && entitlements.enabled) {
-          await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
+      // This commits before the save transaction, so even a killed process leaves
+      // a durable record of the directory that may contain abandoned uploads.
+      await db.insert(revisionUploads).values({ id: uploadId, fileId: id, prefix: directory });
 
-          await assertFileCapacity(tx, workspaceId, entitlements);
-        }
+      return db
+        .transaction(async (tx) => {
+          await lockRevisionFile(tx, id);
 
-        let createdAt = new Date();
-        let number = 0;
-
-        if (existing) {
-          const [row] = await tx
+          const [upload] = await tx
             .select()
-            .from(files)
-            .where(and(scope(workspaceId, id), eq(files.archived, false)))
-            .for("update");
+            .from(revisionUploads)
+            .where(eq(revisionUploads.id, uploadId));
 
-          if (!row) notFound();
+          if (!upload) throw new Error("Upload reservation expired. Retry the save.");
 
-          // A retried request after a lost response returns its original revision.
-          const [prior] = await tx
-            .select()
-            .from(revisions)
-            .where(and(eq(revisions.id, revisionId), eq(revisions.fileId, id)));
+          if (!existing && entitlements.enabled) {
+            await tx.select().from(workspaces).where(eq(workspaces.id, workspaceId)).for("update");
 
-          if (prior) return storage.get(prior.objectKey);
-          if (!existing.delta && row.revision !== existing.revision)
-            throw new HTTPException(409, {
-              message:
-                "This file changed in another session. Reopen it before saving; your current edits are still in this tab.",
-            });
-
-          if (existing.delta) {
-            const current = parseSnapshot(await storage.get(row.objectKey));
-            snapshot = parseSnapshot(applyDocumentDelta(current, existing.delta));
+            await assertFileCapacity(tx, workspaceId, entitlements);
           }
 
-          createdAt = row.createdAt;
-          number = row.revision + 1;
-        }
+          let createdAt = new Date();
+          let number = 0;
 
-        assertImageLimits(snapshot, entitlements);
-        const updatedAt = new Date();
+          if (existing) {
+            const [row] = await tx
+              .select()
+              .from(files)
+              .where(and(scope(workspaceId, id), eq(files.archived, false)))
+              .for("update");
 
-        const document = {
-          format: "flies",
-          version: 1,
-          id,
-          workspaceId,
-          revision: number,
-          createdAt: createdAt.getTime(),
-          updatedAt: updatedAt.getTime(),
-          ...snapshot,
-        };
+            if (!row) notFound();
 
-        const objectKey = `${prefix}/${workspaceId}/${id}/${number}-${ulid()}.json.gz`;
-        // Publish S3 first. A failed DB commit can only leave an unreferenced object,
-        // never a DB pointer to a missing revision. Old objects are never overwritten.
-        const metadata = await storage.put(objectKey, document);
+            // A retried request after a lost response returns its original revision.
+            const [prior] = await tx
+              .select()
+              .from(revisions)
+              .where(and(eq(revisions.id, revisionId), eq(revisions.fileId, id)));
 
-        const values = {
-          name: snapshot.name,
-          revision: number,
-          objectKey,
-          nodeCount: snapshot.nodes.length,
-          preview: preview(snapshot.nodes),
-          updatedAt,
-        };
+            if (prior) {
+              await tx.delete(revisionUploads).where(eq(revisionUploads.id, uploadId));
 
-        if (existing) await tx.update(files).set(values).where(scope(workspaceId, id));
-        else await tx.insert(files).values({ id, workspaceId, createdAt, ...values });
-        await tx.insert(revisions).values({
-          id: revisionId,
-          fileId: id,
-          number,
-          objectKey,
-          ...metadata,
-          createdBy: userId,
+              return readRevision(storage, prior.objectKey);
+            }
+
+            assertFreshMutation(revisionId, entitlements);
+            if (!existing.delta && row.revision !== existing.revision)
+              throw new HTTPException(409, {
+                message:
+                  "This file changed in another session. Reopen it before saving; your current edits are still in this tab.",
+              });
+
+            if (existing.delta) {
+              const current = parseSnapshot(await readRevision(storage, row.objectKey));
+              snapshot = parseSnapshot(applyDocumentDelta(current, existing.delta));
+            }
+
+            createdAt = row.createdAt;
+            number = row.revision + 1;
+          }
+
+          assertImageLimits(snapshot, entitlements);
+          const updatedAt = new Date();
+
+          const document = {
+            format: "flies",
+            version: 1,
+            id,
+            workspaceId,
+            revision: number,
+            createdAt: createdAt.getTime(),
+            updatedAt: updatedAt.getTime(),
+            ...snapshot,
+          };
+
+          const objectKey = `${directory}${number}-${uploadId}.json.gz`;
+          const { snapshot: storedSnapshot, assets } = prepareRevision(objectKey, document);
+          const assetKeys = [...assets.keys()];
+
+          const known = assetKeys.length
+            ? await tx
+                .select({ key: revisionObjects.key })
+                .from(revisionObjects)
+                .where(
+                  and(inArray(revisionObjects.key, assetKeys), isNull(revisionObjects.deleteAfter)),
+                )
+            : [];
+
+          const knownKeys = new Set(known.map((object) => object.key));
+          const missing = [...assets].filter(([key]) => !knownKeys.has(key));
+
+          for (let offset = 0; offset < missing.length; offset += 4) {
+            // eslint-disable-next-line no-await-in-loop
+            const outcomes = await Promise.allSettled(
+              missing.slice(offset, offset + 4).map(async ([key, source]) => {
+                uploadStarted = true;
+                const metadata = await storage.put(key, source);
+
+                return { key, fileId: id, byteLength: metadata.byteLength };
+              }),
+            );
+
+            const uploaded = outcomes.map((outcome) => {
+              if (outcome.status === "rejected") throw outcome.reason;
+
+              return outcome.value;
+            });
+
+            // eslint-disable-next-line no-await-in-loop
+            await tx
+              .insert(revisionObjects)
+              .values(uploaded)
+              .onConflictDoUpdate({ target: revisionObjects.key, set: { deleteAfter: null } });
+          }
+
+          // Publish S3 first. A failed DB commit can only leave an unreferenced object,
+          // never a DB pointer to a missing revision. Old objects are never overwritten.
+          uploadStarted = true;
+          const metadata = await storage.put(objectKey, storedSnapshot);
+          await tx
+            .insert(revisionObjects)
+            .values({ key: objectKey, fileId: id, byteLength: metadata.byteLength });
+
+          const values = {
+            name: snapshot.name,
+            revision: number,
+            objectKey,
+            nodeCount: snapshot.nodes.length,
+            preview: preview(snapshot.nodes),
+            updatedAt,
+          };
+
+          if (existing) await tx.update(files).set(values).where(scope(workspaceId, id));
+          else await tx.insert(files).values({ id, workspaceId, createdAt, ...values });
+          await tx.insert(revisions).values({
+            id: revisionId,
+            fileId: id,
+            number,
+            objectKey,
+            ...metadata,
+            createdBy: userId,
+          });
+          const objectKeys = [objectKey, ...assetKeys];
+
+          for (let offset = 0; offset < objectKeys.length; offset += 1000) {
+            // eslint-disable-next-line no-await-in-loop
+            await tx
+              .insert(revisionObjectRefs)
+              .values(
+                objectKeys
+                  .slice(offset, offset + 1000)
+                  .map((key) => ({ revisionId, objectKey: key })),
+              );
+          }
+
+          await tx
+            .update(revisionObjects)
+            .set({ deleteAfter: null })
+            .where(inArray(revisionObjects.key, objectKeys));
+          await tx.delete(revisionUploads).where(eq(revisionUploads.id, uploadId));
+
+          return document;
+        })
+        .catch(async (error: unknown) => {
+          if (!uploadStarted)
+            await db
+              .delete(revisionUploads)
+              .where(eq(revisionUploads.id, uploadId))
+              .catch(() => {});
+          throw error;
         });
-
-        return document;
-      });
     },
     async archive(
       workspaceId: string,
@@ -285,8 +388,17 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
         await tx.update(files).set({ archived }).where(scope(workspaceId, id));
       });
     },
-    async history(workspaceId: string, id: string) {
-      const [file] = await db.select({ id: files.id }).from(files).where(scope(workspaceId, id));
+    async history(
+      workspaceId: string,
+      id: string,
+      entitlements: Entitlements = BILLING_DISABLED,
+      before?: number,
+    ) {
+      const [file] = await db
+        .select({ id: files.id, revision: files.revision })
+        .from(files)
+        .where(scope(workspaceId, id));
+
       if (!file) notFound();
 
       return db
@@ -297,8 +409,18 @@ export function fileService(db: Database, storage: RevisionStorage, prefix: stri
           byteLength: revisions.byteLength,
         })
         .from(revisions)
-        .where(eq(revisions.fileId, id))
-        .orderBy(desc(revisions.number));
+        .where(
+          and(
+            eq(revisions.fileId, id),
+            or(
+              eq(revisions.number, file.revision),
+              gt(revisions.createdAt, new Date(Date.now() - revisionRetention(entitlements))),
+            ),
+            before === undefined ? undefined : lt(revisions.number, before),
+          ),
+        )
+        .orderBy(desc(revisions.number))
+        .limit(100);
     },
   };
 }

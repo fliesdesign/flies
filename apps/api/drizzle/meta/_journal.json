@@ -22,6 +22,13 @@
       "when": 1789944054170,
       "tag": "0002_real_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790087430234,
+      "tag": "0003_revision_retention",
+      "breakpoints": true
     }
   ]
 }

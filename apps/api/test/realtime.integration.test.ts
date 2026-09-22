@@ -12,6 +12,7 @@ import type { AuthProvider } from "../src/auth";
 import { readConfig } from "../src/config";
 import { connectDatabase } from "../src/db/client";
 import { files, revisions, sessions, users, workspaceMembers, workspaces } from "../src/db/schema";
+import { memoryRevisionStorage } from "./revision-storage";
 
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL)
   throw new Error("Use the isolated TEST_DATABASE_URL.");
@@ -68,18 +69,7 @@ const provider: AuthProvider = {
   async deleteFactor() {},
 };
 
-const blobs = new Map<string, unknown>();
-
-const storage = {
-  async put(key: string, value: unknown) {
-    blobs.set(key, value);
-
-    return { sha256: "test", byteLength: 1 };
-  },
-  async get(key: string) {
-    return blobs.get(key);
-  },
-};
+const { storage } = memoryRevisionStorage();
 
 const replicas = [
   createApp(db, storage, config, provider),

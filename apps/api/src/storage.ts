@@ -5,6 +5,14 @@ import type { Config } from "./config";
 export interface RevisionStorage {
   put(key: string, document: unknown): Promise<{ sha256: string; byteLength: number }>;
   get(key: string): Promise<unknown>;
+  delete(key: string): Promise<void>;
+  list(
+    prefix: string,
+    after?: string,
+  ): Promise<{
+    objects: { key: string; byteLength: number }[];
+    truncated: boolean;
+  }>;
 }
 
 export function createStorage(config: Config): RevisionStorage {
@@ -29,6 +37,20 @@ export function createStorage(config: Config): RevisionStorage {
       const body = Bun.gunzipSync(new Uint8Array(await client.file(key).arrayBuffer()));
 
       return JSON.parse(new TextDecoder().decode(body));
+    },
+    async delete(key) {
+      await client.delete(key);
+    },
+    async list(prefix, after) {
+      const page = await client.list({ prefix, startAfter: after, maxKeys: 100 });
+
+      return {
+        objects: (page.contents ?? []).map((item) => ({
+          key: item.key,
+          byteLength: item.size ?? 0,
+        })),
+        truncated: page.isTruncated ?? false,
+      };
     },
   };
 }

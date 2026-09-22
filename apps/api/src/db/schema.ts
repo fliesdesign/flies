@@ -51,6 +51,7 @@ export const files = pgTable(
   },
   (t) => [
     index("files_workspace_updated").on(t.workspaceId, t.updatedAt),
+    index("files_object_key").on(t.objectKey),
     check("file_revision_nonnegative", sql`${t.revision} >= 0`),
   ],
 );
@@ -73,7 +74,51 @@ export const revisions = pgTable(
   (t) => [
     uniqueIndex("file_revision_number").on(t.fileId, t.number),
     uniqueIndex("revision_object_key").on(t.objectKey),
+    index("revision_created_file").on(t.createdAt, t.fileId),
   ],
+);
+// Objects are shared by revisions of one file. Unreferenced objects remain here
+// until S3 deletion succeeds, so failures are retried after a restart.
+export const revisionObjects = pgTable(
+  "revision_objects",
+  {
+    key: text().primaryKey(),
+    fileId: text().notNull(),
+    byteLength: integer().notNull(),
+    deleteAfter: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    index("revision_objects_cleanup").on(t.deleteAfter),
+    index("revision_objects_file").on(t.fileId),
+  ],
+);
+export const revisionObjectRefs = pgTable(
+  "revision_object_refs",
+  {
+    revisionId: text()
+      .notNull()
+      .references(() => revisions.id, { onDelete: "cascade" }),
+    objectKey: text()
+      .notNull()
+      .references(() => revisionObjects.key),
+  },
+  (t) => [
+    uniqueIndex("revision_object_ref").on(t.revisionId, t.objectKey),
+    index("revision_object_ref_key").on(t.objectKey),
+  ],
+);
+// Committed before opening the save transaction. If the process dies during an
+// upload, this durable marker lets cleanup reconcile just that file's directory.
+export const revisionUploads = pgTable(
+  "revision_uploads",
+  {
+    id: text().primaryKey(),
+    fileId: text().notNull(),
+    prefix: text().notNull(),
+    cursor: text(),
+    createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("revision_uploads_created").on(t.createdAt)],
 );
 export const sessions = pgTable("sessions", {
   tokenHash: text().primaryKey(),

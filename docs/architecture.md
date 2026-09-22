@@ -85,7 +85,10 @@ belong to that workspace; the API checks ownership for every list, read, write, 
 revision request.
 
 Edits autosave after 500 ms. Each save adds a gzip-compressed immutable revision in private S3
-storage, with metadata and the current revision pointer in Postgres. Saves finish before tab
+storage, with metadata and the current revision pointer in Postgres. Image/SVG sources are stored
+once per file using content hashes and shared across snapshots. The API expires Free history after
+one hour and Pro history after seven days, always preserving the latest saved file. A background
+worker retries queued object deletions and reconciles interrupted uploads. Saves finish before tab
 closure or native window closure; failed saves remain in memory for retry. Concurrent writers
 receive a revision conflict rather than overwriting another session's work.
 

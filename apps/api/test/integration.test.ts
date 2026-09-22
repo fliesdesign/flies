@@ -11,7 +11,9 @@ import { readConfig } from "../src/config";
 import { connectDatabase } from "../src/db/client";
 import { files, revisions, sessions, users, workspaces, loginAttempts } from "../src/db/schema";
 import { ensureWorkspace, type Identity } from "../src/files";
+import { readRevision } from "../src/revision-snapshot";
 import { createStorage } from "../src/storage";
+import { memoryRevisionStorage } from "./revision-storage";
 
 const config = readConfig();
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL)
@@ -308,7 +310,11 @@ describe("Neon + Railway revision API", () => {
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((r) => r.objectKey)).size).toBe(2);
     expect(
-      ((await storage.get(rows.find((r) => r.number === 0)!.objectKey)) as { name: string }).name,
+      (
+        (await readRevision(storage, rows.find((r) => r.number === 0)!.objectKey)) as {
+          name: string;
+        }
+      ).name,
     ).toBe(snapshot.name);
   }, 30_000);
   test("failed S3 writes preserve the previous revision and allow retry", async () => {
@@ -450,52 +456,36 @@ describe("Polar billing boundaries", () => {
 
     let pro = false;
     let wrongOrganization = false;
-    const documents = new Map<string, unknown>();
     let checkoutInput: unknown;
 
-    const instance = createApp(
-      db,
-      {
-        async put(key, doc) {
-          documents.set(key, doc);
-
-          return { sha256: "test", byteLength: 1 };
-        },
-        async get(key) {
-          return documents.get(key);
-        },
+    const instance = createApp(db, memoryRevisionStorage().storage, billingConfig, provider, {
+      async state(workspaceId) {
+        return {
+          id: "customer",
+          organizationId: wrongOrganization ? "other" : billingConfig.POLAR_ORGANIZATION_ID,
+          externalId: workspaceId,
+          activeSubscriptions: pro
+            ? [
+                {
+                  id: "sub",
+                  productId: billingConfig.POLAR_PRO_PRODUCT_ID,
+                  status: "active",
+                  currentPeriodEnd: new Date(Date.now() + 86400_000),
+                  endsAt: null,
+                },
+              ]
+            : [],
+        };
       },
-      billingConfig,
-      provider,
-      {
-        async state(workspaceId) {
-          return {
-            id: "customer",
-            organizationId: wrongOrganization ? "other" : billingConfig.POLAR_ORGANIZATION_ID,
-            externalId: workspaceId,
-            activeSubscriptions: pro
-              ? [
-                  {
-                    id: "sub",
-                    productId: billingConfig.POLAR_PRO_PRODUCT_ID,
-                    status: "active",
-                    currentPeriodEnd: new Date(Date.now() + 86400_000),
-                    endsAt: null,
-                  },
-                ]
-              : [],
-          };
-        },
-        async checkout(workspaceId, identity, seats) {
-          checkoutInput = { workspaceId, identity, seats };
+      async checkout(workspaceId, identity, seats) {
+        checkoutInput = { workspaceId, identity, seats };
 
-          return "https://polar.sh/checkout/test";
-        },
-        async portal() {
-          return "https://polar.sh/portal/test";
-        },
+        return "https://polar.sh/checkout/test";
       },
-    );
+      async portal() {
+        return "https://polar.sh/portal/test";
+      },
+    });
 
     const token = await instance.auth.createSession(user, user.id);
 

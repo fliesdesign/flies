@@ -287,7 +287,25 @@ export function createApp(
     c.json(await files.read(c.get("workspace").id, v.parse(idSchema, c.req.param("id")))),
   );
   app.get("/api/files/:id/revisions", async (c) =>
-    c.json(await files.history(c.get("workspace").id, v.parse(idSchema, c.req.param("id")))),
+    c.json(
+      await files.history(
+        c.get("workspace").id,
+        v.parse(idSchema, c.req.param("id")),
+        await billing.entitlements(c.get("workspace").id),
+        c.req.query("before") === undefined
+          ? undefined
+          : v.parse(
+              v.pipe(
+                v.string(),
+                v.regex(/^\d+$/),
+                v.transform(Number),
+                v.safeInteger(),
+                v.minValue(0),
+              ),
+              c.req.query("before"),
+            ),
+      ),
+    ),
   );
   app.post("/api/files/:id/revisions", async (c) => {
     const body = await c.req.json();

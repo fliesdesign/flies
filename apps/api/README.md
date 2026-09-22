@@ -38,29 +38,37 @@ New workspace, file, revision, and save-operation IDs are ULIDs. WorkOS assigns 
 
 ## Endpoints
 
-| Method | Path                       | Purpose                                              |
-| ------ | -------------------------- | ---------------------------------------------------- |
-| GET    | `/health`                  | Process health                                       |
-| GET    | `/api/me`                  | Current user and default workspace                   |
-| GET    | `/api/account/mfa`         | Whether the user has an authenticator enrolled       |
-| POST   | `/api/account/mfa`         | Start TOTP enrollment and return a QR code           |
-| POST   | `/api/account/mfa/verify`  | Confirm enrollment with a 6-digit authenticator code |
-| POST   | `/api/account/mfa/remove`  | Turn off two-factor authentication                   |
-| GET    | `/api/files`               | Workspace file summaries, including archived entries |
-| POST   | `/api/files`               | Create from `{ name, nodes, theme }`                 |
-| GET    | `/api/files/:id`           | Read the current document from S3                    |
-| POST   | `/api/files/:id/revisions` | Save `{ name, nodes, theme, revision, mutationId }`  |
-| GET    | `/api/files/:id/revisions` | List revision metadata                               |
-| POST   | `/api/files/:id/archive`   | Set `{ archived: boolean }`                          |
-| POST   | `/auth/logout`             | Revoke the app and WorkOS sessions                   |
+| Method | Path                       | Purpose                                                               |
+| ------ | -------------------------- | --------------------------------------------------------------------- |
+| GET    | `/health`                  | Process health                                                        |
+| GET    | `/api/me`                  | Current user and default workspace                                    |
+| GET    | `/api/account/mfa`         | Whether the user has an authenticator enrolled                        |
+| POST   | `/api/account/mfa`         | Start TOTP enrollment and return a QR code                            |
+| POST   | `/api/account/mfa/verify`  | Confirm enrollment with a 6-digit authenticator code                  |
+| POST   | `/api/account/mfa/remove`  | Turn off two-factor authentication                                    |
+| GET    | `/api/files`               | Workspace file summaries, including archived entries                  |
+| POST   | `/api/files`               | Create from `{ name, nodes, theme }`                                  |
+| GET    | `/api/files/:id`           | Read the current document from S3                                     |
+| POST   | `/api/files/:id/revisions` | Save `{ name, nodes, theme, revision, mutationId }`                   |
+| GET    | `/api/files/:id/revisions` | List up to 100 retained revisions; paginate with `?before=<revision>` |
+| POST   | `/api/files/:id/archive`   | Set `{ archived: boolean }`                                           |
+| POST   | `/auth/logout`             | Revoke the app and WorkOS sessions                                    |
 
 A revision save supplies the last known `revision` and a new ULID `mutationId`. Reuse that ULID only when retrying the same save after an uncertain response. Same-file writes lock the metadata row. A stale base revision returns 409; a repeated mutation returns its original saved document. Other users receive 404 for inaccessible files. Invalid documents return 400 and oversized requests return 413 (100 MiB maximum).
 
 ## Revision storage
 
-Snapshots use `<prefix>/<workspace>/<file>/<revision>-<random ULID>.json.gz`. Bun compresses and uploads before the database transaction commits the file pointer and revision row. A failed upload cannot advance the database revision. A process crash or failed database commit after upload can leave an unreferenced object; do not delete objects by age alone. A future reconciler can remove keys not referenced by revision rows after a grace period. Accepted historical revisions are retained indefinitely; monitor storage growth and add an explicit retention policy before large-scale use.
+Free workspaces retain historical revisions for **one hour**; Pro workspaces retain them for **seven days**. Billing-disabled installations use seven days. The latest saved revision of every file is kept indefinitely, including archived files. History responses enforce the same window and return at most 100 records; pass the last returned revision as `?before=` to continue.
 
-Use directly readable S3 storage for revisions. Archive tiers requiring restoration would make opening old designs asynchronous. Embedded images remain in every snapshot, compressed with the document; asset deduplication is a separate future optimization.
+The API runs cleanup on startup and every minute, including for inactive workspaces. It refreshes billing through the existing entitlement service before expiring history; a billing failure leaves that workspace's history intact. Cleanup uses bounded batches and file locks across API replicas, continuing after one second while a successful batch has more work. It removes expired revision rows and queues their unreferenced objects in one transaction. Objects have a five-minute deletion grace period for in-flight reads, so physical bucket usage can lag the retention window by about six minutes (longer during a backlog or storage outage). Failed S3 deletions remain queued and are retried after restarts. Logs report revision/object counts, reclaimed bytes, and failures.
+
+Snapshots use `<prefix>/<workspace>/<file>/<revision>-<random ULID>.json.gz`. Their internal `flies-storage` envelope stores image and SVG references; source bytes live once per file at `assets/<sha256>.json.gz`. Moving or restyling an image adds only the small compressed snapshot. Shared assets are deleted only after their final retained revision releases them. Reads hydrate the original document shape for web, desktop, sync, and MCP clients; old full-document gzip revisions remain readable and are also subject to retention. No editor/client changes are required.
+
+Bun uploads before committing the file pointer. Every save first creates a durable upload marker. If an upload or transaction fails, or the process dies, cleanup reconciles that file's directory after one hour, using persisted pagination and reference checks. Normal successful saves require no bucket listing. Pre-existing unreferenced objects from crashes before this migration have no upload marker and are not automatically discoverable; existing revision rows are cleaned up normally. Never put an age-only lifecycle rule on the revision prefix: it would delete current files and shared assets.
+
+New save operation IDs must be ULIDs created within the workspace's retention window (allowing five minutes of future clock skew). Retrying a retained mutation still returns its original result. Once a mutation is pruned, its expired ID returns 409 instead of applying a delta twice; local edits remain available to reconcile with the latest file. Legacy mutation IDs already in history still support retries.
+
+Apply migration `0003_revision_retention` **before** deploying this API. The bucket credentials need List, Get, Put, and Delete object permissions. Deploy readers/writers together: new compact snapshots require this API version or later, so an older API binary cannot be used as a rollback reader. Cleanup starts automatically after deployment and reclaims existing expired revision objects; it does not require a cron service.
 
 ## Deployment
 
@@ -97,6 +105,9 @@ For an optional same-origin deployment, omit `VITE_API_URL` from the web build a
 bun run check
 bun run test
 bun run test:api:integration
+# Isolated local Postgres only; DATABASE_URL must equal TEST_DATABASE_URL,
+# with a database name starting with flies_revision_test:
+bun run --cwd apps/api test:revisions
 # Explicit real WorkOS smoke test (creates and deletes one verified test user):
 bun --env-file=.env apps/api/test/workos-smoke.ts
 cargo test --manifest-path apps/desktop/Cargo.toml --lib --locked
@@ -133,6 +144,7 @@ requires its own token, webhook secret, organization, and product IDs. Run
 | Public MCP access                         | No                         | Yes                  |
 | Workspace type                            | Personal, single workspace | Team workspace       |
 | Share links                               | No                         | Yes                  |
+| Revision history                          | 1 hour                     | 7 days               |
 
 All plans allow commercial use.
 
