@@ -1,0 +1,4 @@
+# Copy to .dev.vars, replace the secret, and use the same value on the API.
+SYNC_SERVER_SECRET=replace-with-a-random-secret-at-least-32-characters
+API_URL=http://127.0.0.1:3001
+WEB_URL=http://127.0.0.1:1420

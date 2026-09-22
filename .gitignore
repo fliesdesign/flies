@@ -34,3 +34,9 @@ codex_context.md
 # Tauri updater signing keys — never commit the private key
 .tauri/
 *.key
+
+# Cloudflare local state and development secrets
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

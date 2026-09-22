@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "flies-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "routes": [{ "pattern": "sync.flies.design", "custom_domain": true }],
+  "vars": {
+    "API_URL": "https://board.flies.design",
+    "WEB_URL": "https://app.flies.design",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "SYNC_ROOMS", "class_name": "SyncRoom" },
+      { "name": "SYNC_USERS", "class_name": "SyncUser" },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncRoom", "SyncUser"] }],
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+}

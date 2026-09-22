@@ -10,6 +10,8 @@ COPY package.json bun.lock ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/api/package.json apps/api/package.json
+COPY apps/sync/package.json apps/sync/package.json
+COPY packages/sync/package.json packages/sync/package.json
 COPY packages/canvas/package.json packages/canvas/package.json
 COPY packages/firefly/package.json packages/firefly/package.json
 COPY packages/html/package.json packages/html/package.json
@@ -17,6 +19,7 @@ COPY packages/html/package.json packages/html/package.json
 RUN bun ci
 
 COPY vite.config.ts tsconfig.json ./
+COPY packages/sync packages/sync
 COPY packages/canvas packages/canvas
 COPY packages/firefly packages/firefly
 COPY packages/html packages/html

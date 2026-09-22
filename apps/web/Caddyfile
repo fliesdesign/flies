@@ -7,7 +7,7 @@
 	encode gzip zstd
 	header /assets/* Cache-Control "public, max-age=31536000, immutable"
 	header /index.html Cache-Control "no-store"
-	@backend path /api/* /auth/*
+	@backend path /api/* /auth/* /internal/sync/*
 	handle @backend {
 		reverse_proxy {$API_UPSTREAM:localhost:3001}
 	}

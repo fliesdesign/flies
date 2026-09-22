@@ -11,7 +11,7 @@
     "dev": "vp -C apps/web dev",
     "build": "vp run --filter ./apps/web build",
     "preview": "vp -C apps/web preview",
-    "typecheck": "vp run --filter ./packages/firefly --filter ./packages/canvas --filter ./packages/html --filter ./apps/web typecheck && bun run --cwd apps/api typecheck",
+    "typecheck": "vp run --filter ./packages/firefly --filter ./packages/canvas --filter ./packages/html --filter ./apps/web typecheck && bun run --cwd apps/api typecheck && bun run --cwd apps/sync typecheck",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",
     "format": "vp fmt && vp lint -A all -D stylistic/padding-line-between-statements -D stylistic/lines-between-class-members --fix && vp fmt",
@@ -20,7 +20,7 @@
     "tauri": "bun run --cwd apps/desktop tauri",
     "tauri:dev": "bun run --cwd apps/desktop tauri:dev",
     "tauri:build": "bun run --cwd apps/desktop tauri:build",
-    "test": "vp run --filter ./packages/firefly --filter ./packages/canvas --filter ./packages/html --filter ./apps/web test && bun run --cwd apps/api test",
+    "test": "vp run --filter ./packages/firefly --filter ./packages/canvas --filter ./packages/html --filter ./apps/web test && bun run --cwd apps/api test && bun run --cwd apps/sync test",
     "test:mcp": "playwright test --config playwright.mcp.config.ts",
     "test:gpu": "playwright test --config playwright.gpu.config.ts",
     "benchmark:canvas": "bun scripts/benchmark-canvas.ts",
@@ -30,7 +30,10 @@
     "api:start": "bun run --cwd apps/api start",
     "db:migrate": "bun run --cwd apps/api db:migrate",
     "test:api:integration": "bun run --cwd apps/api test:integration",
-    "test:source:production": "playwright test --config playwright.source.config.ts"
+    "test:source:production": "playwright test --config playwright.source.config.ts",
+    "sync:dev": "bun run --cwd apps/sync dev",
+    "sync:deploy": "bun run --cwd apps/sync deploy",
+    "sync:build": "bun run --cwd apps/sync build"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

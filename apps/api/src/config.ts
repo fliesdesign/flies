@@ -1,8 +1,8 @@
+import { secureServiceUrl } from "@flies/sync";
 import * as v from "valibot";
 export const configSchema = v.object({
-  UPSTASH_REDIS_REST_URL: v.optional(v.string()),
-  UPSTASH_REDIS_REST_TOKEN: v.optional(v.string()),
-  SYNC_ENCRYPTION_KEY: v.optional(v.string()),
+  SYNC_SERVER_URL: v.optional(v.string()),
+  SYNC_SERVER_SECRET: v.optional(v.string()),
   DATABASE_URL: v.pipe(v.string(), v.url()),
   WORKOS_API_KEY: v.pipe(v.string(), v.minLength(1)),
   WORKOS_CLIENT_ID: v.pipe(v.string(), v.minLength(1)),
@@ -81,25 +81,16 @@ export function readConfig() {
 }
 
 export function realtimeConfig(
-  config: Pick<
-    Config,
-    "UPSTASH_REDIS_REST_URL" | "UPSTASH_REDIS_REST_TOKEN" | "SYNC_ENCRYPTION_KEY" | "API_URL"
-  >,
+  config: Pick<Config, "SYNC_SERVER_URL" | "SYNC_SERVER_SECRET" | "API_URL">,
 ) {
-  const url = config.UPSTASH_REDIS_REST_URL?.trim();
-  const token = config.UPSTASH_REDIS_REST_TOKEN?.trim();
-  const key = config.SYNC_ENCRYPTION_KEY?.trim();
-  if (!url && !token && !key) return null;
-  if (!url || !token || !key)
+  const url = config.SYNC_SERVER_URL?.trim();
+  const secret = config.SYNC_SERVER_SECRET?.trim();
+  if (!url && !secret) return null;
+  if (!url || !secret || secret.length < 32)
     throw new Error(
-      "Realtime needs UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN and SYNC_ENCRYPTION_KEY.",
+      "Realtime needs SYNC_SERVER_URL and SYNC_SERVER_SECRET (at least 32 characters).",
     );
-  const endpoint = new URL(url);
-  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password)
-    throw new Error("Upstash Redis REST URL must use HTTPS without embedded credentials.");
-  const api = new URL(config.API_URL);
-  if (api.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(api.hostname))
-    throw new Error("Realtime requires HTTPS outside local development.");
+  secureServiceUrl(config.API_URL);
 
-  return { url, token, key };
+  return { url: secureServiceUrl(url), secret };
 }

@@ -62,6 +62,11 @@ export default defineConfig({
     },
     overrides: [
       {
+        // Cloudflare's custom workerd pool requires its matching standalone Vitest runtime.
+        files: ["apps/sync/vitest.config.ts", "apps/sync/test/**"],
+        rules: { "vite-plus/prefer-vite-plus-imports": "off" },
+      },
+      {
         files: ["apps/web/src/components/ui/**", "apps/web/src/hooks/use-mobile.ts"],
         rules: {
           "eslint/no-shadow": "off",

@@ -1,3 +1,4 @@
+import { grantSchema, commitSchema, secretMatches, SYNC_MESSAGE_BYTES } from "@flies/sync";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -13,7 +14,6 @@ import { latestDesktopDownload } from "./desktop-downloads";
 import { fileService, parseSnapshot } from "./files";
 import { idSchema } from "./ids";
 import { mfaService } from "./mfa";
-import { SyncRedis } from "./realtime/redis";
 import { createRealtime } from "./realtime/server";
 import type { RevisionStorage } from "./storage";
 import { teamService } from "./teams";
@@ -53,8 +53,7 @@ export function createApp(
         files,
         billing,
         origins,
-        requireTLS: new URL(config.API_URL).protocol === "https:",
-        redis: new SyncRedis(syncConfig.url, syncConfig.token, syncConfig.key),
+        sync: syncConfig,
       })
     : null;
 
@@ -108,6 +107,32 @@ export function createApp(
     await billing.webhook(await c.req.text(), c.req.header());
 
     return c.json({ received: true });
+  });
+  app.use(
+    "/internal/sync/*",
+    bodyLimit({ maxSize: SYNC_MESSAGE_BYTES + 4096 }),
+    async (c, next) => {
+      if (
+        !realtime ||
+        !syncConfig ||
+        !(await secretMatches(c.req.header("Authorization"), syncConfig.secret))
+      )
+        throw new HTTPException(401, { message: "Unauthorized" });
+      await next();
+    },
+  );
+  app.post("/internal/sync/authorize", async (c) => {
+    const { grant } = v.parse(v.strictObject({ grant: grantSchema }), await c.req.json());
+
+    return c.json(await realtime!.authorize(grant));
+  });
+  app.post("/internal/sync/commit", async (c) => {
+    const { grant, change } = v.parse(
+      v.strictObject({ grant: grantSchema, change: commitSchema }),
+      await c.req.json(),
+    );
+
+    return c.json(await realtime!.commit(grant, change));
   });
   app.use("/api/*", async (c, next) => {
     await auth.authenticate(c);

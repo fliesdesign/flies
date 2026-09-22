@@ -169,9 +169,12 @@ export class RealtimeFile {
     const generation = this.generation;
 
     try {
-      const result = await post<{ enabled: boolean; ticket?: string }>("/api/sync/ticket", {
-        fileId: this.base.id,
-      });
+      const result = await post<{ enabled: boolean; ticket?: string; socketUrl?: string }>(
+        "/api/sync/ticket",
+        {
+          fileId: this.base.id,
+        },
+      );
 
       if (this.stopped || generation !== this.generation) return;
 
@@ -184,7 +187,7 @@ export class RealtimeFile {
       }
 
       this.mode = "enabled";
-      const url = new URL(apiUrl("/api/sync/socket"), window.location.href);
+      const url = new URL(result.socketUrl ?? apiUrl("/api/sync/socket"), window.location.href);
       if (url.protocol === "https:") url.protocol = "wss:";
       else if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.protocol = "ws:";
       else throw new Error("Realtime requires an encrypted connection.");

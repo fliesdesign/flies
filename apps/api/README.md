@@ -69,7 +69,7 @@ docker build -f Dockerfile.api -t flies-api .
 docker run --env-file .env -p 3001:3001 flies-api
 ```
 
-Set the API service's Railway Dockerfile path to `Dockerfile.api`, provide the server environment variables, and run `bun run db:migrate` as a pre-deploy command from the repository root (inside the image use `bun src/db/migrate.ts`). The API image's working directory is `/app/apps/api`. Migrations are explicit and are not run by every web process.
+Production runs on Unkey in project `flies`, app `api`, environment `production`, using `Dockerfile.api` from the repository root. Keep Unkey's runtime port and API `PORT` set to `3000`. Provide the server environment variables and run `bun run db:migrate` before deploying database changes (inside the image use `bun src/db/migrate.ts`). The API image's working directory is `/app/apps/api`. Migrations are explicit and are not run by every web process.
 
 The web image remains `Dockerfile`. Production uses `app.flies.design` for the web app and `board.flies.design` for the API. Configure the API with:
 
@@ -87,9 +87,9 @@ Set `VITE_API_URL=https://board.flies.design` during both web and desktop produc
 docker build --build-arg VITE_API_URL=https://board.flies.design -t flies-web .
 ```
 
-On Railway, set `VITE_API_URL` on the web service; the Dockerfile declares it as a build argument. Changing it requires rebuilding the frontend. The browser calls the API directly with credentials, and the API allows the configured `WEB_URL` origin.
+On the web hosting provider, set `VITE_API_URL` for the build; the Dockerfile declares it as a build argument. Changing it requires rebuilding the frontend. The browser calls the API directly with credentials, and the API allows the configured `WEB_URL` origin.
 
-For an optional same-origin deployment, omit `VITE_API_URL` from the web build and set `API_UPSTREAM` to the API service's private host and port (for example `api.railway.internal:3001`); Caddy forwards `/api/*` and `/auth/*`. In that configuration, use the public web origin for both `API_URL` and `WEB_URL`. Never bake an S3 key, WorkOS API key, database URL, or cookie password into the frontend.
+For an optional same-origin deployment, omit `VITE_API_URL` from the web build and set `API_UPSTREAM` to the API service's private host and port (for example `api:3000`); Caddy forwards `/api/*`, `/auth/*`, and `/internal/sync/*`. In that configuration, use the public web origin for both `API_URL` and `WEB_URL`. Never bake an S3 key, WorkOS API key, database URL, or cookie password into the frontend.
 
 ## Verification
 
@@ -207,52 +207,29 @@ WorkOS environment.
 
 ## Realtime collaboration
 
-The editor uses Bun WebSockets for shared cursors, selections, presence, and document
-changes. `@upstash/realtime` distributes encrypted events between API replicas through
-Upstash Redis REST/SSE; no sticky sessions are required. Configure the backend with
-`UPSTASH_REDIS_REST_URL` (HTTPS), `UPSTASH_REDIS_REST_TOKEN`, and
-`SYNC_ENCRYPTION_KEY` (a randomly generated, base64-encoded 32-byte key).
-Every API replica must use the same key. If all three variables are absent, the editor
-retains ordinary autosave. Partial configuration fails startup.
+Realtime connections run in `apps/sync`, a Cloudflare Worker with SQLite-backed
+Durable Objects. The API retains session/workspace/billing checks and durable,
+idempotent file writes. Upstash and the API-hosted WebSocket server are no longer
+used. See [the sync server guide](../sync/README.md) for deployment and testing.
 
-Changes merge on the server under the file's database row lock. Only changed fields
-are applied, so unrelated edits survive concurrent saves. The latest committed edit
-wins when two people change the same property; deletion takes precedence over stale
-property updates. File revisions remain the durable authority. Mutation IDs make
-retries safe after lost acknowledgements. Reconnects fetch the authoritative revision
-and reapply unsaved local changes. Large updates use the same authenticated merge
-endpoint over HTTPS, avoiding oversized WebSocket frames. Cursors are transient and
-expire when a connection disappears. Documents are saved on committed actions;
-in-progress pointer drags are represented by live cursors and selections.
+Set `SYNC_SERVER_URL` to the Worker's HTTPS origin and `SYNC_SERVER_SECRET` to a
+random secret of at least 32 characters. Configure the same secret on the Worker,
+along with its `API_URL` and `WEB_URL`. Both variables empty disables collaboration;
+partial configuration fails startup. HTTP origins are accepted only on loopback.
 
-Security boundaries:
+The authenticated, CSRF-protected `/api/sync/ticket` endpoint checks access and
+returns a one-use ticket and `socketUrl`. Updated web and desktop clients connect
+directly to that Worker. The Worker calls `/internal/sync/authorize` and
+`/internal/sync/commit` with the shared service secret; these endpoints do not accept
+ordinary user bearer tokens. Every internal commit rechecks access before writing.
 
-- Production browser/desktop connections use WSS. Upstash REST and SSE connections
-  use HTTPS. Upstash credentials never reach the browser or desktop client.
-- Upstash Realtime history is capped at 100 encrypted events per room and expires
-  after 60 seconds of inactivity. Reconnects use file revisions, not stale presence
-  history. Upstream failures or stalled streams close sockets for reconciliation.
-- Redis relay messages, connection tickets, and stored presence use AES-256-GCM
-  with fresh nonces and room-bound authentication. Room names and credential lookup
-  keys are HMAC-derived. The key stays on the API; Redis does not store plaintext
-  names, cursors, document content, or session credentials.
-- Connections need an authenticated, CSRF-protected POST for a single-use 30-second
-  ticket. The ticket travels in the WebSocket subprotocol, not a query string.
-  Origins are allowlisted and tickets are bound to their originating client.
-- Workspace membership, paid seats, file scope, archival state, and sessions are
-  checked before connecting and committing. Active sockets reauthorize every ten
-  seconds and stop sending after a 25-second authorization lease. Billing changes
-  use the existing billing cache (at most 60 seconds, invalidated by Polar events).
-- User identity and cursor color come from the server. Presence and edits have
-  schema, message-size, rate, connection-count, and backpressure limits.
-- This is transport encryption plus encrypted Redis storage/relay, not end-to-end
-  encryption: the trusted API validates edits and stores normal file revisions.
-  Closing a tab with unsaved changes still requires the existing save confirmation.
+Changes merge under the file database row lock; retries preserve mutation IDs and
+reconnects reapply unsaved local changes over the latest committed revision. Large
+updates and offline saves use `/api/files/:id/changes` over HTTPS. Worker room alarms
+reconcile revision notifications and revoke connections when access changes.
 
-The integration suite in `test/realtime.integration.test.ts` uses two Bun API replicas,
-the isolated test Postgres database, and Upstash Redis using the backend REST
-credentials above. It writes only test-scoped expiring Redis data and removes its
-database fixtures. Run `bun run test:realtime` with `DATABASE_URL` set to
-`TEST_DATABASE_URL`. Optional `SYNC_BROWSER_URL` exercises
-two Chromium contexts against a Vite server configured with
-`VITE_API_URL=http://127.0.0.1:3221` (test API) and origin `http://127.0.0.1:1423`.
+Deploy the Worker first, then configure/redeploy the API and updated clients. Older
+desktop builds must be updated for live collaboration because their socket URL is
+fixed to the API. Remove the old Upstash variables and `SYNC_ENCRYPTION_KEY` after
+cutover. Cloudflare now holds temporary connection/presence state as a trusted sync
+server; it is not an encrypted Redis relay or the durable document store.

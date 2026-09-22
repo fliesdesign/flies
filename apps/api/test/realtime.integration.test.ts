@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { eq, inArray } from "drizzle-orm";
 import { ulid } from "ulid";
@@ -9,20 +12,20 @@ import type { AuthProvider } from "../src/auth";
 import { readConfig } from "../src/config";
 import { connectDatabase } from "../src/db/client";
 import { files, revisions, sessions, users, workspaceMembers, workspaces } from "../src/db/schema";
-import { SyncRedis } from "../src/realtime/redis";
 
-if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN)
-  throw new Error("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required.");
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL)
   throw new Error("Use the isolated TEST_DATABASE_URL.");
+
+const portProbe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response() });
+const syncPort = portProbe.port!;
+await portProbe.stop(true);
 
 const config = {
   ...readConfig(),
   API_URL: "http://127.0.0.1:3221",
   WEB_URL: "http://127.0.0.1:1423",
-  UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
-  UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
-  SYNC_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+  SYNC_SERVER_URL: `http://127.0.0.1:${syncPort}`,
+  SYNC_SERVER_SECRET: randomBytes(32).toString("hex"),
   POLAR_ACCESS_TOKEN: undefined,
   POLAR_WEBHOOK_SECRET: undefined,
   POLAR_PRO_PRODUCT_ID: undefined,
@@ -87,14 +90,39 @@ const servers = replicas.map((replica, index) =>
   Bun.serve({
     port: process.env.SYNC_BROWSER_URL && index === 0 ? 3221 : 0,
     hostname: "127.0.0.1",
-    fetch(req, server) {
-      return new URL(req.url).pathname === "/api/sync/socket"
-        ? replica.realtime!.upgrade(req, server)
-        : replica.app.fetch(req);
-    },
-    websocket: replica.realtime!.websocket,
+    fetch: replica.app.fetch,
   }),
 );
+
+const workerState = mkdtempSync(join(tmpdir(), "flies-sync-test-"));
+
+const worker = Bun.spawn(
+  [
+    "node",
+    "apps/sync/node_modules/wrangler/bin/wrangler.js",
+    "dev",
+    "--config",
+    "apps/sync/wrangler.jsonc",
+    "--persist-to",
+    workerState,
+    "--local",
+    "--ip",
+    "127.0.0.1",
+    "--port",
+    String(syncPort),
+    "--var",
+    `API_URL:${servers[0].url.origin}`,
+    "--var",
+    `WEB_URL:${config.WEB_URL}`,
+    "--var",
+    `SYNC_SERVER_SECRET:${config.SYNC_SERVER_SECRET}`,
+  ],
+  { cwd: new URL("../../..", import.meta.url).pathname, stdout: "pipe", stderr: "pipe" },
+);
+
+// Drain output without exposing development bindings in test logs.
+const workerOutput = new Response(worker.stdout).text();
+const workerErrors = new Response(worker.stderr).text();
 
 let tokens: string[];
 let fileId: string;
@@ -157,9 +185,9 @@ function watch(socket: WebSocket) {
 async function connect(replica: number, user: number) {
   const response = await call(replica, user, "/api/sync/ticket", { fileId });
   expect(response.status).toBe(200);
-  const { ticket } = (await response.json()) as { ticket: string };
+  const { ticket, socketUrl } = (await response.json()) as { ticket: string; socketUrl: string };
 
-  const socket = new NativeSocket(`ws://127.0.0.1:${servers[replica].port}/api/sync/socket`, {
+  const socket = new NativeSocket(socketUrl.replace("http:", "ws:"), {
     protocols: ["flies-sync-v1", `ticket.${ticket}`],
     headers: { Origin: config.WEB_URL },
   });
@@ -172,6 +200,22 @@ async function connect(replica: number, user: number) {
 }
 
 beforeAll(async () => {
+  let ready = false;
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      ready = (await fetch(`${config.SYNC_SERVER_URL}/health`)).ok;
+    } catch {
+      /* Still starting. */
+    }
+
+    if (ready) break;
+    // eslint-disable-next-line no-await-in-loop
+    await Bun.sleep(100);
+  }
+
+  if (!ready) throw new Error("Cloudflare local sync runtime did not start.");
   tokens = await Promise.all(
     people.map((person) => replicas[0].auth.createSession(person, person.id)),
   );
@@ -200,7 +244,10 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(async () => {
   for (const socket of sockets) socket.close();
-  await Promise.all(replicas.map((replica) => replica.realtime!.stop()));
+  worker.kill();
+  await worker.exited;
+  await Promise.all([workerOutput, workerErrors]);
+  rmSync(workerState, { recursive: true, force: true });
   await Promise.all(servers.map((server) => server.stop(true)));
   const ids = people.map((person) => person.id);
   const owned = await db.select().from(workspaces).where(inArray(workspaces.ownerId, ids));
@@ -234,8 +281,10 @@ afterAll(async () => {
   await client.close();
 }, 30_000);
 
-test("Upstash Realtime relays presence and durable concurrent edits across Bun replicas", async () => {
+test("Cloudflare Durable Objects relay presence and durable concurrent edits across Bun replicas", async () => {
   expect((await call(0, 2, "/api/sync/ticket", { fileId })).status).toBe(404);
+  expect((await call(0, 0, "/internal/sync/authorize", {})).status).toBe(401);
+  expect((await call(0, 0, "/internal/sync/commit", {})).status).toBe(401);
   const first = await connect(0, 0);
   const second = await connect(1, 1);
   second.socket.send(
@@ -292,10 +341,13 @@ test("Upstash Realtime relays presence and durable concurrent edits across Bun r
     ((await (await call(0, 0, `/api/files/${fileId}`)).json()) as { revision: number }).revision,
   ).toBe(2);
 
-  const replay = new NativeSocket(`ws://127.0.0.1:${servers[0].port}/api/sync/socket`, {
-    protocols: ["flies-sync-v1", `ticket.${first.ticket}`],
-    headers: { Origin: config.WEB_URL },
-  });
+  const replay = new NativeSocket(
+    `${config.SYNC_SERVER_URL.replace("http:", "ws:")}/api/sync/socket`,
+    {
+      protocols: ["flies-sync-v1", `ticket.${first.ticket}`],
+      headers: { Origin: config.WEB_URL },
+    },
+  );
 
   await new Promise<void>((resolve, reject) => {
     replay.addEventListener("error", () => resolve(), { once: true });
@@ -324,48 +376,6 @@ test("Upstash Realtime relays presence and durable concurrent edits across Bun r
   ).toBe(240);
   first.socket.close();
 }, 60_000);
-
-test("Redis stores only authenticated ciphertext and consumes tickets once", async () => {
-  const redis = new SyncRedis(
-    config.UPSTASH_REDIS_REST_URL!,
-    config.UPSTASH_REDIS_REST_TOKEN!,
-    config.SYNC_ENCRYPTION_KEY,
-    `test-sync-${ulid()}`,
-  );
-
-  try {
-    const ticket = await redis.ticket({ name: "PRIVATE", expires: Date.now() + 30000 });
-    expect(await redis.consume(ticket)).toMatchObject({ name: "PRIVATE" });
-    expect(await redis.consume(ticket)).toBeNull();
-    const room = redis.room(workspaceId, fileId);
-    await redis.presence(room, "connection", { name: "PRIVATE", updatedAt: Date.now() });
-    const raw = await redis.client.hvals(`${room}:peers`);
-    expect(JSON.stringify(raw)).not.toContain("PRIVATE");
-    expect(await redis.peers(room)).toEqual([{ name: "PRIVATE", updatedAt: expect.any(Number) }]);
-    await redis.publish(room, { type: "presence", name: "PRIVATE", at: Date.now() });
-    const history = await redis.client.xrange(room, "-", "+");
-    expect(Object.keys(history)).toHaveLength(1);
-    expect(JSON.stringify(history)).not.toContain("PRIVATE");
-    expect(Object.values(history)[0]).toMatchObject({ event: "sync", channel: room });
-    expect(await redis.client.ttl(room)).toBeGreaterThan(0);
-    expect(await redis.client.ttl(room)).toBeLessThanOrEqual(60);
-    expect(await redis.rateLimit("test", "edits", 1, 30)).toBe(true);
-    expect(await redis.rateLimit("test", "edits", 1, 30)).toBe(false);
-
-    const leases = await Promise.all(
-      Array.from({ length: 13 }, (_, index) => redis.lease("test", String(index))),
-    );
-
-    expect(leases.filter(Boolean)).toHaveLength(12);
-    const held = String(leases.indexOf(true));
-    const denied = String(leases.indexOf(false));
-    await redis.release("test", held);
-    expect(await redis.lease("test", denied)).toBe(true);
-    await redis.client.del(room, `${room}:peers`, `${room}:peers:expiry`);
-  } finally {
-    await redis.close();
-  }
-}, 20_000);
 
 test.skipIf(!process.env.SYNC_BROWSER_URL)(
   "two browsers share cursors, edits, undo, and reconnect without losing offline changes",

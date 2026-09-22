@@ -50,6 +50,8 @@ Run `bun run check` and `bun run test` before submitting. See
 - `apps/web` — Vite+ React app for the browser and the desktop webview
 - `apps/desktop` — Tauri v2 native shell and MCP server
 - `apps/api` — Bun + Hono, WorkOS, Drizzle/Postgres, immutable S3 revisions
+- `apps/sync` — Cloudflare Worker and Durable Objects for realtime collaboration
+- `packages/sync` — shared sync validation, protocol, and service authentication
 
 ## Documentation
 
@@ -60,3 +62,4 @@ Run `bun run check` and `bun run test` before submitting. See
 - [Canvas performance](docs/canvas-performance.md) — benchmark methodology, results, and limits
 - [MCP guide](apps/desktop/src/mcp/README.md) — tools, Tailwind, and HTML import
 - [API setup](apps/api/README.md) — environment, database, storage, deployment
+- [Sync server](apps/sync/README.md) — Cloudflare deployment, local development, and tests
